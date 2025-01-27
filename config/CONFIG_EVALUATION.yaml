@@ -1,0 +1,19 @@
+
+
+lgd:
+  mse: True,
+  rmse: True,
+  mae: True,
+  r2: True
+
+pd:
+  accuracy: True,
+  precision: True,
+  recall: True,
+  F1: True,
+  aucroc: True,
+  aucpr: True,
+  brier: True,
+
+
+
