@@ -1,59 +1,63 @@
 
-tune_hyperparameters: false,  # Whether to tune hyperparameters or not
+tune_hyperparameters: true  # Whether to tune hyperparameters or not
 
 
 
 methods_lgd:
 
+
 methods_pd:
-  'ab': True,    # AdaBoost (AB)
-  'ann': True,   # Artificial Neural Networks (ANN)
-  'bnb': True,   # Bernoulli Naive Bayes (BNB)
-  'cb': False,   # CatBoost (CB)
-  'dt': True,    # Decision Tree (DT)
-  'gnb': True,   # Gaussian Naive Bayes (GNB)
-  'gb': True,    # Gradient Boosting (GB)
-  'knn': True,   # K-Nearest Neighbors (KNN)
-  'lgbm': True,  # LightGBM (LGBM)
-  'lda': True,   # Linear Discriminant Analysis (LDA)
-  'lr': True,    # Logistic Regression (LR)
-  'mnb': False,  # Multinomial Naive Bayes (MNB)
-  'pac': False,  # Passive Aggressive Classifier (PAC)
-  'per': False,  # Perceptron (Per)
-  'qda': True,   # Quadratic Discriminant Analysis (QDA)
-  'rf': True,    # Random Forest (RF)
-  'rc': False,   # Ridge Classifier (RC)
-  'sgd': False,  # Stochastic Gradient Descent (SGD)
-  'svm': True,   # Support Vector Machine (SVM)
-  'xgb': True    # Extreme Gradient Boosting (XGBoost)
-
-binary_threshold: 0.5,  # Threshold for binary classification
+  ab: false    # AdaBoost (AB)
+  ann: false   # Artificial Neural Networks (ANN)
+  bnb: false   # Bernoulli Naive Bayes (BNB)
+  cb: false    # CatBoost (CB)
+  dt: true    # Decision Tree (DT)
+  gnb: false   # Gaussian Naive Bayes (GNB)
+  knn: false   # K-Nearest Neighbors (KNN)
+  lda: false   # Linear Discriminant Analysis (LDA)
+  lgbm: false  # LightGBM (LGBM)
+  lr: false    # Logistic Regression (LR)
+  rf: false    # Random Forest (RF)
+  svm: true   # Support Vector Machine (SVM)
+  xgb: false   # Extreme Gradient Boosting (XGBoost)
 
 
-hyperparameters: # For each method, the hyperparameters to tune
-  - method: "xgb"
-    n_estimators: [50, 100, 150]
-    max_depth: [3, 5, 7]
-    learning_rate: [0.01, 0.1, 0.2]
-    gamma: [0, 0.1, 0.2]
-    min_child_weight: [1, 5, 10]
-    subsample: [0.8, 1.0]
-    colsample_bytree: [0.8, 1.0]
-    reg_alpha: [0, 0.01, 0.1]
 
-  - method: "rf"
-    n_estimators: [100, 200, 300]
-    max_depth: [3, 5, None]
-    min_samples_split: [2, 5, 10]
-    min_samples_leaf: [1, 2, 4]
-    max_features: ["auto", "sqrt", "log2"]
-    bootstrap: [true, false]
-
-  - method: "svm"
-    C: [0.1, 1, 10]
-    kernel: ["linear", "rbf", "poly"]
-    degree: [2, 3, 4]
-    gamma: ["scale", "auto"]
-    coef0: [0, 0.1, 0.2]
-
+hyperparameters:  # For each method, the hyperparameters to tune
+  ab:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  ann:
+    hidden_layer_sizes: [(50,), (100,)]
+    activation: ['relu', 'tanh']
+  bnb:
+    alpha: [0.1, 0.5]
+  cb:
+    iterations: [100, 200]
+    depth: [4, 6]
+  dt:
+    criterion: ['gini', 'entropy']
+    max_depth: [3, 5]
+  gnb:
+    var_smoothing: [0.0001, 0.001]
+  knn:
+    n_neighbors: [3, 5]
+  lda:
+    solver: [ 'svd', 'lsqr' ]
+  lgbm:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  lr:
+    penalty: ['l2']
+    C: [0.1, 1]
+  rf:
+    n_estimators: [100, 200]
+    max_depth: [3, 5]
+  svm:
+    C: [0.1, 1]
+    kernel: ['linear', 'rbf']
+  xgb:
+    n_estimators: [50, 100]
+    max_depth: [3, 5]
+    learning_rate: [0.01, 0.1]
 

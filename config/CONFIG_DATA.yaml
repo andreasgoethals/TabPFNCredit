@@ -1,7 +1,14 @@
 # Description: Dataset selection (only 1 dataset at a time)
-dataset:
-  00_toydata: True,
-  01_heloc_lgd: False,
-  02_heloc_pd: False,
-  03_loss2: False,
-  04_extract_bart_baesens_5: False,
+
+dataset_pd:
+  00_pd_toydata: True
+
+dataset_lgd:
+  00_lgd_toydata: True
+  01_heloc_lgd: True
+  02_heloc_pd: False
+  03_loss2: False
+  04_extract_bart_baesens_5: False
+
+
+

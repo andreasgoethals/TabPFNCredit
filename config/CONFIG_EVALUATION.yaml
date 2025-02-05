@@ -1,19 +1,21 @@
 
+binary_threshold: 0.5  # Threshold for binary classification
 
 lgd:
-  mse: True,
-  rmse: True,
-  mae: True,
+  mse: True
+  rmse: True
+  mae: True
   r2: True
 
-pd:
-  accuracy: True,
-  precision: True,
-  recall: True,
-  F1: True,
-  aucroc: True,
-  aucpr: True,
-  brier: True,
+metrics_pd:
+  accuracy: True
+  brier: True
+  f1: True
+  precision: True
+  recall: True
+  aucroc: True
+  aucpr: True
 
+round_digits: 5  # Number of decimal places to round the results to
 
 
