@@ -1,8 +1,6 @@
 import datetime
 import itertools
-from typing import Dict, List
 
-import numpy as np
 from catboost import CatBoostClassifier
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
@@ -10,16 +8,17 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, brier_score_loss, \
     average_precision_score
 
-from sklearn.model_selection import train_test_split, KFold
 from sklearn.naive_bayes import GaussianNB, BernoulliNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from lightgbm import LGBMClassifier
+from tqdm import tqdm
 from xgboost import XGBClassifier
 
 # Proprietary imports
 from src.classes.data import Data
+from src.classes.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 
 
@@ -41,7 +40,6 @@ class Experiment:
 
         self.evaluationconfig = evaluationconfig
         _assert_evaluationconfig(evaluationconfig)
-
 
         # Initialize attributes with empty nd arrays:
         self.data = Data(dataconfig, experimentconfig)
@@ -69,7 +67,8 @@ class Experiment:
         results = {}
 
         # Loop over the splits
-        for fold, indices in self.data.split_indices.items():
+        for fold, indices in tqdm(self.data.split_indices.items(), desc="Cross-validation loop:"):
+
             train_idx = indices['train']
             val_idx = indices['val']
             test_idx = indices['test']
@@ -77,6 +76,20 @@ class Experiment:
             x_train, y_train = self.data.x[train_idx], self.data.y[train_idx]
             x_val, y_val = self.data.x[val_idx], self.data.y[val_idx]
             x_test, y_test = self.data.x[test_idx], self.data.y[test_idx]
+
+            # solve nan values
+            x_train, x_val, x_test, y_train, y_val, y_test = handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
+
+            # encode categorical variables
+            x_train, x_val, x_test, y_train, y_val, y_test = encode_cat_vars(x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig, self.data.cols_cat, self.data.cols_cat_idx)
+
+            # standardize the data
+            x_train, x_val, x_test, y_train, y_val, y_test = standardize_data(x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
+
+            # store the data in the data object - this is done per split
+            self.data.x_train, self.data.y_train = x_train, y_train
+            self.data.x_val, self.data.y_val = x_val, y_val
+            self.data.x_test, self.data.y_test = x_test, y_test
 
             # Loop over selected methods based on config_method
             for method, use_method in self.methodconfig['methods_pd'].items():
@@ -126,13 +139,14 @@ class Experiment:
                         model.fit(x_train, y_train)
                         y_pred_proba = model.predict_proba(x_test)
                         y_pred_proba = y_pred_proba[:, 1]
+
                     elif method == 'lda':
                         model = LinearDiscriminantAnalysis()
                         model.fit(x_train, y_train)
                         y_pred_proba = model.predict_proba(x_test)
                         y_pred_proba = y_pred_proba[:, 1]
                     elif method == 'lgbm':
-                        model = LGBMClassifier(random_state=0, **optimal_hyperparams)
+                        model = LGBMClassifier(random_state=0, verbose=-1, **optimal_hyperparams)
                         model.fit(x_train, y_train)
                         y_pred_proba = model.predict_proba(x_test)
                         y_pred_proba = y_pred_proba[:, 1]
@@ -199,11 +213,15 @@ class Experiment:
         # enumerate all combinations of in hyperpara_grid:
         param_combinations = list(itertools.product(*hyperpara_grid.values()))
 
-        x_train, y_train = self.data.x[indices['train']], self.data.y[indices['train']]
-        x_val, y_val = self.data.x[indices['val']], self.data.y[indices['val']]
+        # todo: old method: work with indices (requires new missing value handling, encoding, standardization)
+        #x_train, y_train = self.data.x[indices['train']], self.data.y[indices['train']]
+        #x_val, y_val = self.data.x[indices['val']], self.data.y[indices['val']]
+        # todo: new method: work with x_train, x_val, y_train, y_val (as stored in data object) ; updated per split
+        x_train, y_train = self.data.x_train, self.data.y_train
+        x_val, y_val = self.data.x_val, self.data.y_val
 
         best_model = None
-        best_accuracy = 0
+        best_score = 0
 
         # loop over all combinations of hyperparameters
         for params in param_combinations:
@@ -215,7 +233,6 @@ class Experiment:
                 #todo: implement
 
                 # raise warning that 'ann' has not been implmeneted yet:
-
 
                 pass
             elif method == 'bnb':
@@ -231,7 +248,7 @@ class Experiment:
             elif method == 'lda':
                 model = LinearDiscriminantAnalysis(**param_dict)
             elif method == 'lgbm':
-                model = LGBMClassifier(**param_dict)
+                model = LGBMClassifier(verbose=-1, **param_dict)
             elif method == 'lr':
                 model = LogisticRegression(**param_dict)
             elif method == 'rf':
@@ -245,14 +262,14 @@ class Experiment:
 
             # todo: implement evaluation function for hyperpar  tuning
             # todo: other evaluatio metric for model selection?
-            accuracy = accuracy_score(model.predict(x_val), y_val)
+            score = roc_auc_score(y_val, model.predict_proba(x_val)[:, 1])
 
-            if accuracy > best_accuracy:
-                best_accuracy = accuracy
+            if score > best_score:
+                best_score = score
                 best_model = model
 
         _optimal_hyperparameters = best_model.get_params()
-        print(f"Best hyperparameters: {_optimal_hyperparameters}")
+        print(f"*Best hyperparameters ({method})* {_optimal_hyperparameters}")
 
         # only keep the hyperparameters that are in the grid (stored in param_names):
         _optimal_hyperparameters = {k: v for k, v in _optimal_hyperparameters.items() if k in param_names}
@@ -299,7 +316,9 @@ class Experiment:
             aucpr = average_precision_score(y_test, y_pred)
             _results['aucpr'] = aucpr.__round__(self.evaluationconfig['round_digits'])
 
+        # cost-sensitive metrics:
 
+        # todo: implement cost-sensitive metrics: EMP?
 
         # return a dictionary with the evaluation metrics,
         # to be stored in the results dictionary
