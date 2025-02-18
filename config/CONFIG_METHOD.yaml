@@ -1,7 +1,8 @@
+tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
 
-tune_hyperparameters: true  # Whether to tune hyperparameters or not
-
-
+missing_values: 1  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mean, 3: impute with median
+encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
+standardize: 0  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
 methods_lgd:
 
@@ -15,10 +16,10 @@ methods_pd:
   gnb: false   # Gaussian Naive Bayes (GNB)
   knn: false   # K-Nearest Neighbors (KNN)
   lda: false   # Linear Discriminant Analysis (LDA)
-  lgbm: false  # LightGBM (LGBM)
+  lgbm: true  # LightGBM (LGBM)
   lr: false    # Logistic Regression (LR)
   rf: false    # Random Forest (RF)
-  svm: true   # Support Vector Machine (SVM)
+  svm: false   # Support Vector Machine (SVM)
   xgb: false   # Extreme Gradient Boosting (XGBoost)
 
 
@@ -37,7 +38,7 @@ hyperparameters:  # For each method, the hyperparameters to tune
     depth: [4, 6]
   dt:
     criterion: ['gini', 'entropy']
-    max_depth: [3, 5]
+    max_depth: [20]
   gnb:
     var_smoothing: [0.0001, 0.001]
   knn:
