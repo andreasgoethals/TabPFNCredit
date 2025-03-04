@@ -1,10 +1,12 @@
 # Description: Dataset selection (only 1 dataset at a time)
 
 dataset_pd:
-  00_pd_toydata: False
-  01_gmsc: False
+  00_pd_toydata: true
+  01_gmsc: false
   02_taiwan_creditcard: False
-  03_vehicle_loan: True
+  03_vehicle_loan: False
+  29_loan_default: false
+  30_home_credit: False
   34_hmeq_data: False
 
 dataset_lgd:

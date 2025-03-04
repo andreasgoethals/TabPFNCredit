@@ -1,22 +1,22 @@
 tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
 
-missing_values: 1  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mean, 3: impute with median
+missing_values: 2  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mean, 3: impute with median
 encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
-standardize: 0  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
+standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
 methods_lgd:
 
 
 methods_pd:
   ab: false    # AdaBoost (AB)
-  ann: false   # Artificial Neural Networks (ANN)
+  ann: true   # Artificial Neural Networks (ANN)
   bnb: false   # Bernoulli Naive Bayes (BNB)
   cb: false    # CatBoost (CB)
-  dt: true    # Decision Tree (DT)
+  dt: false    # Decision Tree (DT)
   gnb: false   # Gaussian Naive Bayes (GNB)
   knn: false   # K-Nearest Neighbors (KNN)
   lda: false   # Linear Discriminant Analysis (LDA)
-  lgbm: true  # LightGBM (LGBM)
+  lgbm: false  # LightGBM (LGBM)
   lr: false    # Logistic Regression (LR)
   rf: false    # Random Forest (RF)
   svm: false   # Support Vector Machine (SVM)
@@ -29,16 +29,23 @@ hyperparameters:  # For each method, the hyperparameters to tune
     n_estimators: [50, 100]
     learning_rate: [0.01, 0.1]
   ann:
-    hidden_layer_sizes: [(50,), (100,)]
-    activation: ['relu', 'tanh']
+    num_hidden_layers: [1]
+    hidden_layer_size: [32,64]
+    activation: ['relu']
+    dropout_rate: [0,0.1]
+    epochs: [50]
+    batch_size: [256]
+    learning_rate: [0.001]
+    weight_decay: [0.01]
+    early_stopping_delay: [5]
   bnb:
     alpha: [0.1, 0.5]
   cb:
     iterations: [100, 200]
     depth: [4, 6]
   dt:
-    criterion: ['gini', 'entropy']
-    max_depth: [20]
+    criterion: ['gini']
+    max_depth: [10]
   gnb:
     var_smoothing: [0.0001, 0.001]
   knn:
@@ -46,7 +53,7 @@ hyperparameters:  # For each method, the hyperparameters to tune
   lda:
     solver: [ 'svd', 'lsqr' ]
   lgbm:
-    n_estimators: [50, 100]
+    n_estimators: [50]
     learning_rate: [0.01, 0.1]
   lr:
     penalty: ['l2']
