@@ -18,6 +18,7 @@ from xgboost import XGBClassifier
 
 # Proprietary imports
 from src.classes.data import Data
+from src.classes.ann import NNClassifier
 from src.classes.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 
@@ -53,11 +54,12 @@ class Experiment:
         print('CV splits: ', self.experimentconfig['cv_splits'])
 
     def run(self):
-        # Load and preprocess data
+        # Load and preprocess data (separately implemented as _load and _preprocess)
         self.data.load_preprocess_data()
 
         # Split data
         self.data.split_data()
+
 
         self.train_evaluate()
 
@@ -106,8 +108,10 @@ class Experiment:
                         y_pred_proba = y_pred_proba[:, 1]
 
                     elif method == 'ann':
-                        # todo: implement custom neural network class
-                        pass
+                        model = NNClassifier(**optimal_hyperparams)
+                        model.fit(x_train, y_train)
+                        y_pred_proba = model.predict_proba(x_test)
+                        y_pred_proba = y_pred_proba[:, 1]
 
                     elif method == 'bnb':
                         model = BernoulliNB(**optimal_hyperparams)
@@ -227,14 +231,15 @@ class Experiment:
         for params in param_combinations:
             param_dict = dict(zip(param_names, params))
 
+            # Convert 'None' strings to None type
+            for key, value in param_dict.items():
+                if value == 'None':
+                    param_dict[key] = None
+
             if method == 'ab':
                 model = AdaBoostClassifier(**param_dict)
             elif method == 'ann':
-                #todo: implement
-
-                # raise warning that 'ann' has not been implmeneted yet:
-
-                pass
+                model = NNClassifier(**param_dict)
             elif method == 'bnb':
                 model = BernoulliNB(**param_dict)
             elif method == 'cb':
@@ -299,11 +304,11 @@ class Experiment:
             _results['f1'] = f1.__round__(self.evaluationconfig['round_digits'])
 
         if self.evaluationconfig['metrics_pd']['precision']:
-            precision = precision_score(y_test, y_pred)
+            precision = precision_score(y_true=y_test, y_pred=y_pred, zero_division=0.0)
             _results['precision'] = precision.__round__(self.evaluationconfig['round_digits'])
 
         if self.evaluationconfig['metrics_pd']['recall']:
-            recall = precision_score(y_test, y_pred)
+            recall = precision_score(y_true=y_test, y_pred=y_pred, zero_division=0.0)
             _results['recall'] = recall.__round__(self.evaluationconfig['round_digits'])
 
         # Threshold-independent metrics:
