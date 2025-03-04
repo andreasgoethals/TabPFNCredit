@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import load_breast_cancer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler
+from sklearn.impute import SimpleImputer
 
 """ Class definition and class-specific method definitions """
 class Preprocessing:
@@ -14,7 +15,9 @@ class Preprocessing:
         self.dataset_name = None
 
     def load_data(self):
-        """ method definitions for pd datasets """
+        ##########################################
+        ### method definitions for pd datasets ###
+        ##########################################
         def _load_00_pd_toydata():
             _data = load_breast_cancer()
             self.dataset_name = '00_pd_toydata'
@@ -43,6 +46,27 @@ class Preprocessing:
             print("03_vehicle_loan loaded")
             return _data
 
+        def _load_29_loan_default():
+            try:
+                _data = pd.read_csv(
+                    'data/pd/29 loan default predictions - imperial college london/train_v2.csv/train_v2.csv', sep=',', dtype=float)
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    '../data/pd/29 loan default predictions - imperial college london/train_v2.csv/train_v2.csv',
+                    sep=',', dtype=float)
+                print("29_loan_default loaded")
+            return _data
+
+        def _load_30_home_credit():
+            try:
+                _data = pd.read_csv(
+                    'data/pd/30 home credit default risk/home-credit-default-risk/application_train.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    '../data/pd/30 home credit default risk/home-credit-default-risk/application_train.csv', sep=',')
+            print("30_home_credit loaded")
+            return _data
+
         def _load_34_hmeq_data():
             try:
                 _data = pd.read_csv('data/pd/34 hmeq/hmeq.csv', sep=',')
@@ -51,14 +75,16 @@ class Preprocessing:
             print("34_hmeq_data loaded")
             return _data
 
-
-        """ method definitions for lgd datasets """
+        ###########################################
+        ### method definitions for lgd datasets ###
+        ###########################################
         def _load_01_heloc_lgd():
             _data = 'this is a 01 data to be implemented'
             print("01_heloc_lgd loaded")
             return _data
 
         """ Dataset-specific loading calls """
+        # for PD datasets:
         if self.experimentconfig['task'] == 'pd':
             if self.dataconfig['dataset_pd']['00_pd_toydata']:
                 self.dataset_name = '00_pd_toydata'
@@ -74,10 +100,19 @@ class Preprocessing:
                 self.dataset_name = '03_vehicle_loan'
                 return _load_03_vehicle_loan()
 
+            elif self.dataconfig['dataset_pd']['29_loan_default']:
+                self.dataset_name = '29_loan_default'
+                return _load_29_loan_default()
+
+            elif self.dataconfig['dataset_pd']['30_home_credit']:
+                self.dataset_name = '30_home_credit'
+                return _load_30_home_credit()
+
             elif self.dataconfig['dataset_pd']['34_hmeq_data']:
                 self.dataset_name = '34_hmeq_data'
                 return _load_34_hmeq_data()
 
+        # for LGD datasets:
         elif self.experimentconfig['task'] == 'lgd':
             if self.dataconfig['dataset']['01_heloc_lgd']:
                 self.dataset_name = '01_heloc_lgd'
@@ -86,7 +121,9 @@ class Preprocessing:
             raise ValueError('Invalid task in experimentconfig, or no dataset selected in dataconfig')
 
     def preprocess_data(self, _data):
-        """ method definitions for preprocessing pd datasets """
+        ########################################################
+        ### method definitions for preprocessing pd datasets ###
+        ########################################################
         def _preprocess_00_pd_toydata(_data):
             x = _data.data
             y = _data.target
@@ -248,6 +285,103 @@ class Preprocessing:
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
+
+        def _preprocess_29_loan_default(_data):
+            # convert all columns to numeric:
+            _data = _data.apply(pd.to_numeric, errors='coerce')
+
+            # Drop ID and useless columns
+            _data = _data.drop('id', axis=1)
+
+            # Split into covariates, labels
+            y = _data['loss'].values.astype(int)
+
+            #convert y to 0 if 0 and to 1 if not zero:
+            y = np.where(y==0, 0, 1)
+            x = _data.drop('loss', axis=1).values
+
+            # remove duplicate features by checking if columns have the same values:
+            _data = _data.loc[:, (_data != _data.iloc[0]).any()]
+
+
+
+            # Replace infinity values with a large finite number
+            x = np.where(np.isinf(x), np.finfo(np.float32).max, x)
+            # Ensure all values are within a valid range for float32
+            x = np.clip(x, np.finfo(np.float32).min, np.finfo(np.float32).max)
+
+            # only numeric cols:
+            cols = list(_data.drop('loss', axis=1).columns)
+            cols_cat = []
+            cols_num = cols
+            cols_cat_idx = []
+            cols_num_idx = list(range(len(cols)))
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+
+        def _preprocess_30_home_credit(_data):
+            # Drop ID and useless columns
+            _data = _data.drop('SK_ID_CURR', axis=1)
+
+            # Split into covariates, labels
+            y = _data['TARGET'].values.astype(int)
+            x = _data.drop('TARGET', axis=1).values
+
+            cols = list(_data.drop('TARGET', axis=1).columns)
+
+            # List of categorical variables
+            cols_cat = [
+                'NAME_CONTRACT_TYPE', 'CODE_GENDER', 'FLAG_OWN_CAR', 'FLAG_OWN_REALTY',
+                'NAME_TYPE_SUITE', 'NAME_INCOME_TYPE', 'NAME_EDUCATION_TYPE',
+                'NAME_FAMILY_STATUS', 'NAME_HOUSING_TYPE', 'OCCUPATION_TYPE',
+                'WEEKDAY_APPR_PROCESS_START', 'ORGANIZATION_TYPE', 'FONDKAPREMONT_MODE',
+                'HOUSETYPE_MODE', 'WALLSMATERIAL_MODE', 'EMERGENCYSTATE_MODE'
+            ]
+
+            # List of numerical variables
+            cols_num = [
+                'CNT_CHILDREN', 'AMT_INCOME_TOTAL', 'AMT_CREDIT', 'AMT_ANNUITY',
+                'AMT_GOODS_PRICE', 'REGION_POPULATION_RELATIVE', 'DAYS_BIRTH',
+                'DAYS_EMPLOYED', 'DAYS_REGISTRATION', 'DAYS_ID_PUBLISH', 'OWN_CAR_AGE',
+                'FLAG_MOBIL', 'FLAG_EMP_PHONE', 'FLAG_WORK_PHONE', 'FLAG_CONT_MOBILE',
+                'FLAG_PHONE', 'FLAG_EMAIL', 'CNT_FAM_MEMBERS', 'REGION_RATING_CLIENT',
+                'REGION_RATING_CLIENT_W_CITY', 'HOUR_APPR_PROCESS_START',
+                'REG_REGION_NOT_LIVE_REGION', 'REG_REGION_NOT_WORK_REGION',
+                'LIVE_REGION_NOT_WORK_REGION', 'REG_CITY_NOT_LIVE_CITY',
+                'REG_CITY_NOT_WORK_CITY', 'LIVE_CITY_NOT_WORK_CITY', 'EXT_SOURCE_1',
+                'EXT_SOURCE_2', 'EXT_SOURCE_3', 'APARTMENTS_AVG', 'BASEMENTAREA_AVG',
+                'YEARS_BEGINEXPLUATATION_AVG', 'YEARS_BUILD_AVG', 'COMMONAREA_AVG',
+                'ELEVATORS_AVG', 'ENTRANCES_AVG', 'FLOORSMAX_AVG', 'FLOORSMIN_AVG',
+                'LANDAREA_AVG', 'LIVINGAPARTMENTS_AVG', 'LIVINGAREA_AVG',
+                'NONLIVINGAPARTMENTS_AVG', 'NONLIVINGAREA_AVG', 'APARTMENTS_MODE',
+                'BASEMENTAREA_MODE', 'YEARS_BEGINEXPLUATATION_MODE', 'YEARS_BUILD_MODE',
+                'COMMONAREA_MODE', 'ELEVATORS_MODE', 'ENTRANCES_MODE', 'FLOORSMAX_MODE',
+                'FLOORSMIN_MODE', 'LANDAREA_MODE', 'LIVINGAPARTMENTS_MODE',
+                'LIVINGAREA_MODE', 'NONLIVINGAPARTMENTS_MODE', 'NONLIVINGAREA_MODE',
+                'APARTMENTS_MEDI', 'BASEMENTAREA_MEDI', 'YEARS_BEGINEXPLUATATION_MEDI',
+                'YEARS_BUILD_MEDI', 'COMMONAREA_MEDI', 'ELEVATORS_MEDI', 'ENTRANCES_MEDI',
+                'FLOORSMAX_MEDI', 'FLOORSMIN_MEDI', 'LANDAREA_MEDI', 'LIVINGAPARTMENTS_MEDI',
+                'LIVINGAREA_MEDI', 'NONLIVINGAPARTMENTS_MEDI', 'NONLIVINGAREA_MEDI',
+                'TOTALAREA_MODE', 'OBS_30_CNT_SOCIAL_CIRCLE', 'DEF_30_CNT_SOCIAL_CIRCLE',
+                'OBS_60_CNT_SOCIAL_CIRCLE', 'DEF_60_CNT_SOCIAL_CIRCLE', 'DAYS_LAST_PHONE_CHANGE',
+                'FLAG_DOCUMENT_2', 'FLAG_DOCUMENT_3', 'FLAG_DOCUMENT_4', 'FLAG_DOCUMENT_5',
+                'FLAG_DOCUMENT_6', 'FLAG_DOCUMENT_7', 'FLAG_DOCUMENT_8', 'FLAG_DOCUMENT_9',
+                'FLAG_DOCUMENT_10', 'FLAG_DOCUMENT_11', 'FLAG_DOCUMENT_12', 'FLAG_DOCUMENT_13',
+                'FLAG_DOCUMENT_14', 'FLAG_DOCUMENT_15', 'FLAG_DOCUMENT_16', 'FLAG_DOCUMENT_17',
+                'FLAG_DOCUMENT_18', 'FLAG_DOCUMENT_19', 'FLAG_DOCUMENT_20', 'FLAG_DOCUMENT_21',
+                'AMT_REQ_CREDIT_BUREAU_HOUR', 'AMT_REQ_CREDIT_BUREAU_DAY',
+                'AMT_REQ_CREDIT_BUREAU_WEEK', 'AMT_REQ_CREDIT_BUREAU_MON',
+                'AMT_REQ_CREDIT_BUREAU_QRT', 'AMT_REQ_CREDIT_BUREAU_YEAR'
+            ]
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+
         def _preprocess_34_hmeq_data(_data):
 
             # Split into covariates, labels
@@ -265,8 +399,9 @@ class Preprocessing:
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
-
-        """ method definitions for preprocessing lgd datasets """
+        #########################################################
+        ### method definitions for preprocessing lgd datasets ###
+        #########################################################
         def _preprocess_00_lgd_toydata(_data):
             # todo: implement the preprocessing for lgd toydata
             return x, y, cols, cols_cat, cols_num
@@ -286,6 +421,10 @@ class Preprocessing:
                 return _preprocess_02_taiwan_creditcard(_data)
             elif self.dataconfig['dataset_pd']['03_vehicle_loan']:
                 return _preprocess_03_vehicle_loan(_data)
+            elif self.dataconfig['dataset_pd']['29_loan_default']:
+                return _preprocess_29_loan_default(_data)
+            elif self.dataconfig['dataset_pd']['30_home_credit']:
+                return _preprocess_30_home_credit(_data)
             elif self.dataconfig['dataset_pd']['34_hmeq_data']:
                 return _preprocess_34_hmeq_data(_data)
 
@@ -329,15 +468,25 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
 
         total_dropped_rows = dropped_train + dropped_val + dropped_test
 
-        print(f"Omitting rows with missing values: {total_dropped_rows} rows left out")
+        print(f"- Omitting rows with missing values: {total_dropped_rows} rows left out")
 
     elif methodconfig['missing_values'] == 2:
-        # todo: insert code
-        pass
+        # impute with mean:
+        imputer = SimpleImputer(strategy='mean')
+        x_train = imputer.fit_transform(x_train)
+        x_val = imputer.transform(x_val)
+        x_test = imputer.transform(x_test)
+
+        print('- Imputed missing values with mean')
 
     elif methodconfig['missing_values'] == 3:
-        # todo: insert code
-        pass
+        # impute with median:
+        imputer = SimpleImputer(strategy='median')
+        x_train = imputer.fit_transform(x_train)
+        x_val = imputer.transform(x_val)
+        x_test = imputer.transform(x_test)
+
+        print('- Imputed missing values with median')
 
     else:
         # throw error that the methodconfig is not valid
@@ -356,7 +505,7 @@ def encode_cat_vars(x_train, x_val, x_test, y_train, y_val, y_test, methodconfig
         # don't encode categorical variables
         pass
 
-    elif methodconfig['encode_cat']==1:
+    elif methodconfig['encode_cat'] == 1:
         # one-hot encode categorical variables
         encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
         x_train_cat = encoder.fit_transform(x_train[:, cols_cat_idx])
@@ -368,7 +517,7 @@ def encode_cat_vars(x_train, x_val, x_test, y_train, y_val, y_test, methodconfig
         x_val = np.concatenate([x_val[:, ~np.isin(range(x_val.shape[1]), cols_cat_idx)], x_val_cat], axis=1)
         x_test = np.concatenate([x_test[:, ~np.isin(range(x_test.shape[1]), cols_cat_idx)], x_test_cat], axis=1)
 
-    elif methodconfig['encode_cat']==2:
+    elif methodconfig['encode_cat'] == 2:
         # implement weight of evidence encoding:
         encoder = category_encoders.WOEEncoder()
         x_train_cat = encoder.fit_transform(x_train[:, cols_cat_idx], y_train)
@@ -379,7 +528,6 @@ def encode_cat_vars(x_train, x_val, x_test, y_train, y_val, y_test, methodconfig
         x_train = np.concatenate([x_train[:, ~np.isin(range(x_train.shape[1]), cols_cat_idx)], x_train_cat], axis=1)
         x_val = np.concatenate([x_val[:, ~np.isin(range(x_val.shape[1]), cols_cat_idx)], x_val_cat], axis=1)
         x_test = np.concatenate([x_test[:, ~np.isin(range(x_test.shape[1]), cols_cat_idx)], x_test_cat], axis=1)
-
 
     else:
         # throw error that the methodconfig is not valid
