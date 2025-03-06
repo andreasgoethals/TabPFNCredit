@@ -11,7 +11,7 @@ dataset_pd:
 
 dataset_lgd:
   00_lgd_toydata: True
-  01_heloc_lgd: True
+  01_heloc_lgd: false
   02_heloc_pd: False
   03_loss2: False
   04_extract_bart_baesens_5: False

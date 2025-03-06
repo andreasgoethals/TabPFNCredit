@@ -14,6 +14,8 @@
         'degree': 3,
         'gamma': 'scale',
         'coef0': 0.0,
+    'tabpfn':
+        'device': 'auto',
     'xgb':
         'n_estimators': 100,
         'max_depth': 3,

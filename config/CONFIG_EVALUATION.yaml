@@ -1,9 +1,8 @@
 
 binary_threshold: 0.5  # Threshold for binary classification
 
-lgd:
+metrics_lgd:
   mse: True
-  rmse: True
   mae: True
   r2: True
 

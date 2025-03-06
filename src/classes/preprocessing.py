@@ -3,9 +3,12 @@ from typing import Dict, List
 import category_encoders
 import numpy as np
 import pandas as pd
-from sklearn.datasets import load_breast_cancer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler, MinMaxScaler
 from sklearn.impute import SimpleImputer
+
+# toy datasets:
+from sklearn.datasets import load_breast_cancer, load_diabetes
+
 
 """ Class definition and class-specific method definitions """
 class Preprocessing:
@@ -78,6 +81,13 @@ class Preprocessing:
         ###########################################
         ### method definitions for lgd datasets ###
         ###########################################
+        def _load_00_lgd_toydata():
+            _data = load_diabetes()
+            self.dataset_name = '00_lgd_toydata'
+            print("00_lgd_toydata loaded")
+            return _data
+
+
         def _load_01_heloc_lgd():
             _data = 'this is a 01 data to be implemented'
             print("01_heloc_lgd loaded")
@@ -114,7 +124,11 @@ class Preprocessing:
 
         # for LGD datasets:
         elif self.experimentconfig['task'] == 'lgd':
-            if self.dataconfig['dataset']['01_heloc_lgd']:
+            if self.dataconfig['dataset_lgd']['00_lgd_toydata']:
+                self.dataset_name = '00_lgd_toydata'
+                return _load_00_lgd_toydata()
+
+            elif self.dataconfig['dataset_lgd']['01_heloc_lgd']:
                 self.dataset_name = '01_heloc_lgd'
                 return _load_01_heloc_lgd()
         else:
@@ -140,8 +154,7 @@ class Preprocessing:
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
-        def _preprocess_01_gmsc(_data: pd.DataFrame) -> tuple[
-            np.ndarray, np.ndarray, list[str], list[str], list[str], list[int], list[int]]:
+        def _preprocess_01_gmsc(_data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str], list[str], list[str], list[int], list[int]]:
 
             y = _data['SeriousDlqin2yrs'].values.astype(int)
             x = _data.drop('SeriousDlqin2yrs', axis=1).values
@@ -403,12 +416,25 @@ class Preprocessing:
         ### method definitions for preprocessing lgd datasets ###
         #########################################################
         def _preprocess_00_lgd_toydata(_data):
-            # todo: implement the preprocessing for lgd toydata
-            return x, y, cols, cols_cat, cols_num
+
+            x = _data.data
+            y = _data.target
+
+            cols = list(_data.feature_names)
+            cols_cat = []
+            cols_num = cols
+            cols_cat_idx = []
+            cols_num_idx = list(range(len(cols)))
+
+            print("00_lgd_toydata preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_01_heloc(data):
             # todo: implement the preprocessing for heloc data
-            return x, y, cols, cols_cat, cols_num
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         """ Dataset-specific preprocessing calls """
         if self.experimentconfig['task'] == 'pd':
@@ -429,7 +455,11 @@ class Preprocessing:
                 return _preprocess_34_hmeq_data(_data)
 
         elif self.experimentconfig['task'] == 'lgd':
-            if self.dataconfig['dataset_lgd']['01_heloc']:
+
+            if self.dataconfig['dataset_lgd']['00_lgd_toydata']:
+                return _preprocess_00_lgd_toydata(_data)
+
+            elif self.dataconfig['dataset_lgd']['01_heloc']:
                 return _preprocess_01_heloc(_data)
 
 """ Generic method definitions """

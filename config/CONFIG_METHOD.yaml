@@ -1,10 +1,22 @@
 tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
 
-missing_values: 2  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mean, 3: impute with median
-encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
-standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
+missing_values: 0  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mean, 3: impute with median
+encode_cat: 0  # 0: no encoding, 1: one-hot, 2: WoE encoding
+standardize: 0  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
 methods_lgd:
+  ab: true      # AdaBoost Regression (AB)
+  ann: true     # Artificial Neural Networks (ANN)
+  cb: true      # CatBoost Regression (CB)
+  dt: true      # Decision Tree Regression (DT)
+  en: true      # Elastic Net Regression (EN)
+  knn: true     # K-Nearest Neighbors Regression (KNN)
+  lgbm: true    # LightGBM Regression (LGBM)
+  lr: true      # Linear Regression (LR)
+  rf: true      # Random Forest Regression (RF)
+  svr: true     # Support Vector Regression (SVR)
+  tabpfn: true  # TabPFN Regression (TabPFN)
+  xgb: true     # Extreme Gradient Boosting Regression (XGB)
 
 
 methods_pd:
@@ -12,7 +24,7 @@ methods_pd:
   ann: true   # Artificial Neural Networks (ANN)
   bnb: false   # Bernoulli Naive Bayes (BNB)
   cb: false    # CatBoost (CB)
-  dt: false    # Decision Tree (DT)
+  dt: true    # Decision Tree (DT)
   gnb: false   # Gaussian Naive Bayes (GNB)
   knn: false   # K-Nearest Neighbors (KNN)
   lda: false   # Linear Discriminant Analysis (LDA)
@@ -20,11 +32,57 @@ methods_pd:
   lr: false    # Logistic Regression (LR)
   rf: false    # Random Forest (RF)
   svm: false   # Support Vector Machine (SVM)
+  tabpfn: false   # TabPFN foundation model
   xgb: false   # Extreme Gradient Boosting (XGBoost)
 
+hyperparameters_lgd:
+  ab:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  ann:
+    num_hidden_layers: [1]
+    hidden_layer_size: [32,64]
+    activation: ['relu']
+    dropout_rate: [0,0.1]
+    epochs: [50]
+    batch_size: [256]
+    learning_rate: [0.001]
+    weight_decay: [0.01]
+    early_stopping_delay: [5]
+  cb:
+    iterations: [100, 200]
+    depth: [4, 6]
+    verbose: [False]
+  dt:
+    criterion: ['absolute_error']
+    max_depth: [10]
+  en:
+    alpha: [0.1, 0.5]
+    l1_ratio: [0.1, 0.5]
+  gb:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  knn:
+    n_neighbors: [3, 5]
+  lgbm:
+    n_estimators: [50]
+    learning_rate: [0.01, 0.1]
+  lr:
+    fit_intercept: [True] # to provide at least one hyperpara
+  rf:
+    n_estimators: [100, 200]
+    max_depth: [3, 5]
+  svr:
+    C: [0.1, 1]
+    kernel: ['linear', 'rbf']
+  tabpfn:
+    device: ['auto']
+  xgb:
+    n_estimators: [50, 100]
+    max_depth: [3, 5]
+    learning_rate: [0.01, 0.1]
 
-
-hyperparameters:  # For each method, the hyperparameters to tune
+hyperparameters_pd:  # For each method, the hyperparameters to tune
   ab:
     n_estimators: [50, 100]
     learning_rate: [0.01, 0.1]
@@ -64,6 +122,8 @@ hyperparameters:  # For each method, the hyperparameters to tune
   svm:
     C: [0.1, 1]
     kernel: ['linear', 'rbf']
+  tabpfn:
+    device: ['auto']
   xgb:
     n_estimators: [50, 100]
     max_depth: [3, 5]
