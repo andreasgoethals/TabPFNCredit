@@ -1,3 +1,4 @@
+import warnings
 from typing import Dict, List
 
 import category_encoders
@@ -9,6 +10,7 @@ from sklearn.impute import SimpleImputer
 # toy datasets:
 from sklearn.datasets import load_breast_cancer, load_diabetes
 
+pd.set_option('future.no_silent_downcasting', True)
 
 """ Class definition and class-specific method definitions """
 class Preprocessing:
@@ -47,6 +49,22 @@ class Preprocessing:
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/03 vehicle loan/train.csv', sep=',')
             print("03_vehicle_loan loaded")
+            return _data
+
+        def _load_14_german_credit():
+            try:
+                _data = pd.read_csv('data/pd/14 statlog german credit data/german.csv')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/14 statlog german credit data/german.csv')
+            print("14_german_credit loaded")
+            return _data
+
+        def _load_28_thomas():
+            try:
+                _data = pd.read_csv('data/pd/28 thomas/Loan Data.csv', sep=';')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/28 thomas/Loan Data.csv', sep=';')
+            print("28_thomas loaded")
             return _data
 
         def _load_29_loan_default():
@@ -89,9 +107,55 @@ class Preprocessing:
 
 
         def _load_01_heloc_lgd():
-            _data = 'this is a 01 data to be implemented'
+            try:
+                _data = pd.read_csv(
+                    r'data\lgd\01 heloc_lgd\heloc_lgd.csv', low_memory=False, sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    r'..\data\lgd\01 heloc_lgd\heloc_lgd.csv', low_memory=False, sep=',')
             print("01_heloc_lgd loaded")
             return _data
+
+        def _load_03_loss2():
+            try:
+                _data = pd.read_csv(
+                    r'data\lgd\03 loss2\loss2.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    r'..\data\lgd\03 loss2\loss2.csv', sep=',')
+            print("03_loss2 loaded")
+            return _data
+
+        def _load_05_axa():
+            try:
+                _data = pd.read_csv(
+                    r'data\lgd\05 lgd_axa\lgd_axa.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    r'..\data\lgd\05 lgd_axa\lgd_axa.csv', sep=',')
+            print("05_axa loaded")
+            return _data
+
+        def _load_06_base_model():
+            try:
+                _data = pd.read_csv(
+                    r'data\lgd\06 base_model\base_model.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    r'..\data\lgd\06 base_model\base_model.csv', sep=',')
+            print("06_base_model loaded")
+            return _data
+
+        def _load_07_base_modelisation():
+            try:
+                _data = pd.read_csv(
+                    r'data\lgd\07 base_modelisation\base_modelisation.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv(
+                    r'..\data\lgd\07 base_modelisation\base_modelisation.csv', sep=',')
+            print("07_base_modelisation loaded")
+            return _data
+
 
         """ Dataset-specific loading calls """
         # for PD datasets:
@@ -109,6 +173,13 @@ class Preprocessing:
             elif self.dataconfig['dataset_pd']['03_vehicle_loan']:
                 self.dataset_name = '03_vehicle_loan'
                 return _load_03_vehicle_loan()
+
+            elif self.dataconfig['dataset_pd']['14_german_credit']:
+                self.dataset_name = '14_german_credit'
+                return _load_14_german_credit()
+            elif self.dataconfig['dataset_pd']['28_thomas']:
+                self.dataset_name = '28_thomas'
+                return _load_28_thomas()
 
             elif self.dataconfig['dataset_pd']['29_loan_default']:
                 self.dataset_name = '29_loan_default'
@@ -128,9 +199,25 @@ class Preprocessing:
                 self.dataset_name = '00_lgd_toydata'
                 return _load_00_lgd_toydata()
 
-            elif self.dataconfig['dataset_lgd']['01_heloc_lgd']:
-                self.dataset_name = '01_heloc_lgd'
+            elif self.dataconfig['dataset_lgd']['01_heloc']:
+                self.dataset_name = '01_heloc'
                 return _load_01_heloc_lgd()
+
+            elif self.dataconfig['dataset_lgd']['03_loss2']:
+                self.dataset_name = '03_loss2'
+                return _load_03_loss2()
+
+            elif self.dataconfig['dataset_lgd']['05_axa']:
+                self.dataset_name = '05_axa'
+                return _load_05_axa()
+
+            elif self.dataconfig['dataset_lgd']['06_base_model']:
+                self.dataset_name = '06_base_model'
+                return _load_06_base_model()
+
+            elif self.dataconfig['dataset_lgd']['07_base_modelisation']:
+                self.dataset_name = '07_base_modelisation'
+                return _load_07_base_modelisation()
         else:
             raise ValueError('Invalid task in experimentconfig, or no dataset selected in dataconfig')
 
@@ -298,6 +385,54 @@ class Preprocessing:
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
+        def _preprocess_14_german_credit(_data):
+            target_col = '1.1'
+
+            # drop any row where the target column is missing:
+            _data = _data.dropna(subset=[target_col])
+
+            # in target_col, set value 1 to 0 and 2 to 1
+            _data[target_col] = _data[target_col].replace({1: 0, 2: 1})
+
+            # Split into covariates, labels
+            y = _data[target_col].values
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = ['A11','A34','A43','A65','A75','A93','A101','A121','A143','A152','A173','A192','A201']
+            cols_num = ['6','1169','4','4.1','2','1']
+
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("14_german_credit preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_28_thomas(_data):
+            target_col = 'BAD'
+
+            # Split into covariates, labels
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("28_thomas preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_29_loan_default(_data):
             # convert all columns to numeric:
@@ -432,8 +567,252 @@ class Preprocessing:
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
-        def _preprocess_01_heloc(data):
-            # todo: implement the preprocessing for heloc data
+        def _preprocess_01_heloc(_data):
+
+            # Drop necessary columns (example: dropping 'ID' column)
+            _data = _data.drop(columns=['REC'])
+            _data = _data.drop(columns=['DLGD_Econ'])
+
+            # double columns
+            _data = _data.drop(columns=['PrinBal', 'PayOff', 'DefPayOff'])
+
+            # time-related columns (we consider cross-sectional)
+            _data = _data.drop(columns=['ObsDT', 'DefDT'])
+
+            # Transform
+            _data['LienPos'] = _data['LienPos'].replace({'Unknow': 0, 'First': 1, 'Second': 2}) # Downcasting behavior in `replace` is deprecated and will be removed in a future version.
+            _data = _data.infer_objects(copy=False)
+
+            # Split into covariates, labels
+            y = _data['LGD_ACTG'].values
+            x = _data.drop('LGD_ACTG', axis=1).values
+
+            cols = list(_data.drop('LGD_ACTG', axis=1).columns)
+
+            cols_cat = []
+            cols_num = ['PortNum', 'AvailAmt', 'LTV', 'LienPos', 'Age', 'CurrEquifax', 'Utilization', 'DefPrinBal', 'PD_Rnd']
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("01_heloc preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_03_loss2(_data):
+            # drop unnecessary columns
+            # correlated with target:
+            _data = _data.drop(columns=['_ELGDnum1', '_ELGDnum2'])
+
+            # identifier
+            _data = _data.drop(columns=['id1', 'Alltel_Client'])
+
+            # date-related cols
+            _data = _data.drop(columns=['REO_Appraisal_Date', 'Origination_Date', 'date_vintage_year', 'date_vintage_year_month'])
+
+            # all nan values
+            _data = _data.drop(columns=['Servicing_Loss'])
+
+            # Define the target column
+            target_col = '_ELGD'
+
+            # drop any row where the target column is missing:
+            _data = _data.dropna(subset=[target_col])
+
+            x = _data.drop(columns=[target_col]).values
+            y = _data[target_col].values
+
+            # define cols
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns
+
+            """
+            cols_cat = ['Loan_Category', 'State', 'Analyst', 'Credit_Bureau', 'Loan_Type',
+                        'Recourse_Type', 'ARM_Indicator', 'MI_Company_Name',
+                        'amortization_type', 'broker_flag', 'business_line_crm_new',
+                        'construction_indicator', 'doc_option', 'documentation_type',
+                        'firsttime_homebuyer_indicator', 'jumbo_indicator',
+                        'living_units_number', 'loan_purpose_type',
+                        'occupancy_code_description', 'primary_borrower_self_employed',
+                        'product_code', 'product_family_name', 'property_type_description']
+            cols_num = ['UPB_At_Resolution', 'Unpaid_Interest', 'Total_Debt',
+                        'REO_Sales_Price', 'Original_Appraised_Value', 'REO_Appraisal_Amount',
+                        'Original_UPB', 'Analysis_Age', 'Investor_Category',
+                        'Annual_Interest_Rate', 'alt_fico_code', 'amount_appraised',
+                        'amount_funded', 'amount_note', 'housing_ratio', 'interest_only_term',
+                        'loan_term', 'ltv_calculated_crm', 'ltv_combined_crm',
+                        'primary_borrower_number', 'score_fico_used', 'total_debt_ratio',
+                        'percent_of_primary_pmi_coverage', '_reo_sales_price', '_SellingCosts',
+                        '_adv_interest1M', '_adv_interest', '_ELAO', '_Accrued_int', '_EAD',
+                        '_Net_sales_Proceeds', '_Miclaimbal', '_Mirecovery', '_Proceeds',
+                        '_Loss_Amount', 'lr1', 'lss_amt', 'lss_rt', 'MI_ind']
+            """
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("03_loss2 preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_05_axa(_data):
+            # drop unnecessary columns
+            # correlated with target:
+            _data = _data.drop(columns=['Recovery_rate'])  # this is 1-LGD
+            _data = _data.drop(columns=['y_logistic', 'lnrr', 'Y_probit', 'event'])
+
+            # split into covariates and labels
+            target_col = 'lgd_time'
+            y = _data[target_col].values
+            x = _data.drop(target_col, axis=1).values
+
+            # define cols
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = []
+            cols_num = ['LTV','purpose1']
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("05_axa preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_06_base_model(_data):
+            # drop unnecessary columns
+            # id columns:
+            _data = _data.drop(columns=['DEAL_DocUNID', 'DEAL_MainID', 'DEAL_FacilityIdentifier', 'DEAL_StarWebIdentifier',
+                                  'DFLT_MainID', 'DFLT_SPM', 'DFLT_DAI', 'DFLT_BDR', 'DFLT_LegalEntityName',
+                                  'DFLT_StarWeb_PCRU', 'DFLT_ClientNAE', 'DFLT_ParentSPM', 'DFLT_ParentSIREN',
+                                  'DFLT_ParentDAI', 'DFLT_ParentLegalEntityName', 'DFLT_ParentPCRU', 'DFLT_ParentNAE',
+                                  'DFLT_subject', 'FCLT_DealUNID', 'FCLT_BCEIdentifier', 'FCLT_Identifier',
+                                  'FCLT_BookingUnit', 'fclt_docunid'])
+
+            # time-related cols:
+            _data = _data.drop(
+                columns=['DEAL_TransactionStartDate', 'DEAL_TransactionEndDate', 'DEAL_DateComposed', 'DEAL_LastUpDate',
+                         'DFLT_SGDefaultDate', 'DFLT_PublicDefaultDate', 'DFLT_EndDefaultDate', 'DFLT_SGRatingDate',
+                         'DFLT_RatingDate1YPD', 'DFLT_ParentDefaultDateIf', 'DFLT_ParentSGRatingDate',
+                         'DFLT_ParentRatingDate1YPD', 'DFLT_DateComposed', 'DFLT_LastUpdate', 'DATE_DECLAR_CT',
+                         'FCLT_StartDate', 'FCLT_EndDate', 'FCLT_DefaultDate', 'FCLT_DateComposed', 'FCLT_LastUpdate',
+                         'date'])
+
+            # cols with textual description (as in: full sentences):
+            _data = _data.drop(columns=['FCLT_CommentsOnLimit', 'FCLT_subject', 'DEAL_GoverningLawRecovery', 'DEAL_PFRU',
+                                  'DEAL_subject'])
+
+            # drop cols with only nan values:
+            _data = _data.drop(columns=['DEAL_ConstructionEndDate', 'DEAL_ConstructionStartDate',
+                                  'DEAL_AverageRents', 'DEAL_ExpectedVacancyRate', 'DEAL_StrikeLESSEEOption',
+                                  'DEAL_StatusUpDate', 'DEAL_DeleteDate', 'DFLT_DeleteStatus',
+                                  'DFLT_DeletedDate', 'DFLT_JRIRating', 'DFLT_ParentJRIRating',
+                                  'FCLT_DeleteStatus', 'FCLT_IrrevocableLocOffshore', 'FCLT_DeleteDate',
+                                  'flag_eps', 'flag_fcltcurrency', 'fac_ss_commcov', 'flag_pme',
+                                  'Flag_specifique', 'flag_specperi', 'Categorie_AV'])
+
+            # correlated with target:
+            _data = _data.drop(columns=['lgd_cat_15', 'lgd_cat_10', 'lgd_cat_5', 'LGD_log', 'LGD_deF', 'LGD_norm', 'sortie',
+                                  'RecAssoFlag'])
+
+            # other data leakage::
+            _data = _data.drop(columns=["DFLT_SIREN", "DFLT_CorporateAssets", "DFLT_OperatorCompanyIndicator",
+                                  "DFLT_PCRU", "DFLT_LegalForm", "DFLT_ClientNationality",
+                                  "DFLT_ClientAssetLocation", "DFLT_ClientSIC", "DFLT_HasSGtrigger",
+                                  "DFLT_RationaleDefault", "DFLT_RecoveryApproach", "DFLT_RationalEndDefault",
+                                  "DFLT_SGLocalCurRating", "DFLT_SGForeignCurRating", "DFLT_SPRating",
+                                  "DFLT_MoodyRating", "DFLT_KMVRating", "DFLT_BilanYear",
+                                  "DFLT_ClientCurrency", "DFLT_TaxFreeTO1YPD", "DFLT_TotalAsset1YPD",
+                                  "DFLT_IntangibleAsset1YPD", "DFLT_CurrentAsset1YPD", "DFLT_DebtAmount1YPD",
+                                  "DFLT_EquityAmount1YPD", "DFLT_ParentBDR", "DFLT_ParentLegalForm",
+                                  "DFLT_ParentNationality", "DFLT_ParentAssetLocation", "DFLT_ParentSIC",
+                                  "DFLT_ParentSGLocalCurRating", "DFLT_ParentSGForeignCurRating",
+                                  "DFLT_ParentSPRating", "DFLT_ParentMoodyRating", "DFLT_ParentKMVRating",
+                                  "DFLT_ParentBilanYear", "DFLT_ParentCurrency", "DFLT_ParentTaxFreeTO1YPD",
+                                  "DFLT_ParentTotalAsset1YPD", "DFLT_ParentIntangibleAsset1YPD",
+                                  "DFLT_ParentCurrentAsset1YPD", "DFLT_ParentDebtAmount1YPD",
+                                  "DFLT_ParentEquityAmount1YPD", "DFLT_taux", "DFLT_Parenttaux", "DFLT_duree",
+                                  "prorata_dflt", "FCLT_duree_pre_DfLT", "cat_DFLT_duree", "cat_FCLT_duree_pre_DfLT",
+                                  "classe_DFLT_duree", "classe_FCLT_duree_pre_DfLT", "classe_DFLT_dicho_2A"
+                                  ])
+
+            # print columns with more than 80% missing values:
+            missing_values = _data.isnull().mean()
+            missing_values = missing_values[missing_values > 0.8]
+            # drop these columns:
+            _data = _data.drop(columns=missing_values.index)
+
+
+            # split into covariates and labels
+            # Define the target column
+            target_col = 'LGD_brute'
+
+            # drop any row where the target column is missing:
+            _data = _data.dropna(subset=[target_col])
+
+            x = _data.drop(columns=[target_col]).values
+            y = _data[target_col].values
+
+            # define cols
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("06_base_model preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_07_base_modelisation(_data):
+            # drop unnecessary columns
+            # drop identifiers
+            _data = _data.drop(columns=['Ident_cliej_spm', 'ID_CONC_ORIGIN_CDL', 'id_crc',
+                                        'id_unique'])
+
+            # drop leakage: lgd / loss / defaut / ... related cols:
+            _data = _data.drop(
+                columns=['lgd_5_sscout_ligne', 'lgd_corr', 'lgd_defaut_nt', 'lgd_3class', 'lgd_2class', 'lgd_log',
+                         'lgd_t', 'lgd_1log', 'logit_lgd', 'Dt_entree_defaut', 'Dt_sortie_defaut',
+                         'flag_defaut_moins_1an', 'auto_av_defaut', 'util_av_defaut', 'defaut_clos',
+                         'defaut_clos_4nonclos', 'duree_1A_av_defaut', 'util_av_defaut_tot', 'auto_av_defaut_tot',
+                         'defaut_M1Y', 'defaut_P1Y', ])
+
+            # split into covariates and labels
+            # Define the target column
+            target_col = 'lgd_defaut'
+            y = _data[target_col].values
+            x = _data.drop(target_col, axis=1).values
+
+            # define cols
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("07_base_modelisation preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         """ Dataset-specific preprocessing calls """
@@ -447,6 +826,10 @@ class Preprocessing:
                 return _preprocess_02_taiwan_creditcard(_data)
             elif self.dataconfig['dataset_pd']['03_vehicle_loan']:
                 return _preprocess_03_vehicle_loan(_data)
+            elif self.dataconfig['dataset_pd']['14_german_credit']:
+                return _preprocess_14_german_credit(_data)
+            elif self.dataconfig['dataset_pd']['28_thomas']:
+                return _preprocess_28_thomas(_data)
             elif self.dataconfig['dataset_pd']['29_loan_default']:
                 return _preprocess_29_loan_default(_data)
             elif self.dataconfig['dataset_pd']['30_home_credit']:
@@ -454,17 +837,30 @@ class Preprocessing:
             elif self.dataconfig['dataset_pd']['34_hmeq_data']:
                 return _preprocess_34_hmeq_data(_data)
 
+            else:
+                raise ValueError('Invalid dataset_pd in dataconfig')
+
         elif self.experimentconfig['task'] == 'lgd':
 
             if self.dataconfig['dataset_lgd']['00_lgd_toydata']:
                 return _preprocess_00_lgd_toydata(_data)
-
             elif self.dataconfig['dataset_lgd']['01_heloc']:
                 return _preprocess_01_heloc(_data)
+            elif self.dataconfig['dataset_lgd']['03_loss2']:
+                return _preprocess_03_loss2(_data)
+            elif self.dataconfig['dataset_lgd']['05_axa']:
+                return _preprocess_05_axa(_data)
+            elif self.dataconfig['dataset_lgd']['06_base_model']:
+                return _preprocess_06_base_model(_data)
+            elif self.dataconfig['dataset_lgd']['07_base_modelisation']:
+                return _preprocess_07_base_modelisation(_data)
+
+            else:
+                raise ValueError('Invalid dataset_lgd in dataconfig')
 
 """ Generic method definitions """
 
-def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, methodconfig: Dict):
+def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, methodconfig: Dict, cols_num_idx, cols_cat_idx):
     if methodconfig['missing_values'] == 0:
         # don't handle missing values
         pass
@@ -501,22 +897,42 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
         print(f"- Omitting rows with missing values: {total_dropped_rows} rows left out")
 
     elif methodconfig['missing_values'] == 2:
-        # impute with mean:
-        imputer = SimpleImputer(strategy='mean')
-        x_train = imputer.fit_transform(x_train)
-        x_val = imputer.transform(x_val)
-        x_test = imputer.transform(x_test)
+        # impute numeric with mean:
+        # make check that cols_num_idx is not empty:
+        if len(cols_num_idx)!=0:
+            imputer_num = SimpleImputer(strategy='mean')
+            x_train[:,cols_num_idx] = imputer_num.fit_transform(x_train[:,cols_num_idx])
+            x_val[:,cols_num_idx] = imputer_num.transform(x_val[:,cols_num_idx])
+            x_test[:,cols_num_idx] = imputer_num.transform(x_test[:,cols_num_idx])
 
-        print('- Imputed missing values with mean')
+        # impute categorical with most frequent:
+        # make check that cols_cat_idx is not empty:
+        if len(cols_cat_idx) != 0:
+            imputer_cat = SimpleImputer(strategy='most_frequent')
+            x_train[:, cols_cat_idx] = imputer_cat.fit_transform(x_train[:, cols_cat_idx])
+            x_val[:, cols_cat_idx] = imputer_cat.transform(x_val[:, cols_cat_idx])
+            x_test[:, cols_cat_idx] = imputer_cat.transform(x_test[:, cols_cat_idx])
+
+        print('- Imputed missing values with (num: mean) and (cat: mode)')
 
     elif methodconfig['missing_values'] == 3:
         # impute with median:
-        imputer = SimpleImputer(strategy='median')
-        x_train = imputer.fit_transform(x_train)
-        x_val = imputer.transform(x_val)
-        x_test = imputer.transform(x_test)
+        if len(cols_num_idx) != 0: # check that cols_num_idx is not empty:
+            imputer_num = SimpleImputer(strategy='median')
+            x_train[:, cols_num_idx] = imputer_num.fit_transform(x_train[:, cols_num_idx])
+            x_val[:, cols_num_idx] = imputer_num.transform(x_val[:, cols_num_idx])
+            x_test[:, cols_num_idx] = imputer_num.transform(x_test[:, cols_num_idx])
 
-        print('- Imputed missing values with median')
+        # impute categorical with most frequent:
+        # make check that cols_cat_idx is not empty:
+        if len(cols_cat_idx) != 0:
+
+            imputer_cat = SimpleImputer(strategy='most_frequent')
+            x_train[:, cols_cat_idx] = imputer_cat.fit_transform(x_train[:, cols_cat_idx])
+            x_val[:, cols_cat_idx] = imputer_cat.transform(x_val[:, cols_cat_idx])
+            x_test[:, cols_cat_idx] = imputer_cat.transform(x_test[:, cols_cat_idx])
+
+        print('- Imputed missing values with (num: median) and (cat: mode)')
 
     else:
         # throw error that the methodconfig is not valid
@@ -548,6 +964,11 @@ def encode_cat_vars(x_train, x_val, x_test, y_train, y_val, y_test, methodconfig
         x_test = np.concatenate([x_test[:, ~np.isin(range(x_test.shape[1]), cols_cat_idx)], x_test_cat], axis=1)
 
     elif methodconfig['encode_cat'] == 2:
+
+        # if y is not binary, then raise warning that WoE only works for binary targets:
+        if len(np.unique(y_train))>2:
+            warnings.warn('Weight of Evidence encoding is only applicable for binary targets; change settings in CONFIG_METHOD.yaml')
+
         # implement weight of evidence encoding:
         encoder = category_encoders.WOEEncoder()
         x_train_cat = encoder.fit_transform(x_train[:, cols_cat_idx], y_train)

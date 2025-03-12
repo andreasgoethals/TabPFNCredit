@@ -1,27 +1,27 @@
 tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
 
-missing_values: 0  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mean, 3: impute with median
-encode_cat: 0  # 0: no encoding, 1: one-hot, 2: WoE encoding
-standardize: 0  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
+missing_values: 3  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mode(cat) and mean(num), 3: impute with median(num) and mode(cat)
+encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
+standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
 methods_lgd:
-  ab: true      # AdaBoost Regression (AB)
-  ann: true     # Artificial Neural Networks (ANN)
-  cb: true      # CatBoost Regression (CB)
+  ab: false      # AdaBoost Regression (AB)
+  ann: false     # Artificial Neural Networks (ANN)
+  cb: false      # CatBoost Regression (CB)
   dt: true      # Decision Tree Regression (DT)
-  en: true      # Elastic Net Regression (EN)
-  knn: true     # K-Nearest Neighbors Regression (KNN)
-  lgbm: true    # LightGBM Regression (LGBM)
+  en: false      # Elastic Net Regression (EN)
+  knn: false     # K-Nearest Neighbors Regression (KNN)
+  lgbm: false    # LightGBM Regression (LGBM)
   lr: true      # Linear Regression (LR)
   rf: true      # Random Forest Regression (RF)
-  svr: true     # Support Vector Regression (SVR)
-  tabpfn: true  # TabPFN Regression (TabPFN)
-  xgb: true     # Extreme Gradient Boosting Regression (XGB)
+  svr: false     # Support Vector Regression (SVR)
+  tabpfn: false  # TabPFN Regression (TabPFN)
+  xgb: false     # Extreme Gradient Boosting Regression (XGB)
 
 
 methods_pd:
   ab: false    # AdaBoost (AB)
-  ann: true   # Artificial Neural Networks (ANN)
+  ann: false   # Artificial Neural Networks (ANN)
   bnb: false   # Bernoulli Naive Bayes (BNB)
   cb: false    # CatBoost (CB)
   dt: true    # Decision Tree (DT)

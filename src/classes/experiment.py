@@ -8,7 +8,8 @@ from tqdm import tqdm
 
 # metrics:
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, brier_score_loss, \
-    average_precision_score, mean_squared_error, mean_absolute_error, r2_score
+    average_precision_score, mean_squared_error, mean_absolute_error, r2_score, root_mean_squared_error
+from hmeasure import h_score
 
 # classification and regression methods:
 from catboost import CatBoostClassifier, CatBoostRegressor
@@ -89,7 +90,7 @@ class Experiment:
             x_test, y_test = self.data.x[test_idx], self.data.y[test_idx]
 
             # solve nan values
-            x_train, x_val, x_test, y_train, y_val, y_test = handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
+            x_train, x_val, x_test, y_train, y_val, y_test = handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig, self.data.cols_num_idx, self.data.cols_cat_idx)
 
             # encode categorical variables
             x_train, x_val, x_test, y_train, y_val, y_test = encode_cat_vars(x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig, self.data.cols_cat, self.data.cols_cat_idx)
@@ -339,7 +340,7 @@ class Experiment:
         x_val, y_val = self.data.x_val, self.data.y_val
 
         best_model = None
-        best_score = 0
+        best_score = 10e10
 
         # loop over all combinations of hyperparameters
         for params in param_combinations:
@@ -379,7 +380,7 @@ class Experiment:
 
             score = mean_squared_error(y_val, model.predict(x_val))
 
-            if score > best_score:
+            if score < best_score:
                 best_score = score
                 best_model = model
 
@@ -491,6 +492,10 @@ class Experiment:
             recall = precision_score(y_true=y_test, y_pred=y_pred, zero_division=0.0)
             _results['recall'] = recall.__round__(self.evaluationconfig['round_digits'])
 
+        if self.evaluationconfig['metrics_pd']['h_measure']:
+            h_measure = h_score(y_test, y_pred)
+            _results['h_measure'] = h_measure.__round__(self.evaluationconfig['round_digits'])
+
         # Threshold-independent metrics:
 
         if self.evaluationconfig['metrics_pd']['aucroc']:
@@ -523,6 +528,10 @@ class Experiment:
         if self.evaluationconfig['metrics_lgd']['r2']:
             r2 = r2_score(y_test, y_pred)
             _results['r2'] = r2.__round__(self.evaluationconfig['round_digits'])
+
+        if self.evaluationconfig['metrics_lgd']['rmse']:
+            rmse = root_mean_squared_error(y_test, y_pred)
+            _results['rmse'] = rmse.__round__(self.evaluationconfig['round_digits'])
 
         # Add any additional regression metrics here
 
