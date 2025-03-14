@@ -13,6 +13,9 @@ from sklearn.datasets import load_breast_cancer, load_diabetes
 pd.set_option('future.no_silent_downcasting', True)
 
 """ Class definition and class-specific method definitions """
+
+
+
 class Preprocessing:
     def __init__(self, dataconfig, experimentconfig):
         self.dataconfig = dataconfig
@@ -51,12 +54,59 @@ class Preprocessing:
             print("03_vehicle_loan loaded")
             return _data
 
+        def _load_06_lendingclub():
+            try:
+                _data = pd.read_csv('data/pd/06 lendingclub/loan_data.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/06 lendingclub/loan_data.csv', sep=',')
+            print("06_lendingclub loaded")
+            return _data
+
+        def _load_07_case_study():
+            try:
+                _data = pd.read_csv('data/pd/07 case study/Case Study- Probability of Default.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/07 case study/Case Study- Probability of Default.csv', sep=',')
+            print("07_case_study loaded")
+            return _data
+
+        def _load_09_myhom():
+            try:
+                _data = pd.read_csv('data/pd/09 myhom/train_data.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/09 myhom/train_data.csv', sep=',')
+            print("09_myhom loaded")
+            return _data
+
+        def _load_10_hackerearth():
+            try:
+                _data = pd.read_csv('data/pd/10 hackerearth/train_indessa.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/10 hackerearth/train_indessa.csv', sep=',')
+            print("10_hackerearth loaded")
+            return _data
+
+        def _load_11_cobranded():
+            try:
+                _data = pd.read_csv('data/pd/11 cobranded/Training_dataset_Original.csv', sep=',', low_memory=False)
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/11 cobranded/Training_dataset_Original.csv', sep=',', low_memory=False)
+            print("11_cobranded loaded")
+            return _data
+
         def _load_14_german_credit():
             try:
                 _data = pd.read_csv('data/pd/14 statlog german credit data/german.csv')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/14 statlog german credit data/german.csv')
             print("14_german_credit loaded")
+            return _data
+
+        def _load_22_bank_status():
+            try:
+                _data = pd.read_csv('data/pd/22 bank loan status dataset/credit_train.csv', sep=',')
+            except FileNotFoundError:
+                _data = pd.read_csv('../data/pd/22 bank loan status dataset/credit_train.csv', sep=',')
             return _data
 
         def _load_28_thomas():
@@ -174,9 +224,35 @@ class Preprocessing:
                 self.dataset_name = '03_vehicle_loan'
                 return _load_03_vehicle_loan()
 
+            elif self.dataconfig['dataset_pd']['06_lendingclub']:
+                self.dataset_name = '06_lendingclub'
+                return _load_06_lendingclub()
+            elif self.dataconfig['dataset_pd']['07_case_study']:
+                self.dataset_name = '07_case_study'
+                return _load_07_case_study()
+            elif self.dataconfig['dataset_pd']['09_myhom']:
+                self.dataset_name = '09_myhom'
+                return _load_09_myhom()
+            elif self.dataconfig['dataset_pd']['10_hackerearth']:
+                self.dataset_name = '10_hackerearth'
+                return _load_10_hackerearth()
+            elif self.dataconfig['dataset_pd']['11_cobranded']:
+                self.dataset_name = '11_cobranded'
+                return _load_11_cobranded()
+            #elif self.dataconfig['dataset_pd']['12_loan_defaulter']:
+            #    self.dataset_name = '12_loan_defaulter'
+            #    return _load_12_loan_defaulter()
+            #elif self.dataconfig['dataset_pd']['13_loan_data_2017']:
+            #    self.dataset_name = '13_loan_data_2017'
+            #    return _load_13_loan_data_2017
+
+
             elif self.dataconfig['dataset_pd']['14_german_credit']:
                 self.dataset_name = '14_german_credit'
                 return _load_14_german_credit()
+            elif self.dataconfig['dataset_pd']['22_bank_status']:
+                self.dataset_name = '22_bank_status'
+                return _load_22_bank_status()
             elif self.dataconfig['dataset_pd']['28_thomas']:
                 self.dataset_name = '28_thomas'
                 return _load_28_thomas()
@@ -385,6 +461,149 @@ class Preprocessing:
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
+        def _preprocess_06_lendingclub(_data):
+            # Drop ID and useless columns
+
+            # Split into covariates, labels
+            target_col = 'not.fully.paid'
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("06_lendingclub preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_07_case_study(_data):
+
+            # replace column values:
+            _data['status'] = _data['status'].replace({'RICH': 6, 'POOR': 2, 'MIDDLE': 4, 'LOWMIDDLE': 3, 'VERYRICH': 7, 'VERYMIDDLE': 5, 'VERYPOOR': 1})
+
+            target_col = 'PaymentMissFlag'
+
+            # Split into covariates, labels
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("07_case_study preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_09_myhom(_data):
+
+            target_col = 'loan_default'
+
+            _data = _data.drop('loan_id', axis=1)
+
+            # Split into covariates, labels
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("09_myhom preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_10_hackerearth(_data):
+            target_col = 'loan_status'
+
+            _data = _data.drop(columns=['member_id', 'batch_enrolled', 'emp_title', 'desc', 'title', 'zip_code'])
+
+            # clean _data['emp_length']
+            _data['emp_length'] = _data['emp_length'].replace('< 1 year', 0)
+            _data['emp_length'] = _data['emp_length'].str.replace(' years', '')
+            _data['emp_length'] = _data['emp_length'].str.replace(' year', '')
+            _data['emp_length'] = _data['emp_length'].replace('10+', 11)
+            _data['emp_length'] = _data['emp_length'].astype(float)
+
+            # clean _data['last_week_pay']
+            _data['last_week_pay'] = _data['last_week_pay'].str.replace('th week', '')
+            _data['last_week_pay'] = _data['last_week_pay'].replace('NA', np.nan)
+            _data['last_week_pay'] = _data['last_week_pay'].astype(float)
+
+            # Split into covariates, labels
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("10_hackerearth preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_11_cobranded(_data):
+
+            _data = _data.replace('na', np.nan)
+            _data = _data.replace('missing', np.nan)
+
+            _data = _data.drop(columns=['application_key'])
+
+            _data.replace({'mvar47': {'C': 1, 'L': 0}}, inplace=True)
+
+            for col in _data.columns:
+                _data[col] = _data[col].astype(float)
+
+            # Split into covariates, labels
+            target_col = 'default_ind'
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("11_cobranded preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+
         def _preprocess_14_german_credit(_data):
             target_col = '1.1'
 
@@ -407,6 +626,44 @@ class Preprocessing:
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
             print("14_german_credit preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
+            return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
+
+        def _preprocess_22_bank_status(_data):
+            _data = _data.drop(columns=['Loan ID', 'Customer ID'])
+
+            _data['Loan Status'] = _data['Loan Status'].replace('Fully Paid', 0)
+            _data['Loan Status'] = _data['Loan Status'].replace('Charged Off', 1)
+
+            _data['Term'] = _data['Term'].replace('Short Term', 0)
+            _data['Term'] = _data['Term'].replace('Long Term', 1)
+
+            _data['Years in current job'] = _data['Years in current job'].replace('< 1 year', 0)
+            _data['Years in current job'] = _data['Years in current job'].str.replace(' years', '')
+            _data['Years in current job'] = _data['Years in current job'].str.replace(' year', '')
+            _data['Years in current job'] = _data['Years in current job'].replace('10+', 11)
+            _data['Years in current job'] = _data['Years in current job'].astype(float)
+
+            # Split into covariates, labels
+            target_col = 'Loan Status'
+
+            _data = _data.dropna(subset=[target_col])
+
+            y = _data[target_col].values.astype(int)
+            x = _data.drop(target_col, axis=1).values
+
+            cols = list(_data.drop(target_col, axis=1).columns)
+
+            cols_cat = _data.drop(columns=[target_col]).select_dtypes(include=['object', 'category']).columns.tolist()
+            cols_num = _data.drop(columns=[target_col]).select_dtypes(include=['number']).columns.tolist()
+
+            # define the indices of the categorical and numerical columns (in x):
+            cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
+            cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
+
+            print("22_bank_status preprocessed")
             print("x shape: ", x.shape)
             print("y shape: ", y.shape)
 
@@ -826,8 +1083,26 @@ class Preprocessing:
                 return _preprocess_02_taiwan_creditcard(_data)
             elif self.dataconfig['dataset_pd']['03_vehicle_loan']:
                 return _preprocess_03_vehicle_loan(_data)
+
+            elif self.dataconfig['dataset_pd']['06_lendingclub']:
+                return _preprocess_06_lendingclub(_data)
+            elif self.dataconfig['dataset_pd']['07_case_study']:
+                return _preprocess_07_case_study(_data)
+            elif self.dataconfig['dataset_pd']['09_myhom']:
+                return _preprocess_09_myhom(_data)
+            elif self.dataconfig['dataset_pd']['10_hackerearth']:
+                return _preprocess_10_hackerearth(_data)
+            elif self.dataconfig['dataset_pd']['11_cobranded']:
+                return _preprocess_11_cobranded(_data)
+            #elif self.dataconfig['dataset_pd']['12_loan_defaulter']:
+            #    return _preprocess_12_loan_defaulter(_data)
+            #elif self.dataconfig['dataset_pd']['13_loan_data_2017']:
+            #    return _preprocess_13_loan_data_2017(_data)
+
             elif self.dataconfig['dataset_pd']['14_german_credit']:
                 return _preprocess_14_german_credit(_data)
+            elif self.dataconfig['dataset_pd']['22_bank_status']:
+                return _preprocess_22_bank_status(_data)
             elif self.dataconfig['dataset_pd']['28_thomas']:
                 return _preprocess_28_thomas(_data)
             elif self.dataconfig['dataset_pd']['29_loan_default']:
