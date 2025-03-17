@@ -1,7 +1,7 @@
 # Description: Dataset selection (only 1 dataset at a time)
 
 dataset_pd:
-  00_pd_toydata: false
+  00_pd_toydata: true
   #
   01_gmsc: false
   02_taiwan_creditcard: false
@@ -12,14 +12,14 @@ dataset_pd:
   10_hackerearth: false
   11_cobranded: false
   14_german_credit: false
-  22_bank_status: true
+  22_bank_status: false
   28_thomas: false
   29_loan_default: false
   30_home_credit: false
   34_hmeq_data: false
 
 dataset_lgd:
-  00_lgd_toydata: false
+  00_lgd_toydata: true
   #
   01_heloc: false
   03_loss2: false

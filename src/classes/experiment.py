@@ -4,11 +4,12 @@ import datetime
 import itertools
 import warnings
 
+import torch
 from tqdm import tqdm
 
 # metrics:
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, precision_score, brier_score_loss, \
-    average_precision_score, mean_squared_error, mean_absolute_error, r2_score, root_mean_squared_error
+    average_precision_score, mean_squared_error, mean_absolute_error, r2_score, root_mean_squared_error, recall_score
 from hmeasure import h_score
 
 # classification and regression methods:
@@ -25,12 +26,17 @@ from xgboost import XGBClassifier, XGBRegressor
 
 # foundation models:
 from tabpfn import TabPFNClassifier, TabPFNRegressor
+from pytorch_tabnet.tab_model import TabNetClassifier, TabNetRegressor
 
 # Proprietary imports
 from src.classes.data import Data
 from src.classes.ann import NNClassifier, NNRegressor
 from src.classes.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
+
+# hide warnings (mainly for TabPfn early stopping)
+import warnings
+warnings.filterwarnings("ignore")
 
 
 class Experiment:
@@ -185,6 +191,25 @@ class Experiment:
                             y_pred_proba = model.predict_proba(x_test)
                             y_pred_proba = y_pred_proba[:, 1]
 
+                        elif method == 'tabnet':
+                            model = TabNetClassifier(verbose=0,
+                                                    optimizer_fn=torch.optim.Adam,
+                                                    scheduler_fn=torch.optim.lr_scheduler.StepLR,
+                                                    **optimal_hyperparams)
+                            model.fit(x_train, y_train,
+                                      eval_set=[(x_train, y_train), (x_val, y_val)],  # for early stopping
+                                      eval_name=['train', 'val'],
+                                      eval_metric=['auc'],
+                                      max_epochs=200,
+                                      patience=10,
+                                      batch_size=512,
+                                      virtual_batch_size=512,
+                                      num_workers=0,
+                                      weights=1,
+                                      drop_last=False)
+                            y_pred_proba = model.predict_proba(x_test)
+                            y_pred_proba = y_pred_proba[:, 1]
+
                         elif method == 'tabpfn':
                             model = TabPFNClassifier()
                             model.fit(x_train, y_train)
@@ -262,6 +287,24 @@ class Experiment:
                         elif method == 'svr':
                             model = SVR(**optimal_hyperparams)
                             model.fit(x_train, y_train)
+                            y_pred = model.predict(x_test)
+
+                        elif method == 'tabnet':
+                            model = TabNetRegressor(verbose=0,
+                                                 optimizer_fn=torch.optim.Adam,
+                                                 scheduler_fn=torch.optim.lr_scheduler.StepLR,
+                                                 **optimal_hyperparams)
+                            model.fit(x_train, y_train.reshape(-1, 1),
+                                      eval_set=[(x_train, y_train.reshape(-1, 1)), (x_val, y_val.reshape(-1, 1))],  # for early stopping
+                                      eval_name=['train', 'val'],
+                                      eval_metric=['rmse'],
+                                      max_epochs=200,
+                                      patience=10,
+                                      batch_size=512,
+                                      virtual_batch_size=512,
+                                      num_workers=0,
+                                      #weights=1,
+                                      drop_last=False)
                             y_pred = model.predict(x_test)
 
                         elif method == 'tabpfn':
@@ -371,14 +414,36 @@ class Experiment:
                 model = RandomForestRegressor(**param_dict)
             elif method == 'svr':
                 model = SVR(**param_dict)
+            elif method == 'tabnet':
+                model = TabNetRegressor(verbose=0,
+                                        optimizer_fn=torch.optim.Adam,
+                                        scheduler_fn=torch.optim.lr_scheduler.StepLR,
+                                        **param_dict)
             elif method == 'tabpfn':
                 model = TabPFNRegressor(**param_dict)
             elif method == 'xgb':
                 model = XGBRegressor(**param_dict)
 
-            model.fit(x_train, y_train)
+            if method == 'tabnet':
+                model.fit(
+                    x_train, y_train.reshape(-1, 1),
+                    eval_set=[(x_train, y_train.reshape(-1, 1)), (x_val, y_val.reshape(-1, 1))],  # for early stopping
+                    eval_name=['train', 'val'],
+                    eval_metric=['rmse'],
+                    max_epochs=200,
+                    patience=10,
+                    batch_size=512,
+                    virtual_batch_size=512,
+                    num_workers=0,
+                   # weights=1,
+                    drop_last=False
+                )
 
-            score = mean_squared_error(y_val, model.predict(x_val))
+            else:
+                model.fit(x_train, y_train)
+
+            pred_val = model.predict(x_val)
+            score = mean_squared_error(y_val, pred_val)
 
             if score < best_score:
                 best_score = score
@@ -441,14 +506,37 @@ class Experiment:
                 model = RandomForestClassifier(**param_dict)
             elif method == 'svm':
                 model = SVC(probability=True, **param_dict)
+            elif method == 'tabnet':
+                model = TabNetClassifier(verbose=0,
+                                         optimizer_fn=torch.optim.Adam,
+                                         scheduler_fn=torch.optim.lr_scheduler.StepLR,
+                                         **param_dict)
             elif method == 'tabpfn':
                 model = TabPFNClassifier(**param_dict)
             elif method == 'xgb':
                 model = XGBClassifier(**param_dict)
 
-            model.fit(x_train, y_train)
+            # fit the model (if tabnet - not sklearn style)
+            if method == 'tabnet':
+                model.fit(
+                    x_train, y_train,
+                    eval_set=[(x_train, y_train), (x_val, y_val)],  # for early stopping
+                    eval_name=['train', 'val'],
+                    eval_metric=['auc'],
+                    max_epochs=200,
+                    patience=10,
+                    batch_size=512,
+                    virtual_batch_size=512,
+                    num_workers=0,
+                    weights=1,
+                    drop_last=False
+                )
+            # fit the model (if sklearn style)
+            else:
+                model.fit(x_train, y_train)
 
-            score = roc_auc_score(y_val, model.predict_proba(x_val)[:, 1])
+            pred_proba_val = model.predict_proba(x_val)[:, 1]
+            score = roc_auc_score(y_val, pred_proba_val)
 
             if score > best_score:
                 best_score = score
@@ -489,21 +577,22 @@ class Experiment:
             _results['precision'] = precision.__round__(self.evaluationconfig['round_digits'])
 
         if self.evaluationconfig['metrics_pd']['recall']:
-            recall = precision_score(y_true=y_test, y_pred=y_pred, zero_division=0.0)
+            recall = recall_score(y_true=y_test, y_pred=y_pred, zero_division=0.0)
             _results['recall'] = recall.__round__(self.evaluationconfig['round_digits'])
 
-        if self.evaluationconfig['metrics_pd']['h_measure']:
-            h_measure = h_score(y_test, y_pred)
-            _results['h_measure'] = h_measure.__round__(self.evaluationconfig['round_digits'])
+
 
         # Threshold-independent metrics:
+        if self.evaluationconfig['metrics_pd']['h_measure']:
+            h_measure = h_score(y_test, y_pred_proba)
+            _results['h_measure'] = h_measure.__round__(self.evaluationconfig['round_digits'])
 
         if self.evaluationconfig['metrics_pd']['aucroc']:
-            aucroc = roc_auc_score(y_test, y_pred)
+            aucroc = roc_auc_score(y_test, y_pred_proba)
             _results['aucroc'] = aucroc.__round__(self.evaluationconfig['round_digits'])
 
         if self.evaluationconfig['metrics_pd']['aucpr']:
-            aucpr = average_precision_score(y_test, y_pred)
+            aucpr = average_precision_score(y_test, y_pred_proba)
             _results['aucpr'] = aucpr.__round__(self.evaluationconfig['round_digits'])
 
         # cost-sensitive metrics:

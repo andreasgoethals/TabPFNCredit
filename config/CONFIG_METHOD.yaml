@@ -12,9 +12,10 @@ methods_lgd:
   en: false      # Elastic Net Regression (EN)
   knn: false     # K-Nearest Neighbors Regression (KNN)
   lgbm: false    # LightGBM Regression (LGBM)
-  lr: true      # Linear Regression (LR)
-  rf: true      # Random Forest Regression (RF)
+  lr: false      # Linear Regression (LR)
+  rf: false      # Random Forest Regression (RF)
   svr: false     # Support Vector Regression (SVR)
+  tabnet: true  # TabNet Regression (TabNet)
   tabpfn: false  # TabPFN Regression (TabPFN)
   xgb: false     # Extreme Gradient Boosting Regression (XGB)
 
@@ -32,6 +33,7 @@ methods_pd:
   lr: false    # Logistic Regression (LR)
   rf: false    # Random Forest (RF)
   svm: false   # Support Vector Machine (SVM)
+  tabnet: true   # TabNet
   tabpfn: false   # TabPFN foundation model
   xgb: false   # Extreme Gradient Boosting (XGBoost)
 
@@ -75,6 +77,12 @@ hyperparameters_lgd:
   svr:
     C: [0.1, 1]
     kernel: ['linear', 'rbf']
+  tabnet:
+    scheduler_params: [ { "step_size": 10, "gamma": 0.9 },
+                        { "step_size": 20, "gamma": 0.9 } ]
+  #  n_d: [ 8, 16 ]
+    n_shared: [ 1,2,3 ]
+    n_steps: [ 3,6,9 ]
   tabpfn:
     device: ['auto']
   xgb:
@@ -122,6 +130,12 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
   svm:
     C: [0.1, 1]
     kernel: ['linear', 'rbf']
+  tabnet:
+    scheduler_params: [{"step_size":10, "gamma":0.9},
+                       {"step_size":20, "gamma":0.9}]
+    n_d: [8, 16]
+    n_shared: [1,2,3]
+    n_steps: [3,6,9]
   tabpfn:
     device: ['auto']
   xgb:
