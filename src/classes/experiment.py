@@ -76,7 +76,7 @@ class Experiment:
         # Split data
         self.data.split_data()
 
-
+        # Train and evaluate the model
         self.train_evaluate()
 
     def train_evaluate(self):
