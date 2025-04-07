@@ -7,16 +7,16 @@ standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-
 methods_lgd:
   ab: false      # AdaBoost Regression (AB)
   ann: false     # Artificial Neural Networks (ANN)
-  cb: false      # CatBoost Regression (CB)
+  cb: true      # CatBoost Regression (CB)
   dt: true      # Decision Tree Regression (DT)
   en: false      # Elastic Net Regression (EN)
   knn: false     # K-Nearest Neighbors Regression (KNN)
-  lgbm: false    # LightGBM Regression (LGBM)
-  lr: false      # Linear Regression (LR)
-  rf: false      # Random Forest Regression (RF)
+  lgbm: true    # LightGBM Regression (LGBM)
+  lr: true      # Linear Regression (LR)
+  rf: true      # Random Forest Regression (RF)
   svr: false     # Support Vector Regression (SVR)
   tabnet: true  # TabNet Regression (TabNet)
-  tabpfn: false  # TabPFN Regression (TabPFN)
+  tabpfn: true  # TabPFN Regression (TabPFN)
   xgb: false     # Extreme Gradient Boosting Regression (XGB)
 
 
@@ -33,7 +33,7 @@ methods_pd:
   lr: false    # Logistic Regression (LR)
   rf: false    # Random Forest (RF)
   svm: false   # Support Vector Machine (SVM)
-  tabnet: true   # TabNet
+  tabnet: false   # TabNet
   tabpfn: false   # TabPFN foundation model
   xgb: false   # Extreme Gradient Boosting (XGBoost)
 
@@ -52,8 +52,9 @@ hyperparameters_lgd:
     weight_decay: [0.01]
     early_stopping_delay: [5]
   cb:
-    iterations: [100, 200]
-    depth: [4, 6]
+    iterations: [50, 100] #, 250]
+    #depth: [4, 6, 10]
+    #learning_rate: [0.01, 0.1]
     verbose: [False]
   dt:
     criterion: ['absolute_error']
@@ -67,13 +68,17 @@ hyperparameters_lgd:
   knn:
     n_neighbors: [3, 5]
   lgbm:
-    n_estimators: [50]
+    n_estimators: [50, 100, 250]
+    max_depth: [3, 6, 10]
     learning_rate: [0.01, 0.1]
   lr:
-    fit_intercept: [True] # to provide at least one hyperpara
+    fit_intercept: [True, False] # to provide at least one hyperpara
   rf:
-    n_estimators: [100, 200]
-    max_depth: [3, 5]
+    #n_estimators: [100, 200, 300]
+    max_depth: [None, 50]
+    #min_samples_split: [2]
+    #min_samples_leaf: [1, 2]
+    #max_features: ["sqrt", "log2", None]
   svr:
     C: [0.1, 1]
     kernel: ['linear', 'rbf']
@@ -87,8 +92,8 @@ hyperparameters_lgd:
     device: ['auto']
   xgb:
     n_estimators: [50, 100]
-    max_depth: [3, 5]
-    learning_rate: [0.01, 0.1]
+    #max_depth: [3, 6, 10]
+    #learning_rate: [0.01, 0.1]
 
 hyperparameters_pd:  # For each method, the hyperparameters to tune
   ab:
@@ -107,8 +112,9 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
   bnb:
     alpha: [0.1, 0.5]
   cb:
-    iterations: [100, 200]
-    depth: [4, 6]
+    iterations: [50, 100, 250]
+    depth: [4, 6, 10]
+    learning_rate: [0.01, 0.1]
   dt:
     criterion: ['gini']
     max_depth: [10]
@@ -119,14 +125,20 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
   lda:
     solver: [ 'svd', 'lsqr' ]
   lgbm:
-    n_estimators: [50]
+    n_estimators: [50, 100, 250]
+    max_depth: [3, 6, 10]
     learning_rate: [0.01, 0.1]
+    #subsample: [0.5, 0.7, 1]
+    #colsample_bytree: [0.6, 0.8, 1.0]
   lr:
     penalty: ['l2']
     C: [0.1, 1]
   rf:
-    n_estimators: [100, 200]
-    max_depth: [3, 5]
+    n_estimators: [100, 200, 300]
+    max_depth: [None]
+    min_samples_split: [2]
+    #min_samples_leaf: [1, 2]
+    max_features: ["sqrt", "log2", None]
   svm:
     C: [0.1, 1]
     kernel: ['linear', 'rbf']
@@ -139,7 +151,9 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
   tabpfn:
     device: ['auto']
   xgb:
-    n_estimators: [50, 100]
-    max_depth: [3, 5]
+    n_estimators: [50, 100, 250]
+    max_depth: [3, 6, 10]
     learning_rate: [0.01, 0.1]
+    #subsample: [0.5, 0.7, 1]
+    #colsample_bytree: [0.6, 0.8, 1.0]
 

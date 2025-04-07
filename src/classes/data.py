@@ -14,9 +14,7 @@ class Data:
         self.experimentconfig = experimentconfig
 
         # Initialize empty placeholders, stays constant over splits
-        # contains data after load_data, preprocess_data;
-        # but before split_data
-        # and before handle_missing_values, encode_cat, standardize
+        # contains data after load_data, preprocess_data; but before split_data; and before handle_missing_values, encode_cat, standardize
         self.x = np.empty((0, 0))
         self.y = np.empty(0)
 

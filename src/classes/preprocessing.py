@@ -802,6 +802,10 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
+            print("34_hmeq_data preprocessed")
+            print("x shape: ", x.shape)
+            print("y shape: ", y.shape)
+
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         #########################################################
