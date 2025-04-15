@@ -5,37 +5,37 @@ encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
 standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
 methods_lgd:
-  ab: true      # AdaBoost Regression (AB)
-  ann: true     # Artificial Neural Networks (ANN)
+  ab: false      # AdaBoost Regression (AB)
+  ann: false     # Artificial Neural Networks (ANN)
   cb: true      # CatBoost Regression (CB)
   dt: true      # Decision Tree Regression (DT)
-  en: true      # Elastic Net Regression (EN)
-  knn: true     # K-Nearest Neighbors Regression (KNN)
+  en: false      # Elastic Net Regression (EN)
+  knn: false     # K-Nearest Neighbors Regression (KNN)
   lgbm: true    # LightGBM Regression (LGBM)
   lr: true      # Linear Regression (LR)
   rf: true      # Random Forest Regression (RF)
-  svr: true     # Support Vector Regression (SVR)
+  svr: false     # Support Vector Regression (SVR)
   tabnet: true  # TabNet Regression (TabNet)
   tabpfn: true  # TabPFN Regression (TabPFN)
-  xgb: true     # Extreme Gradient Boosting Regression (XGB)
+  xgb: false     # Extreme Gradient Boosting Regression (XGB)
 
 
 methods_pd:
-  ab: true    # AdaBoost (AB)
-  ann: true   # Artificial Neural Networks (ANN)
-  bnb: true   # Bernoulli Naive Bayes (BNB)
-  cb: true    # CatBoost (CB)
-  dt: true    # Decision Tree (DT)
-  gnb: true   # Gaussian Naive Bayes (GNB)
-  knn: true   # K-Nearest Neighbors (KNN)
-  lda: true   # Linear Discriminant Analysis (LDA)
-  lgbm: true  # LightGBM (LGBM)
-  lr: true    # Logistic Regression (LR)
-  rf: true # Random Forest (RF)
-  svm: true   # Support Vector Machine (SVM)
-  tabnet: true   # TabNet
+  ab: false    # AdaBoost (AB)
+  ann: false   # Artificial Neural Networks (ANN)
+  bnb: false   # Bernoulli Naive Bayes (BNB)
+  cb: false    # CatBoost (CB)
+  dt: false    # Decision Tree (DT)
+  gnb: false   # Gaussian Naive Bayes (GNB)
+  knn: false   # K-Nearest Neighbors (KNN)
+  lda: false   # Linear Discriminant Analysis (LDA)
+  lgbm: false  # LightGBM (LGBM)
+  lr: false    # Logistic Regression (LR)
+  rf: false # Random Forest (RF)
+  svm: false   # Support Vector Machine (SVM)
+  tabnet: false   # TabNet
   tabpfn: true   # TabPFN foundation model
-  xgb: true   # Extreme Gradient Boosting (XGBoost)
+  xgb: false   # Extreme Gradient Boosting (XGBoost)
 
 hyperparameters_lgd:
   ab:

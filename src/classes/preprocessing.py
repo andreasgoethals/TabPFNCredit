@@ -1,6 +1,6 @@
 import warnings
 from typing import Dict, List
-
+from pathlib import Path
 import category_encoders
 import numpy as np
 import pandas as pd
@@ -155,57 +155,45 @@ class Preprocessing:
             print("00_lgd_toydata loaded")
             return _data
 
-
         def _load_01_heloc_lgd():
             try:
-                _data = pd.read_csv(
-                    r'data\lgd\01 heloc_lgd\heloc_lgd.csv', low_memory=False, sep=',')
+                _data = pd.read_csv(Path('data') / 'lgd' / '01 heloc_lgd' / 'heloc_lgd.csv', low_memory=False)
             except FileNotFoundError:
-                _data = pd.read_csv(
-                    r'..\data\lgd\01 heloc_lgd\heloc_lgd.csv', low_memory=False, sep=',')
+                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '01 heloc_lgd' / 'heloc_lgd.csv', low_memory=False)
             print("01_heloc_lgd loaded")
             return _data
 
         def _load_03_loss2():
             try:
-                _data = pd.read_csv(
-                    r'data\lgd\03 loss2\loss2.csv', sep=',')
+                _data = pd.read_csv(Path('data') / 'lgd' / '03 loss2' / 'loss2.csv')
             except FileNotFoundError:
-                _data = pd.read_csv(
-                    r'..\data\lgd\03 loss2\loss2.csv', sep=',')
+                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '03 loss2' / 'loss2.csv')
             print("03_loss2 loaded")
             return _data
 
         def _load_05_axa():
             try:
-                _data = pd.read_csv(
-                    r'data\lgd\05 lgd_axa\lgd_axa.csv', sep=',')
+                _data = pd.read_csv(Path('data') / 'lgd' / '05 lgd_axa' / 'lgd_axa.csv')
             except FileNotFoundError:
-                _data = pd.read_csv(
-                    r'..\data\lgd\05 lgd_axa\lgd_axa.csv', sep=',')
+                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '05 lgd_axa' / 'lgd_axa.csv')
             print("05_axa loaded")
             return _data
 
         def _load_06_base_model():
             try:
-                _data = pd.read_csv(
-                    r'data\lgd\06 base_model\base_model.csv', sep=',')
+                _data = pd.read_csv(Path('data') / 'lgd' / '06 base_model' / 'base_model.csv')
             except FileNotFoundError:
-                _data = pd.read_csv(
-                    r'..\data\lgd\06 base_model\base_model.csv', sep=',')
+                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '06 base_model' / 'base_model.csv')
             print("06_base_model loaded")
             return _data
 
         def _load_07_base_modelisation():
             try:
-                _data = pd.read_csv(
-                    r'data\lgd\07 base_modelisation\base_modelisation.csv', sep=',')
+                _data = pd.read_csv(Path('data') / 'lgd' / '07 base_modelisation' / 'base_modelisation.csv')
             except FileNotFoundError:
-                _data = pd.read_csv(
-                    r'..\data\lgd\07 base_modelisation\base_modelisation.csv', sep=',')
+                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '07 base_modelisation' / 'base_modelisation.csv')
             print("07_base_modelisation loaded")
             return _data
-
 
         """ Dataset-specific loading calls """
         # for PD datasets:
@@ -296,6 +284,27 @@ class Preprocessing:
                 return _load_07_base_modelisation()
         else:
             raise ValueError('Invalid task in experimentconfig, or no dataset selected in dataconfig')
+
+    def subsample_if_necessary(self, _data):
+        row_limit = self.experimentconfig.get('row_limit', 0)
+        if not isinstance(row_limit, int) or row_limit <= 0:
+            raise ValueError("row_limit must be a positive integer.")
+        if isinstance(_data, pd.DataFrame):
+            if len(_data) > row_limit:
+                print(f"- Dataset has {len(_data)} rows. Subsampling to {row_limit} rows.")
+                _data = _data.sample(n=row_limit, random_state=42).reset_index(drop=True)
+            else:
+                print(f"- Dataset has {len(_data)} rows. No subsampling needed.")
+            return _data
+        elif hasattr(_data, 'data') and hasattr(_data, 'target'):
+            if _data.data.shape[0] > row_limit:
+                idx = np.random.RandomState(seed=42).choice(_data.data.shape[0], row_limit, replace=False)
+                _data.data = _data.data[idx]
+                _data.target = _data.target[idx]
+                print(f"- Subsampled toy dataset to {row_limit} rows.")
+            return _data
+        else:
+            raise TypeError("Unsupported data format for subsampling.")
 
     def preprocess_data(self, _data):
         ########################################################

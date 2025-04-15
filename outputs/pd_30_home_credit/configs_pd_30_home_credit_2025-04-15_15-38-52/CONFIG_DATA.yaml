@@ -1,10 +1,14 @@
-# Description: Dataset selection (only 1 dataset at a time)
-
+dataset_lgd:
+  00_lgd_toydata: false
+  01_heloc: false
+  03_loss2: false
+  05_axa: true
+  06_base_model: false
+  07_base_modelisation: false
 dataset_pd:
   00_pd_toydata: false
-  #
   01_gmsc: false
-  02_taiwan_creditcard: true
+  02_taiwan_creditcard: false
   03_vehicle_loan: false
   06_lendingclub: false
   07_case_study: false
@@ -15,17 +19,5 @@ dataset_pd:
   22_bank_status: false
   28_thomas: false
   29_loan_default: false
-  30_home_credit: false
+  30_home_credit: true
   34_hmeq_data: false
-
-dataset_lgd:
-  00_lgd_toydata: false
-  #
-  01_heloc: false
-  03_loss2: false
-  05_axa: true
-  06_base_model: false
-  07_base_modelisation: false
-
-
-

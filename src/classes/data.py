@@ -52,6 +52,7 @@ class Data:
 
     def load_preprocess_data(self):
         _data = self.preprocessing.load_data()
+        _data = self.preprocessing.subsample_if_necessary(_data)
         self.x, self.y, self.cols, self.cols_cat, self.cols_num, self.cols_cat_idx, self.cols_num_idx = self.preprocessing.preprocess_data(_data)
 
     def split_data(self) -> Dict[int, Dict[str, List[int]]]:
