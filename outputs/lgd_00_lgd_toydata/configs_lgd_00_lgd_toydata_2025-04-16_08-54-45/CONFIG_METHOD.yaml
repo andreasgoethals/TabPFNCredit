@@ -1,0 +1,161 @@
+tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
+
+missing_values: 3  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mode(cat) and mean(num), 3: impute with median(num) and mode(cat)
+encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
+standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
+
+methods_lgd:
+  ab: true      # AdaBoost Regression (AB)
+  ann: true     # Artificial Neural Networks (ANN)
+  cb: true      # CatBoost Regression (CB)
+  dt: true      # Decision Tree Regression (DT)
+  en: true      # Elastic Net Regression (EN)
+  knn: true     # K-Nearest Neighbors Regression (KNN)
+  lgbm: true    # LightGBM Regression (LGBM)
+  lr: true      # Linear Regression (LR)
+  rf: true      # Random Forest Regression (RF)
+  svr: true     # Support Vector Regression (SVR)
+  tabnet: true  # TabNet Regression (TabNet)
+  tabpfn: true  # TabPFN Regression (TabPFN)
+  xgb: true     # Extreme Gradient Boosting Regression (XGB)
+
+
+methods_pd:
+  ab: true    # AdaBoost (AB)
+  ann: true   # Artificial Neural Networks (ANN)
+  bnb: true   # Bernoulli Naive Bayes (BNB)
+  cb: true    # CatBoost (CB)
+  dt: true    # Decision Tree (DT)
+  gnb: true   # Gaussian Naive Bayes (GNB)
+  knn: true   # K-Nearest Neighbors (KNN)
+  lda: true   # Linear Discriminant Analysis (LDA)
+  lgbm: true  # LightGBM (LGBM)
+  lr: true    # Logistic Regression (LR)
+  rf: true # Random Forest (RF)
+  svm: true   # Support Vector Machine (SVM)
+  tabnet: true   # TabNet
+  tabpfn: true   # TabPFN foundation model
+  xgb: true   # Extreme Gradient Boosting (XGBoost)
+
+hyperparameters_lgd:
+  ab:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  ann:
+    num_hidden_layers: [1]
+    hidden_layer_size: [32,64]
+    activation: ['relu']
+    dropout_rate: [0,0.1]
+    epochs: [50]
+    batch_size: [256]
+    learning_rate: [0.001]
+    weight_decay: [0.01]
+    early_stopping_delay: [5]
+  cb:
+    iterations: [50, 100] #, 250]
+    #depth: [4, 6, 10]
+    #learning_rate: [0.01, 0.1]
+    verbose: [False]
+  dt:
+    criterion: ['absolute_error']
+    max_depth: [10]
+  en:
+    alpha: [0.1, 0.5]
+    l1_ratio: [0.1, 0.5]
+  gb:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  knn:
+    n_neighbors: [3, 5]
+  lgbm:
+    n_estimators: [50, 100, 250]
+    max_depth: [3, 6, 10]
+    learning_rate: [0.01, 0.1]
+  lr:
+    fit_intercept: [True, False] # to provide at least one hyperpara
+  rf:
+    #n_estimators: [100, 200, 300]
+    max_depth: [None, 50]
+    #min_samples_split: [2]
+    #min_samples_leaf: [1, 2]
+    #max_features: ["sqrt", "log2", None]
+  svr:
+    C: [0.1, 1]
+    kernel: ['linear', 'rbf']
+  tabnet:
+    scheduler_params: [ { "step_size": 10, "gamma": 0.9 },
+                        { "step_size": 20, "gamma": 0.9 } ]
+  #  n_d: [ 8, 16 ]
+    n_shared: [ 1,2,3 ]
+    n_steps: [ 3,6,9 ]
+  tabpfn:
+    device: ['auto']
+    ignore_pretraining_limits: [false]
+  xgb:
+    n_estimators: [50, 100]
+    #max_depth: [3, 6, 10]
+    #learning_rate: [0.01, 0.1]
+
+hyperparameters_pd:  # For each method, the hyperparameters to tune
+  ab:
+    n_estimators: [50, 100]
+    learning_rate: [0.01, 0.1]
+  ann:
+    num_hidden_layers: [1]
+    hidden_layer_size: [32,64]
+    activation: ['relu']
+    dropout_rate: [0,0.1]
+    epochs: [50]
+    batch_size: [256]
+    learning_rate: [0.001]
+    weight_decay: [0.01]
+    early_stopping_delay: [5]
+  bnb:
+    alpha: [0.1, 0.5]
+  cb:
+    iterations: [50, 100, 250]
+    depth: [4, 6, 10]
+    learning_rate: [0.01, 0.1]
+  dt:
+    criterion: ['gini']
+    max_depth: [10]
+  gnb:
+    var_smoothing: [0.0001, 0.001]
+  knn:
+    n_neighbors: [3, 5]
+  lda:
+    solver: [ 'svd', 'lsqr' ]
+  lgbm:
+    n_estimators: [50, 100, 250]
+    max_depth: [3, 6, 10]
+    learning_rate: [0.01, 0.1]
+    #subsample: [0.5, 0.7, 1]
+    #colsample_bytree: [0.6, 0.8, 1.0]
+  lr:
+    penalty: ['l2']
+    C: [0.1, 1]
+  rf:
+    n_estimators: [100, 200, 300]
+    max_depth: [None]
+    min_samples_split: [2]
+    #min_samples_leaf: [1, 2]
+    max_features: ["sqrt", "log2", None]
+  svm:
+    C: [0.1, 1]
+    kernel: ['linear', 'rbf']
+  tabnet:
+    scheduler_params: [{"step_size":10, "gamma":0.9},
+                       {"step_size":20, "gamma":0.9}]
+    n_d: [8, 16]
+    n_shared: [1,2,3]
+    n_steps: [3,6,9]
+  tabpfn:
+    device: ['auto']
+    ignore_pretraining_limits: [false]
+  xgb:
+    n_estimators: [50, 100, 250]
+    max_depth: [3, 6, 10]
+    learning_rate: [0.01, 0.1]
+    #subsample: [0.5, 0.7, 1]
+    #colsample_bytree: [0.6, 0.8, 1.0]
+
