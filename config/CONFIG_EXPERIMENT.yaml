@@ -1,5 +1,5 @@
 
-task: lgd # lgd / pd: the task to perform
+task: pd # lgd / pd: the task to perform
 cv_splits: 3
 val_size: 0.5 # the size of the validation set, relative to the training set within each fold
 row_limit: 30000 # the max number of rows in training data. For TabPFN <= 10K x folds/((folds-1)x(1-val_size))
