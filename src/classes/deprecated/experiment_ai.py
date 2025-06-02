@@ -32,9 +32,9 @@ from tabpfn import TabPFNClassifier, TabPFNRegressor
 from pytorch_tabnet.tab_model import TabNetClassifier, TabNetRegressor
 
 # Proprietary imports
-from src.classes.data import Data
+from src.classes.data.data import Data
 from src.classes.models.ann import NNClassifier, NNRegressor
-from src.classes.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
+from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 
 # hide warnings

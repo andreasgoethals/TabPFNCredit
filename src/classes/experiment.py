@@ -1,6 +1,5 @@
 # tooling:
 import datetime
-import itertools
 import warnings
 from typing import Dict, Any, Optional
 
@@ -8,16 +7,15 @@ import numpy as np
 from tqdm import tqdm
 
 # metrics:
-from sklearn.metrics import (roc_auc_score, mean_squared_error)
 
 # foundation models:
 from pytorch_tabnet.tab_model import TabNetClassifier
 
 # Proprietary imports
-from src.classes.data import Data
+from src.classes.data.data import Data
 from src.classes.evaluation import ModelEvaluator
 from src.classes.models.models import Models, ModelConfiguration
-from src.classes.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
+from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
 from src.classes.tuner import Tuner
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 

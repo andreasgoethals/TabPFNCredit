@@ -34,7 +34,7 @@ methods_pd:
   rf: false # Random Forest (RF)
   svm: false   # Support Vector Machine (SVM)
   tabnet: false   # TabNet
-  tabpfn: false   # TabPFN foundation model
+  tabpfn: true   # TabPFN foundation model
   xgb: false   # Extreme Gradient Boosting (XGBoost)
 
 hyperparameters_lgd:
