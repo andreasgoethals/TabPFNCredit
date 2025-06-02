@@ -116,7 +116,7 @@ class Experiment:
                     # Tune only once per method
                     if method not in tuned_hyperparams:
                         print(f"---- Tuning {method} ----")
-                        tuned_hyperparams[method] = self._get_optimal_hyperparameters_pd(fold, indices, method)
+                        tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
                     #optimal_params = self._get_optimal_hyperparameters(fold, indices, method)
 
                     # Create and train model
