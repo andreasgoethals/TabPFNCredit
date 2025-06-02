@@ -1,6 +1,6 @@
-tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
+#tune_hyperparameters: false  # true: tune hyperparameters, false: use stored hyperparameters
 
-missing_values: 3  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mode(cat) and mean(num), 3: impute with median(num) and mode(cat)
+missing_values: 1  # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mode(cat) and mean(num), 3: impute with median(num) and mode(cat)
 encode_cat: 1  # 0: no encoding, 1: one-hot, 2: WoE encoding
 standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
@@ -21,21 +21,21 @@ methods_lgd:
 
 
 methods_pd:
-  ab: true    # AdaBoost (AB)
-  ann: true   # Artificial Neural Networks (ANN)
-  bnb: true   # Bernoulli Naive Bayes (BNB)
-  cb: true    # CatBoost (CB)
+  ab: false    # AdaBoost (AB)
+  ann: false   # Artificial Neural Networks (ANN)
+  bnb: false   # Bernoulli Naive Bayes (BNB)
+  cb: false    # CatBoost (CB)
   dt: true    # Decision Tree (DT)
-  gnb: true   # Gaussian Naive Bayes (GNB)
-  knn: true   # K-Nearest Neighbors (KNN)
-  lda: true   # Linear Discriminant Analysis (LDA)
-  lgbm: true  # LightGBM (LGBM)
+  gnb: false   # Gaussian Naive Bayes (GNB)
+  knn: false   # K-Nearest Neighbors (KNN)
+  lda: false   # Linear Discriminant Analysis (LDA)
+  lgbm: false  # LightGBM (LGBM)
   lr: true    # Logistic Regression (LR)
-  rf: true # Random Forest (RF)
-  svm: true   # Support Vector Machine (SVM)
-  tabnet: true   # TabNet
-  tabpfn: true   # TabPFN foundation model
-  xgb: true   # Extreme Gradient Boosting (XGBoost)
+  rf: false # Random Forest (RF)
+  svm: false   # Support Vector Machine (SVM)
+  tabnet: false   # TabNet
+  tabpfn: false   # TabPFN foundation model
+  xgb: false   # Extreme Gradient Boosting (XGBoost)
 
 hyperparameters_lgd:
   ab:
@@ -75,7 +75,7 @@ hyperparameters_lgd:
     fit_intercept: [True, False] # to provide at least one hyperpara
   rf:
     #n_estimators: [100, 200, 300]
-    max_depth: [None, 50]
+    max_depth: [10, 50]
     #min_samples_split: [2]
     #min_samples_leaf: [1, 2]
     #max_features: ["sqrt", "log2", None]
@@ -136,7 +136,7 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
     C: [0.1, 1]
   rf:
     n_estimators: [100, 200, 300]
-    max_depth: [None]
+    max_depth: [50, 100]
     min_samples_split: [2]
     #min_samples_leaf: [1, 2]
     max_features: ["sqrt", "log2", None]
@@ -159,3 +159,65 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
     #subsample: [0.5, 0.7, 1]
     #colsample_bytree: [0.6, 0.8, 1.0]
 
+#default_hyperparameters_pd:  # For each method, the hyperparameters to tune
+#  ab:
+#    n_estimators: 50
+#    learning_rate: 0.1
+#  ann:
+#    num_hidden_layers: 1
+#    hidden_layer_size: 32,64
+#    activation: 'relu'
+#    dropout_rate: 0.1
+#    epochs: 50
+#    batch_size: 256
+#    learning_rate: 0.001
+#    weight_decay: 0.01
+#    early_stopping_delay: 5
+#  bnb:
+#    alpha: 0.1
+#  cb:
+#    iterations: 50
+#    depth: 4
+#    learning_rate: 0.01
+#  dt:
+#    criterion: 'gini'
+#    max_depth: 10
+#  gnb:
+#    var_smoothing: 0.0001
+#  knn:
+#    n_neighbors: 3
+#  lda:
+#    solver: 'svd'
+#  lgbm:
+#    n_estimators: 50
+#    max_depth: 3
+#    learning_rate: 0.01
+#    #subsample: [0.5, 0.7, 1]
+#    #colsample_bytree: [0.6, 0.8, 1.0]
+#  lr:
+#    penalty: 'l2'
+#    C: 0.1
+#  rf:
+#    n_estimators: 100
+#    max_depth: None
+#    min_samples_split: 2
+#    #min_samples_leaf: [1, 2]
+#    max_features: "sqrt"
+#  svm:
+#    C: 0.1
+#    kernel: 'linear'
+#  tabnet:
+#    scheduler_params: [{"step_size":10, "gamma":0.9},
+#                       {"step_size":20, "gamma":0.9}]
+#    n_d: 8
+#    n_shared: 1
+#    n_steps: 3
+#  tabpfn:
+#    device: ['auto']
+#    ignore_pretraining_limits: [false]
+#  xgb:
+#    n_estimators: [50, 100, 250]
+#    max_depth: [3, 6, 10]
+#    learning_rate: [0.01, 0.1]
+#    #subsample: [0.5, 0.7, 1]
+#    #colsample_bytree: [0.6, 0.8, 1.0]

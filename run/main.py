@@ -2,9 +2,16 @@ import os
 import argparse
 from src.utils import set_random_seed, load_config
 from pathlib import Path
-from src.classes.experiment import Experiment
+from src.classes.deprecated.experiment_deprecated import Experiment
 import pandas as pd
 import shutil
+import datetime
+
+import sys
+from pathlib import Path
+
+project_root = Path(__file__).resolve().parent.parentAdd
+sys.path.append(str(project_root))
 
 # Argument parser
 parser = argparse.ArgumentParser()
@@ -12,7 +19,9 @@ parser.add_argument('--data', type=str, default='config/CONFIG_DATA.yaml')
 parser.add_argument('--experiment', type=str, default='config/CONFIG_EXPERIMENT.yaml')
 parser.add_argument('--method', type=str, default='config/CONFIG_METHOD.yaml')
 parser.add_argument('--evaluation', type=str, default='config/CONFIG_EVALUATION.yaml')
-parser.add_argument('--workdir', type=str, default='/home/linux_vmedina/projects/CreditScoring')
+#parser.add_argument('--workdir', type=str, default='/home/linux_vmedina/projects/CreditScoring')
+#changed the working directory to be set dynamically
+parser.add_argument('--workdir', type=str, default=str(Path(__file__).resolve().parent.parent))
 args = parser.parse_args()
 
 # Set working directory
@@ -58,6 +67,9 @@ elif task == 'lgd':
 
 # Format timestamp
 timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+now2 = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
+print('\nExperiment ended at: ', now2)
 
 # Format names
 base_folder = f"{task}_{dataset_name}"

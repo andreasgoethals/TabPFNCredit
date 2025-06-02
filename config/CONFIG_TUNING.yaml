@@ -1,0 +1,19 @@
+tune_hyperparameters: False  # true: tune hyperparameters, false: use stored hyperparameters
+tuning_model: 'optuna'
+n_trials: 100
+
+tuning_params:
+  -pd:
+    -rf:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 10
+          high: 100
+        max_depth:
+          type: 'int'
+          low: 1
+          high: 32
+      param_grid:
+        n_estimators: [10, 100, 200]
+        max_depth: [1, 16, 32]

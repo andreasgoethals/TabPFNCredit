@@ -701,38 +701,40 @@ class Preprocessing:
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_29_loan_default(_data):
-            # convert all columns to numeric:
+            import pandas as pd
+            import numpy as np
+
+            # Convert all to numeric, coercing errors to NaN
             _data = _data.apply(pd.to_numeric, errors='coerce')
 
-            # Drop ID and useless columns
+            # Drop ID column
             _data = _data.drop('id', axis=1)
 
-            # Split into covariates, labels
-            y = _data['loss'].values.astype(int)
-
-            #convert y to 0 if 0 and to 1 if not zero:
-            y = np.where(y==0, 0, 1)
-            x = _data.drop('loss', axis=1).values
-
-            # remove duplicate features by checking if columns have the same values:
+            # Remove constant/duplicate features
             _data = _data.loc[:, (_data != _data.iloc[0]).any()]
 
+            # Extract target
+            y = _data['loss'].values.astype(int)
+            y = np.where(y == 0, 0, 1)
 
+            # Drop target to get features
+            _data = _data.drop('loss', axis=1)
 
-            # Replace infinity values with a large finite number
+            # Create `x` from cleaned data
+            x = _data.values
+
+            # Replace infinity and clip to float32 range
             x = np.where(np.isinf(x), np.finfo(np.float32).max, x)
-            # Ensure all values are within a valid range for float32
             x = np.clip(x, np.finfo(np.float32).min, np.finfo(np.float32).max)
 
-            # only numeric cols:
-            cols = list(_data.drop('loss', axis=1).columns)
+            # Determine column indices
+            cols = list(_data.columns)
             cols_cat = []
             cols_num = cols
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
-
 
         def _preprocess_30_home_credit(_data):
             # Drop ID and useless columns

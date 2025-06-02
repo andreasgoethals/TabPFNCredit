@@ -3,7 +3,7 @@
 dataset_pd:
   00_pd_toydata: false
   #
-  01_gmsc: false
+  01_gmsc: true
   02_taiwan_creditcard: false
   03_vehicle_loan: false
   06_lendingclub: false
@@ -14,7 +14,7 @@ dataset_pd:
   14_german_credit: false
   22_bank_status: false
   28_thomas: false
-  29_loan_default: true
+  29_loan_default: false
   30_home_credit: false
   34_hmeq_data: false
 
