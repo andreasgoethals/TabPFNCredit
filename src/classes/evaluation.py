@@ -37,7 +37,7 @@ class ModelEvaluator:
         }
 
         for metric_name, metric_func in metrics.items():
-            if self.config.metrics_pd.get(metric_name, False):
+            if self.config.metrics['pd'].get(metric_name, False):
                 results[metric_name] = round(metric_func(), self.config.round_digits)
 
         return results
@@ -52,7 +52,7 @@ class ModelEvaluator:
         }
 
         for metric_name, metric_func in metrics.items():
-            if self.config.metrics_lgd.get(metric_name, False):
+            if self.config.metrics['lgd'].get(metric_name, False):
                 results[metric_name] = round(metric_func(), self.config.round_digits)
 
         return results

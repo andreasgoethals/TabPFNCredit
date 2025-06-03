@@ -1,6 +1,6 @@
 # tooling:
 from dataclasses import dataclass
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import torch
 
@@ -28,12 +28,10 @@ class ModelConfiguration:
     cv_splits: int
     binary_threshold: float
     round_digits: int
-    metrics_pd: Dict[str, bool]
-    metrics_lgd: Dict[str, bool]
+    metrics: Dict[str, Dict[str, bool]]
     tune_hyperparameters: bool
-    hyperparameters: Dict[str, Any]
-    methods_pd: Dict[str, bool]
-    methods_lgd: Dict[str, bool]
+    hyperparameters: Dict[str, Dict[str, bool]]
+    methods: Dict[str, Dict[str, bool]]
 
 
 class Models:
@@ -49,7 +47,7 @@ class Models:
             'knn': lambda p: KNeighborsClassifier(**p),
             'lda': lambda p: LinearDiscriminantAnalysis(),
             'lgbm': lambda p: LGBMClassifier(random_state=0, verbose=-1, **p),
-            'lr': lambda p: LogisticRegression(random_state=0, **p),
+            'lr': lambda p: LogisticRegression(random_state=0, solver='liblinear', **p),
             'rf': lambda p: RandomForestClassifier(random_state=0, **p),
             'svm': lambda p: SVC(random_state=0, probability=True, **p),
             'tabnet': lambda p: TabNetClassifier(verbose=0, optimizer_fn=torch.optim.Adam,

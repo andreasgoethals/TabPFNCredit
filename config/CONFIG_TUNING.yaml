@@ -3,8 +3,8 @@ tuning_model: 'optuna'
 n_trials: 20
 
 tuning_params:
-  -pd:
-    -lr:
+  pd:
+    lr:
       param_space:
         C:
           type: 'float'
@@ -13,11 +13,11 @@ tuning_params:
           log: true
         penalty:
           type: 'categorical'
-          values: [  'l2' ]
+          values: ['l1', 'l2']
       param_grid:
         C: [ 0.001, 0.01, 0.1, 1.0, 10.0, 100.0 ]
         penalty: [ 'l1', 'l2','elasticnet' ]
-    -rf:
+    rf:
       param_space:
         n_estimators:
           type: 'int'

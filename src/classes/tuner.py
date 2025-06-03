@@ -117,14 +117,11 @@ class OptunaTuner(HyperparameterTuner):
 
 class Tuner:
     @staticmethod
-    def create_tuner(tuning_config: Dict[str, Any]) -> HyperparameterTuner:
-        # Check if hyperparameter tuning is enabled
+    def create_tuner(task: str,method: str, tuning_config: Dict[str, Dict[str, Any]]) -> HyperparameterTuner:
         if not tuning_config.get('tune_hyperparameters', False):
             return None
 
         tuner_type = tuning_config.get('tuning_model', 'grid')
-        task = next(iter(tuning_config.get('tuning_params', {}).keys()))  # Get 'pd' or 'lgd'
-        method = next(iter(tuning_config['tuning_params'][task].keys()))  # Get the model name (e.g., 'rf')
 
         if tuner_type == 'grid':
             param_grid = tuning_config['tuning_params'][task][method]['param_grid']
@@ -135,17 +132,3 @@ class Tuner:
             return OptunaTuner(param_space, n_trials)
         else:
             raise ValueError(f"Unknown tuner type: {tuner_type}")
-
-    # def tune(self):
-    # @staticmethod
-    # def create_tuner(tuning_config: Dict[str, Any]) -> HyperparameterTuner:
-    #     tuner_type = tuning_config.get('type', 'grid')
-    #     if tuner_type == 'grid':
-    #         return GridSearchTuner(tuning_config['param_grid'])
-    #     elif tuner_type == 'optuna':
-    #         return OptunaTuner(
-    #             tuning_config['param_space'],
-    #             tuning_config.get('n_trials', 100)
-    #         )
-    #     else:
-    #         raise ValueError(f"Unknown tuner type: {tuner_type}")

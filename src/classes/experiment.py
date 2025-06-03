@@ -58,12 +58,10 @@ class Experiment:
             cv_splits=experimentconfig['cv_splits'],
             binary_threshold=evaluationconfig['binary_threshold'],
             round_digits=evaluationconfig['round_digits'],
-            metrics_pd=evaluationconfig['metrics_pd'],
-            metrics_lgd=evaluationconfig['metrics_lgd'],
+            metrics=evaluationconfig['metrics'],
             tune_hyperparameters=tuningconfig['tune_hyperparameters'],
             hyperparameters=tuningconfig,
-            methods_pd=methodconfig['methods_pd'],
-            methods_lgd=methodconfig['methods_lgd']
+            methods=methodconfig['methods'],
         )
 
         _assert_experimentconfig(experimentconfig)
@@ -91,8 +89,8 @@ class Experiment:
     def train_evaluate(self):
         results = {}
         tuned_hyperparams = {}  # Track hyperparams per method
-        methods = (self.config.methods_pd if self.config.task == 'pd'
-                   else self.config.methods_lgd)
+        methods = (self.config.methods['pd'] if self.config.task == 'pd'
+                   else self.config.methods['lgd'])
 
         for fold, indices in tqdm(self.data.split_indices.items(), desc="Cross-validation loop:"):
             x_train, y_train = self.data.x[indices['train']], self.data.y[indices['train']]
@@ -165,8 +163,7 @@ class Experiment:
     def _tune_hyperparameters(self, method: str) -> Dict[str, Any]:
         task = self.config.task
         tuning_config = self.config.hyperparameters
-        print(f'this is TUNING CONFIG -> {tuning_config}')
-        tuner = Tuner.create_tuner(tuning_config)
+        tuner = Tuner.create_tuner(task, method, tuning_config)
 
         optimal_params = tuner.tune(
             self.model_factory,
