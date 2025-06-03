@@ -1,8 +1,9 @@
 import os
 import argparse
+
 from src.utils import set_random_seed, load_config
 from pathlib import Path
-from src.classes.deprecated.experiment_deprecated import Experiment
+from src.classes.experiment import Experiment
 import pandas as pd
 import shutil
 import datetime
@@ -10,7 +11,7 @@ import datetime
 import sys
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parent.parentAdd
+project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
 
 # Argument parser
@@ -19,6 +20,7 @@ parser.add_argument('--data', type=str, default='config/CONFIG_DATA.yaml')
 parser.add_argument('--experiment', type=str, default='config/CONFIG_EXPERIMENT.yaml')
 parser.add_argument('--method', type=str, default='config/CONFIG_METHOD.yaml')
 parser.add_argument('--evaluation', type=str, default='config/CONFIG_EVALUATION.yaml')
+parser.add_argument('--tuning', type=str, default='config/CONFIG_TUNING.yaml')
 #parser.add_argument('--workdir', type=str, default='/home/linux_vmedina/projects/CreditScoring')
 #changed the working directory to be set dynamically
 parser.add_argument('--workdir', type=str, default=str(Path(__file__).resolve().parent.parent))
@@ -35,9 +37,10 @@ dataconfig = load_config(Path(args.data))
 experimentconfig = load_config(Path(args.experiment))
 methodconfig = load_config(Path(args.method))
 evaluationconfig = load_config(Path(args.evaluation))
+tuningconfig = load_config(Path(args.tuning))
 
 # Run experiment
-experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig)
+experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig)
 experiment.run()
 
 # Get the results
@@ -91,6 +94,7 @@ shutil.copy(args.data, config_backup_dir / "CONFIG_DATA.yaml")
 shutil.copy(args.experiment, config_backup_dir / "CONFIG_EXPERIMENT.yaml")
 shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
 shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
+shutil.copy(args.evaluation, config_backup_dir / "CONFIG_TUNING.yaml")
 print(f"Configs backed up to: {config_backup_dir}")
 
 
