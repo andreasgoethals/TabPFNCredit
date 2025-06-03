@@ -61,8 +61,7 @@ class Experiment:
             metrics_pd=evaluationconfig['metrics_pd'],
             metrics_lgd=evaluationconfig['metrics_lgd'],
             tune_hyperparameters=tuningconfig['tune_hyperparameters'],
-            hyperparameters_pd=methodconfig['hyperparameters_pd'],
-            hyperparameters_lgd=methodconfig['hyperparameters_lgd'],
+            hyperparameters=tuningconfig,
             methods_pd=methodconfig['methods_pd'],
             methods_lgd=methodconfig['methods_lgd']
         )
@@ -165,8 +164,8 @@ class Experiment:
 
     def _tune_hyperparameters(self, method: str) -> Dict[str, Any]:
         task = self.config.task
-        tuning_config = self.config.hyperparameters_pd[method]
-
+        tuning_config = self.config.hyperparameters
+        print(f'this is TUNING CONFIG -> {tuning_config}')
         tuner = Tuner.create_tuner(tuning_config)
 
         optimal_params = tuner.tune(
@@ -182,9 +181,7 @@ class Experiment:
 
     def _read_hyperparameters_from_config(self, method):
         params = {}
-        hyperparams = (self.config.hyperparameters_pd[method]
-                       if self.config.task == 'pd'
-                       else self.config.hyperparameters_lgd[method])
+        hyperparams = (self.config.hyperparameters[method])
 
         for param in hyperparams:
             params[param] = hyperparams[param][0]

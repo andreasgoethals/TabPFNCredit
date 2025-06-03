@@ -31,8 +31,7 @@ class ModelConfiguration:
     metrics_pd: Dict[str, bool]
     metrics_lgd: Dict[str, bool]
     tune_hyperparameters: bool
-    hyperparameters_pd: Dict[str, Any]
-    hyperparameters_lgd: Dict[str, Any]
+    hyperparameters: Dict[str, Any]
     methods_pd: Dict[str, bool]
     methods_lgd: Dict[str, bool]
 

@@ -43,60 +43,61 @@ tuningconfig = load_config(Path(args.tuning))
 experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig)
 experiment.run()
 
-# Get the results
-rows = []
-for model_name, splits_dict in experiment.results.items():
-    for split_idx, metrics_dict in splits_dict.items():
-        row = {'model': model_name, 'split': split_idx}
-        row.update(metrics_dict)
-        rows.append(row)
-
-df = pd.DataFrame(rows)
-
-# Print the res
-print(df)
-
-# Get task type (pd or lgd)
-task = experimentconfig.get('task')
-
-# Select dataset based on the task
-dataset_name = ""
-if task == 'pd':
-    # Select dataset where 'true' is marked under dataset_pd
-    dataset_name = next((key for key, value in dataconfig['dataset_pd'].items() if value), 'dataset_pd_unknown')
-elif task == 'lgd':
-    # Select dataset where 'true' is marked under dataset_lgd
-    dataset_name = next((key for key, value in dataconfig['dataset_lgd'].items() if value), 'dataset_lgd_unknown')
-
-# Format timestamp
-timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
-
-now2 = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
-print('\nExperiment ended at: ', now2)
-
-# Format names
-base_folder = f"{task}_{dataset_name}"
-filename_prefix = f"{task}_{dataset_name}_{timestamp}"
-
-# Create output and config backup
-output_dir = Path("outputs") / base_folder
-output_dir.mkdir(parents=True, exist_ok=True)
-config_backup_dir = output_dir / f"configs_{filename_prefix}"
-config_backup_dir.mkdir(parents=True, exist_ok=True)
-
-# Save results
-output_file = output_dir / f"{filename_prefix}.csv"
-df.to_csv(output_file, index=False)
-print(f"Results saved to {output_file}")
-
-# Copy config files
-shutil.copy(args.data, config_backup_dir / "CONFIG_DATA.yaml")
-shutil.copy(args.experiment, config_backup_dir / "CONFIG_EXPERIMENT.yaml")
-shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
-shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
-shutil.copy(args.evaluation, config_backup_dir / "CONFIG_TUNING.yaml")
-print(f"Configs backed up to: {config_backup_dir}")
-
-
+#
+# # Get the results
+# rows = []
+# for model_name, splits_dict in experiment.results.items():
+#     for split_idx, metrics_dict in splits_dict.items():
+#         row = {'model': model_name, 'split': split_idx}
+#         row.update(metrics_dict)
+#         rows.append(row)
+#
+# df = pd.DataFrame(rows)
+#
+# # Print the res
+# print(df)
+#
+# # Get task type (pd or lgd)
+# task = experimentconfig.get('task')
+#
+# # Select dataset based on the task
+# dataset_name = ""
+# if task == 'pd':
+#     # Select dataset where 'true' is marked under dataset_pd
+#     dataset_name = next((key for key, value in dataconfig['dataset_pd'].items() if value), 'dataset_pd_unknown')
+# elif task == 'lgd':
+#     # Select dataset where 'true' is marked under dataset_lgd
+#     dataset_name = next((key for key, value in dataconfig['dataset_lgd'].items() if value), 'dataset_lgd_unknown')
+#
+# # Format timestamp
+# timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
+#
+# now2 = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
+# print('\nExperiment ended at: ', now2)
+#
+# # Format names
+# base_folder = f"{task}_{dataset_name}"
+# filename_prefix = f"{task}_{dataset_name}_{timestamp}"
+#
+# # Create output and config backup
+# output_dir = Path("outputs") / base_folder
+# output_dir.mkdir(parents=True, exist_ok=True)
+# config_backup_dir = output_dir / f"configs_{filename_prefix}"
+# config_backup_dir.mkdir(parents=True, exist_ok=True)
+#
+# # Save results
+# output_file = output_dir / f"{filename_prefix}.csv"
+# df.to_csv(output_file, index=False)
+# print(f"Results saved to {output_file}")
+#
+# # Copy config files
+# shutil.copy(args.data, config_backup_dir / "CONFIG_DATA.yaml")
+# shutil.copy(args.experiment, config_backup_dir / "CONFIG_EXPERIMENT.yaml")
+# shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
+# shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
+# shutil.copy(args.evaluation, config_backup_dir / "CONFIG_TUNING.yaml")
+# print(f"Configs backed up to: {config_backup_dir}")
+#
+#
 
 

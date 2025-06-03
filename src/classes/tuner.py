@@ -86,6 +86,7 @@ class OptunaTuner(HyperparameterTuner):
             return self._evaluate_model(model, data, task)
 
         study.optimize(objective, n_trials=self.n_trials)
+
         return study.best_params
 
     def _create_trial_params(self, trial: optuna.Trial) -> Dict[str, Any]:
@@ -110,19 +111,41 @@ class OptunaTuner(HyperparameterTuner):
                     param_config['high'],
                     log=param_config.get('log', False)
                 )
+
         return params
 
 
 class Tuner:
     @staticmethod
     def create_tuner(tuning_config: Dict[str, Any]) -> HyperparameterTuner:
-        tuner_type = tuning_config.get('type', 'grid')
+        # Check if hyperparameter tuning is enabled
+        if not tuning_config.get('tune_hyperparameters', False):
+            return None
+
+        tuner_type = tuning_config.get('tuning_model', 'grid')
+        task = next(iter(tuning_config.get('tuning_params', {}).keys()))  # Get 'pd' or 'lgd'
+        method = next(iter(tuning_config['tuning_params'][task].keys()))  # Get the model name (e.g., 'rf')
+
         if tuner_type == 'grid':
-            return GridSearchTuner(tuning_config['param_grid'])
+            param_grid = tuning_config['tuning_params'][task][method]['param_grid']
+            return GridSearchTuner(param_grid)
         elif tuner_type == 'optuna':
-            return OptunaTuner(
-                tuning_config['param_space'],
-                tuning_config.get('n_trials', 100)
-            )
+            param_space = tuning_config['tuning_params'][task][method]['param_space']
+            n_trials = tuning_config.get('n_trials', 100)
+            return OptunaTuner(param_space, n_trials)
         else:
             raise ValueError(f"Unknown tuner type: {tuner_type}")
+
+    # def tune(self):
+    # @staticmethod
+    # def create_tuner(tuning_config: Dict[str, Any]) -> HyperparameterTuner:
+    #     tuner_type = tuning_config.get('type', 'grid')
+    #     if tuner_type == 'grid':
+    #         return GridSearchTuner(tuning_config['param_grid'])
+    #     elif tuner_type == 'optuna':
+    #         return OptunaTuner(
+    #             tuning_config['param_space'],
+    #             tuning_config.get('n_trials', 100)
+    #         )
+    #     else:
+    #         raise ValueError(f"Unknown tuner type: {tuner_type}")

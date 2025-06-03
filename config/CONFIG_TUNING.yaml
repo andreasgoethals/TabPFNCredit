@@ -1,9 +1,22 @@
-tune_hyperparameters: False  # true: tune hyperparameters, false: use stored hyperparameters
+tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
 tuning_model: 'optuna'
-n_trials: 100
+n_trials: 20
 
 tuning_params:
   -pd:
+    -lr:
+      param_space:
+        C:
+          type: 'float'
+          low: 0.001
+          high: 100.0
+          log: true
+        penalty:
+          type: 'categorical'
+          values: [  'l2' ]
+      param_grid:
+        C: [ 0.001, 0.01, 0.1, 1.0, 10.0, 100.0 ]
+        penalty: [ 'l1', 'l2','elasticnet' ]
     -rf:
       param_space:
         n_estimators:

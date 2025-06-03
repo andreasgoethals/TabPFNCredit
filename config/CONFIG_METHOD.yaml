@@ -25,13 +25,13 @@ methods_pd:
   ann: false   # Artificial Neural Networks (ANN)
   bnb: false   # Bernoulli Naive Bayes (BNB)
   cb: false    # CatBoost (CB)
-  dt: true    # Decision Tree (DT)
+  dt: false    # Decision Tree (DT)
   gnb: false   # Gaussian Naive Bayes (GNB)
   knn: false   # K-Nearest Neighbors (KNN)
   lda: false   # Linear Discriminant Analysis (LDA)
   lgbm: false  # LightGBM (LGBM)
   lr: true    # Logistic Regression (LR)
-  rf: false # Random Forest (RF)
+  rf: true # Random Forest (RF)
   svm: false   # Support Vector Machine (SVM)
   tabnet: false   # TabNet
   tabpfn: false   # TabPFN foundation model
