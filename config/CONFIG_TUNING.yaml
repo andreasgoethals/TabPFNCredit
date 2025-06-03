@@ -1,9 +1,28 @@
-tune_hyperparameters: true  # true: tune hyperparameters, false: use stored hyperparameters
-tuning_model: 'optuna'
+tune_hyperparameters: true  # true: tune hyperparameters, false: use base models
+tuning_method: 'optuna'      # optuna | grid | none: use stored hyperparameters
 n_trials: 20
 
 tuning_params:
   pd:
+    ab:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 100
+          step: 10
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.1
+    ann:
+    bnb:
+    cb:
+    dt:
+    gnb:
+    knn:
+    lda:
+    lgbm:
     lr:
       param_space:
         C:
@@ -13,7 +32,7 @@ tuning_params:
           log: true
         penalty:
           type: 'categorical'
-          values: ['l1', 'l2']
+          values: [ 'l1', 'l2' ]
       param_grid:
         C: [ 0.001, 0.01, 0.1, 1.0, 10.0, 100.0 ]
         penalty: [ 'l1', 'l2','elasticnet' ]
@@ -28,5 +47,9 @@ tuning_params:
           low: 1
           high: 32
       param_grid:
-        n_estimators: [10, 100, 200]
-        max_depth: [1, 16, 32]
+        n_estimators: [ 10, 100, 200 ]
+        max_depth: [ 1, 16, 32 ]
+    svm:
+    tabnet:
+    tabpfn:
+    xgb:

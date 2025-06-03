@@ -6,7 +6,7 @@ standardize: 2  # 0: no standardization, 1: standardnormal distribution, 2: min-
 
 methods:
   pd:
-    ab: false    # AdaBoost (AB)
+    ab: true    # AdaBoost (AB)
     ann: false   # Artificial Neural Networks (ANN)
     bnb: false   # Bernoulli Naive Bayes (BNB)
     cb: false    # CatBoost (CB)

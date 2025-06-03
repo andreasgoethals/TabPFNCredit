@@ -121,7 +121,7 @@ class Tuner:
         if not tuning_config.get('tune_hyperparameters', False):
             return None
 
-        tuner_type = tuning_config.get('tuning_model', 'grid')
+        tuner_type = tuning_config.get('tuning_method', 'grid')
 
         if tuner_type == 'grid':
             param_grid = tuning_config['tuning_params'][task][method]['param_grid']

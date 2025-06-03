@@ -1,14 +1,11 @@
-# tooling:
+# Tooling
 import datetime
 import warnings
 from typing import Dict, Any, Optional
-
 import numpy as np
 from tqdm import tqdm
 
-# metrics:
-
-# foundation models:
+# Foundation models
 from pytorch_tabnet.tab_model import TabNetClassifier
 
 # Proprietary imports
@@ -19,14 +16,33 @@ from src.classes.data.preprocessing import standardize_data, encode_cat_vars, ha
 from src.classes.tuner import Tuner
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 
-# hide warnings
+# Hide warnings
 warnings.filterwarnings("ignore")
-
 
 class ModelTrainer:
     @staticmethod
     def train_model(model: Any, method: str, x_train: np.ndarray, y_train: np.ndarray,
                     x_val: Optional[np.ndarray] = None, y_val: Optional[np.ndarray] = None) -> Any:
+        """
+        Trains a given model using the specified method and training data. The training method is selected
+        based on the provided `method` parameter. If `method` is 'tabnet', the model is trained using the
+        TabNet framework with additional configurations like evaluation set, metric, batch size, and
+        early stopping patience. For all other methods, the model is trained on the given training data
+        directly.
+
+        :param model: The machine learning model to be trained. It can be of any type depending on the
+                      chosen `method`.
+        :param method: Specifies the method to be used for training the model. If 'tabnet', the function
+                       applies TabNet-specific configurations. Otherwise, it defaults to the standard
+                       model fitting procedure.
+        :param x_train: A NumPy array representing the training feature set used for model training.
+        :param y_train: A NumPy array representing the training target variable.
+        :param x_val: An optional NumPy array representing the validation feature set used for evaluation
+                      during training, applicable for TabNet training.
+        :param y_val: An optional NumPy array representing the validation target variable corresponding
+                      to the validation features, applicable for TabNet training.
+        :return: The trained model instance after the completion of the training process.
+        """
         if method == 'tabnet':
             model.fit(
                 x_train, y_train.reshape(-1, 1) if len(y_train.shape) == 1 else y_train,
@@ -48,7 +64,8 @@ class ModelTrainer:
 
 
 class Experiment:
-    def __init__(self, dataconfig: Dict, experimentconfig: Dict, methodconfig: Dict, evaluationconfig: Dict, tuningconfig: Dict):
+    def __init__(self, dataconfig: Dict, experimentconfig: Dict, methodconfig: Dict, evaluationconfig: Dict,
+                 tuningconfig: Dict, paramconfig: Optional[Dict] = None):
         self.methodconfig = methodconfig
         now = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
         print('\nExperiment created at: ', now)
@@ -61,6 +78,7 @@ class Experiment:
             metrics=evaluationconfig['metrics'],
             tune_hyperparameters=tuningconfig['tune_hyperparameters'],
             hyperparameters=tuningconfig,
+            optimal_params=paramconfig,
             methods=methodconfig['methods'],
         )
 
@@ -88,7 +106,7 @@ class Experiment:
 
     def train_evaluate(self):
         results = {}
-        tuned_hyperparams = {}  # Track hyperparams per method
+        tuned_hyperparams = {}
         methods = (self.config.methods['pd'] if self.config.task == 'pd'
                    else self.config.methods['lgd'])
 
@@ -112,12 +130,11 @@ class Experiment:
                     if method not in tuned_hyperparams:
                         print(f"---- Tuning {method} ----")
                         tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
-                    #optimal_params = self._get_optimal_hyperparameters(fold, indices, method)
 
                     # Create and train model
-                    model = (self.model_factory.create_classifier(method, tuned_hyperparams.get(method, {})) #optimal_params)
+                    model = (self.model_factory.create_classifier(method, tuned_hyperparams.get(method, {}))
                              if self.config.task == 'pd'
-                             else self.model_factory.create_regressor(method, tuned_hyperparams.get(method, {}))) #optimal_params))
+                             else self.model_factory.create_regressor(method, tuned_hyperparams.get(method, {})))
 
                     model = self.model_trainer.train_model(
                         model, method, x_train, y_train, x_val, y_val)
@@ -156,9 +173,12 @@ class Experiment:
 
     def _get_optimal_hyperparameters(self, fold, indices, method):
         if self.config.tune_hyperparameters:
-            return self._tune_hyperparameters(method)
+            if self.config.hyperparameters['tuning_method'] == 'none':
+                return self._read_hyperparameters_from_config(method)
+            else:
+                return self._tune_hyperparameters(method)
         else:
-            return self._read_hyperparameters_from_config(method)
+            return {}
 
     def _tune_hyperparameters(self, method: str) -> Dict[str, Any]:
         task = self.config.task
@@ -172,15 +192,23 @@ class Experiment:
             method,
             task
         )
-
         print(f"*Best hyperparameters ({method})* {optimal_params}")
         return optimal_params
 
     def _read_hyperparameters_from_config(self, method):
-        params = {}
-        hyperparams = (self.config.hyperparameters[method])
+        params = self.config.optimal_params
+        if not params:
+            print("No optimal hyperparameters found in config. Using default hyperparameters.")
+            return {}
 
-        for param in hyperparams:
-            params[param] = hyperparams[param][0]
-        print(f"*Selected hyperparameters ({method})* {params}")
-        return params
+        current_dataset = None
+        for dataset in params:
+            if dataset in str(self.data.dataset_name):
+                current_dataset = dataset
+                break
+
+        if not current_dataset or method not in params[current_dataset]:
+            return {}
+
+        return params[current_dataset][method]
+

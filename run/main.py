@@ -2,7 +2,6 @@ import os
 import argparse
 
 from src.utils import set_random_seed, load_config
-from pathlib import Path
 from src.classes.experiment import Experiment
 import pandas as pd
 import shutil
@@ -93,7 +92,7 @@ shutil.copy(args.data, config_backup_dir / "CONFIG_DATA.yaml")
 shutil.copy(args.experiment, config_backup_dir / "CONFIG_EXPERIMENT.yaml")
 shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
 shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
-shutil.copy(args.evaluation, config_backup_dir / "CONFIG_TUNING.yaml")
+shutil.copy(args.tuning, config_backup_dir / "CONFIG_TUNING.yaml")
 print(f"Configs backed up to: {config_backup_dir}")
 
 
