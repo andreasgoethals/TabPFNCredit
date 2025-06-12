@@ -15,7 +15,7 @@ from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from xgboost import XGBClassifier, XGBRegressor
-from src.classes.models.tabpfn_tuner import create_classifier as tabpfn_create_classifier, create_regressor as tabpfn_create_regressor
+from src.classes.tabpfn_tuner import create_classifier as tabpfn_create_classifier, create_regressor as tabpfn_create_regressor
 
 # Foundation models:
 from tabpfn import TabPFNClassifier, TabPFNRegressor

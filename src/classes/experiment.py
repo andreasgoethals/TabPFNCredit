@@ -13,7 +13,7 @@ from src.classes.data.data import Data
 from src.classes.evaluation import ModelEvaluator
 from src.classes.models.models import Models, ModelConfiguration
 from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
-from src.classes.models.tabpfn_tuner import create_classifier as create_tabpfn_classifier, create_regressor as create_tabpfn_regressor
+from src.classes.tabpfn_tuner import create_classifier as create_tabpfn_classifier, create_regressor as create_tabpfn_regressor
 from src.classes.tuner import Tuner
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 
