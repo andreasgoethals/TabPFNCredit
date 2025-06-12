@@ -13,6 +13,7 @@ from src.classes.data.data import Data
 from src.classes.evaluation import ModelEvaluator
 from src.classes.models.models import Models, ModelConfiguration
 from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
+from src.classes.models.tabpfn_tuner import create_classifier as create_tabpfn_classifier, create_regressor as create_tabpfn_regressor
 from src.classes.tuner import Tuner
 from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
 
@@ -125,32 +126,44 @@ class Experiment:
             self.data.x_test, self.data.y_test = x_test, y_test
 
             for method, use_method in methods.items():
-                if use_method:
-                    # Tune only once per method
+                if not use_method:
+                    continue  # skip disabled methods
+
+                if method in ['tabpfn_rf','tabpfn_hpo']:
+                    if self.config.task == 'pd':
+                        print(f"Shape of y being passed to {method} fit:", y_train.shape)
+                        print("UNIQUE Y", np.unique(y_train))
+                        model = create_tabpfn_classifier(method, tuned_hyperparams.get(method))
+                    else:
+                        model = create_tabpfn_regressor(method, tuned_hyperparams.get(method))
+                else:
+                    # Only tune once
                     if method not in tuned_hyperparams:
                         print(f"---- Tuning {method} ----")
                         tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
 
-                    # Create and train model
-                    model = (self.model_factory.create_classifier(method, tuned_hyperparams.get(method, {}))
+                    # Create model with tuned hyperparams
+                    model = (self.model_factory.create_classifier(method, tuned_hyperparams[method])
                              if self.config.task == 'pd'
-                             else self.model_factory.create_regressor(method, tuned_hyperparams.get(method, {})))
+                             else self.model_factory.create_regressor(method, tuned_hyperparams[method]))
 
-                    model = self.model_trainer.train_model(
-                        model, method, x_train, y_train, x_val, y_val)
+                # Train the model
+                model = self.model_trainer.train_model(
+                    model, method, x_train, y_train, x_val, y_val
+                )
 
-                    # Evaluate model
-                    if method not in results:
-                        results[method] = {}
+                # Evaluate model
+                if method not in results:
+                    results[method] = {}
 
-                    if self.config.task == 'pd':
-                        y_pred_proba = model.predict_proba(x_test)[:, 1]
-                        results[method][fold] = self.model_evaluator.evaluate_classification(
-                            y_test, y_pred_proba)
-                    else:
-                        y_pred = model.predict(x_test)
-                        results[method][fold] = self.model_evaluator.evaluate_regression(
-                            y_test, y_pred)
+                if self.config.task == 'pd':
+                    y_pred_proba = model.predict_proba(x_test)[:, 1]
+                    results[method][fold] = self.model_evaluator.evaluate_classification(
+                        y_test, y_pred_proba)
+                else:
+                    y_pred = model.predict(x_test)
+                    results[method][fold] = self.model_evaluator.evaluate_regression(
+                        y_test, y_pred)
 
         self.results = results
 

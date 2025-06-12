@@ -52,4 +52,43 @@ tuning_params:
     svm:
     tabnet:
     tabpfn:
+      param_space: {}
+      param_grid: {}
     xgb:
+    # added this for random_forest tuning hp tuning -> kind of double tuning strategy
+    tabpfn_rf:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 200
+          step: 50
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 10
+        min_samples_split:
+          type: 'int'
+          low: 2
+          high: 100
+        min_samples_leaf:
+          type: 'int'
+          low: 1
+          high: 10
+        criterion:
+          type: 'categorical'
+          values: [ 'gini', 'entropy' ]
+        max_features:
+          type: 'categorical'
+          values: [ 'sqrt', 'log2', null ]
+      param_grid:
+        n_estimators: [ 50, 100, 200 ]
+        max_depth: [ 5, 10, null ]
+        min_samples_split: [ 2, 100 ]
+        min_samples_leaf: [ 1, 5 ]
+        criterion: [ 'gini', 'entropy' ]
+        max_features: [ 'sqrt', null ]
+    tabpfn_hpo: # this has an internal tuner already so we will not use Optuna or Grid search on this one
+      n_trials: 50
+      metric: 'ROC_AUC'
+      random_state: 42

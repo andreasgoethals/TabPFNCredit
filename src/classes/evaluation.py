@@ -56,7 +56,7 @@ class ModelEvaluator:
             'f1': lambda: f1_score(y_true, y_pred),
             'precision': lambda: precision_score(y_true, y_pred, zero_division=0.0),
             'recall': lambda: recall_score(y_true, y_pred, zero_division=0.0),
-            'h_measure': lambda: h_score(y_true, y_pred_proba),
+            'h_measure': lambda: h_score(y_true, y_pred_proba) if len(np.unique(y_true)) == 2 else np.nan,
             'aucroc': lambda: roc_auc_score(y_true, y_pred_proba),
             'aucpr': lambda: average_precision_score(y_true, y_pred_proba)
         }

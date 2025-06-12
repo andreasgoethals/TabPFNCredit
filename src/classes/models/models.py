@@ -15,6 +15,7 @@ from sklearn.svm import SVC, SVR
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from xgboost import XGBClassifier, XGBRegressor
+from src.classes.models.tabpfn_tuner import create_classifier as tabpfn_create_classifier, create_regressor as tabpfn_create_regressor
 
 # Foundation models:
 from tabpfn import TabPFNClassifier, TabPFNRegressor
@@ -133,6 +134,8 @@ class Models:
             'tabnet': lambda p: TabNetClassifier(verbose=0, optimizer_fn=torch.optim.Adam,
                                                  scheduler_fn=torch.optim.lr_scheduler.StepLR, **p),
             'tabpfn': lambda p: TabPFNClassifier(**p),
+            'tabpfn_rf': lambda p: tabpfn_create_classifier('tabpfn_rf', p),
+            'tabpfn_hpo': lambda p: tabpfn_create_classifier('tabpfn_hpo', p),
             'xgb': lambda p: XGBClassifier(random_state=0, **p)
         }
         return models[method](params)
@@ -187,6 +190,8 @@ class Models:
             'tabnet': lambda p: TabNetRegressor(verbose=0, optimizer_fn=torch.optim.Adam,
                                                 scheduler_fn=torch.optim.lr_scheduler.StepLR, **p),
             'tabpfn': lambda p: TabPFNRegressor(**p),
+            'tabpfn_rf': lambda p: tabpfn_create_regressor('tabpfn_rf', p),
+            'tabpfn_hpo': lambda p: tabpfn_create_regressor('tabpfn_hpo', p),
             'xgb': lambda p: XGBRegressor(random_state=0, **p)
         }
         return models[method](params)

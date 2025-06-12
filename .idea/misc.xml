@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="tabpfn_credit_codebase" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="tabpfn_credit_codebase" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="tabpfn" project-jdk-type="Python SDK" />
 </project>
