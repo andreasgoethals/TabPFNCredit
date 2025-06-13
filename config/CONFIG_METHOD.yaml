@@ -161,36 +161,36 @@ hyperparameters_pd:  # For each method, the hyperparameters to tune
 
 methods:
   pd:
-    ab: false    # AdaBoost (AB)
-    ann: false   # Artificial Neural Networks (ANN)
-    bnb: false   # Bernoulli Naive Bayes (BNB)
-    cb: false    # CatBoost (CB)
-    dt: false    # Decision Tree (DT)
-    gnb: false   # Gaussian Naive Bayes (GNB)
-    knn: false   # K-Nearest Neighbors (KNN)
-    lda: false   # Linear Discriminant Analysis (LDA)
-    lgbm: false  # LightGBM (LGBM)
-    lr: false    # Logistic Regression (LR)
-    rf: false # Random Forest (RF)
-    svm: false   # Support Vector Machine (SVM)
-    tabnet: false   # TabNet
-    tabpfn: false   # TabPFN foundation model
-    tabpfn_rf: false #TabPFN tuned with RandomForest
-    tabpfn_hpo: true # automatic tuning capabilities for TabPFN models using Bayesian optimization via Hyperopt
-    xgb: false   # Extreme Gradient Boosting (XGBoost)
+    ab: false         # AdaBoost (AB)
+    ann: false        # Artificial Neural Networks (ANN)
+    bnb: false        # Bernoulli Naive Bayes (BNB)
+    cb: false         # CatBoost (CB)
+    dt: false         # Decision Tree (DT)
+    gnb: false        # Gaussian Naive Bayes (GNB)
+    knn: false        # K-Nearest Neighbors (KNN)
+    lda: false        # Linear Discriminant Analysis (LDA)
+    lgbm: false       # LightGBM (LGBM)
+    lr: false         # Logistic Regression (LR)
+    rf: false         # Random Forest (RF)
+    svm: false        # Support Vector Machine (SVM)
+    tabnet: false     # TabNet
+    tabpfn: false     # TabPFN foundation model
+    tabpfn_rf: false  # TabPFN tuned with RandomForest
+    tabpfn_hpo: true  # automatic tuning capabilities for TabPFN models using Bayesian optimization via Hyperopt
+    xgb: false        # Extreme Gradient Boosting (XGBoost)
   lgd:
-    ab: true        # AdaBoost Regression (AB)
-    ann: true       # Artificial Neural Networks (ANN)
-    cb: true        # CatBoost Regression (CB)
-    dt: true        # Decision Tree Regression (DT)
-    en: true        # Elastic Net Regression (EN)
-    knn: true       # K-Nearest Neighbors Regression (KNN)
-    lgbm: true      # LightGBM Regression (LGBM)
-    lr: true        # Linear Regression (LR)
-    rf: true        # Random Forest Regression (RF)
-    svr: true       # Support Vector Regression (SVR)
-    tabnet: true    # TabNet Regression (TabNet)
-    tabpfn: true    # TabPFN Regression (TabPFN)
-    tabpfn_rf: true # TabPFN Random Forest Regressor
+    ab: true          # AdaBoost Regression (AB)
+    ann: true         # Artificial Neural Networks (ANN)
+    cb: true          # CatBoost Regression (CB)
+    dt: true          # Decision Tree Regression (DT)
+    en: true          # Elastic Net Regression (EN)
+    knn: true         # K-Nearest Neighbors Regression (KNN)
+    lgbm: true        # LightGBM Regression (LGBM)
+    lr: true          # Linear Regression (LR)
+    rf: true          # Random Forest Regression (RF)
+    svr: true         # Support Vector Regression (SVR)
+    tabnet: true      # TabNet Regression (TabNet)
+    tabpfn: true      # TabPFN Regression (TabPFN)
+    tabpfn_rf: true   # TabPFN Random Forest Regressor
     tabpfn_hpo: false # automatic tuning capabilities for TabPFN models using Bayesian optimization via Hyperopt
-    xgb: true       # Extreme Gradient Boosting Regression (XGB)
+    xgb: true         # Extreme Gradient Boosting Regression (XGB)

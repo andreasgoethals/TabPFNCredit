@@ -129,24 +129,41 @@ class Experiment:
                 if not use_method:
                     continue  # skip disabled methods
 
-                if method in ['tabpfn_rf','tabpfn_hpo']:
+                if method == 'tabpfn_hpo':
+                    print(f"[DEBUG] Using INTERNAL tuning for {method} (config params will be used)")
+                    # Always fetch params directly from config for internal-tuning
+                    tabpfn_params = (self.config.hyperparameters['tuning_params']['pd'].get(method, {})
+                                     if self.config.task == 'pd'
+                                     else self.config.hyperparameters['tuning_params']['lgd'].get(method, {}))
+                    print(f"[DEBUG] Params for {method}: {tabpfn_params}")
                     if self.config.task == 'pd':
-                        print(f"Shape of y being passed to {method} fit:", y_train.shape)
-                        print("UNIQUE Y", np.unique(y_train))
-                        model = create_tabpfn_classifier(method, tuned_hyperparams.get(method))
+                        model = create_tabpfn_classifier(method, tabpfn_params)
                     else:
-                        model = create_tabpfn_regressor(method, tuned_hyperparams.get(method))
+                        model = create_tabpfn_regressor(method, tabpfn_params)
                 else:
-                    # Only tune once
+                    # All other models (including tabpfn_rf): tune if not already tuned
                     if method not in tuned_hyperparams:
                         print(f"---- Tuning {method} ----")
                         tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
+                        print(f"[DEBUG] Best hyperparams for {method}: {tuned_hyperparams[method]}")
+                    else:
+                        print(f"[DEBUG] {method} already tuned, using cached params.")
+                    # Use tuned hyperparams
+                    if method == 'tabpfn_rf':
+                        print(f"[DEBUG] Creating tabpfn_rf model with tuned params: {tuned_hyperparams[method]}")
+                        # TabPFN_RF still uses external tuning
+                        if self.config.task == 'pd':
+                            model = create_tabpfn_classifier(method, tuned_hyperparams[method])
+                        else:
+                            model = create_tabpfn_regressor(method, tuned_hyperparams[method])
+                    else:
+                        # All other (non-tabpfn) models
+                        if self.config.task == 'pd':
+                            model = self.model_factory.create_classifier(method, tuned_hyperparams[method])
+                        else:
+                            model = self.model_factory.create_regressor(method, tuned_hyperparams[method])
 
-                    # Create model with tuned hyperparams
-                    model = (self.model_factory.create_classifier(method, tuned_hyperparams[method])
-                             if self.config.task == 'pd'
-                             else self.model_factory.create_regressor(method, tuned_hyperparams[method]))
-
+                print(f"[DEBUG] Training model for {method} on fold {fold}...")
                 # Train the model
                 model = self.model_trainer.train_model(
                     model, method, x_train, y_train, x_val, y_val
@@ -164,7 +181,7 @@ class Experiment:
                     y_pred = model.predict(x_test)
                     results[method][fold] = self.model_evaluator.evaluate_regression(
                         y_test, y_pred)
-
+                print(f"[DEBUG] Finished fold {fold} for {method}\n{'-'*60}")
         self.results = results
 
     def _preprocess_data(self, x_train, x_val, x_test, y_train, y_val, y_test):
