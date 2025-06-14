@@ -3,5 +3,7 @@ cv_splits: 3      # splits for cross-validation
 val_size: 0.5     # size of the validation set, relative to the training set within each fold
 row_limit: 30000  # max number of rows in training data. For TabPFN <= 10K x folds/((folds-1)x(1-val_size))
 
+imbalance: true       # if true, introduce artificial imbalance setting in the dataset
+imbalance_ratio: 0.1  # ratio for the imbalance
 
 
