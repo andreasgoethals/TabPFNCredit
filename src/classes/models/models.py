@@ -119,8 +119,6 @@ class Models:
         :return: An instance of the specified machine learning classifier, configured with
             the provided parameters.
         """
-        logging.info(f"Creating classifier with method: {method}")
-
         models = {
             'ab': lambda p: AdaBoostClassifier(random_state=0, **p),
             'ann': lambda p: NNClassifier(**p),
@@ -179,8 +177,6 @@ class Models:
             An instance of the regression model specified by the `method` parameter, initialized
             with the provided `params` configuration.
         """
-        logging.info(f"Creating regressor with method: {method}")
-
         models = {
             'ab': lambda p: AdaBoostRegressor(random_state=0, **p),
             'ann': lambda p: NNRegressor(**p),

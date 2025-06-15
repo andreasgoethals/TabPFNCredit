@@ -90,7 +90,7 @@ class OptunaTuner(HyperparameterTuner):
 
         study.optimize(objective, n_trials=self.n_trials)
 
-        logger.info(f"Finished external hyperparameter tuning for {method}. Best params found: {study.best_params}")
+        logger.info(f"Finished external hyperparameter tuning for {method}")
         return study.best_params
 
     def _create_trial_params(self, trial: optuna.Trial) -> Dict[str, Any]:

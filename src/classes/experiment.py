@@ -154,7 +154,6 @@ class Experiment:
                     if method not in tuned_hyperparams:
                         logger.info(f"Tuning {method}")
                         tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
-                        logger.debug(f"Best hyperparams for {method}: {tuned_hyperparams[method]}")
                     else:
                         logger.debug(f"{method} already tuned, using cached params.")
                     # Use tuned hyperparams
@@ -168,8 +167,10 @@ class Experiment:
                     else:
                         # All other (non-tabpfn) models
                         if self.config.task == 'pd':
+                            logging.info(f"Creating classifier with method: {method}")
                             model = self.model_factory.create_classifier(method, tuned_hyperparams[method])
                         else:
+                            logging.info(f"Creating regressor with method: {method}")
                             model = self.model_factory.create_regressor(method, tuned_hyperparams[method])
 
                 logger.debug(f"Training model for {method} on fold {fold}...")
@@ -241,7 +242,7 @@ class Experiment:
             method,
             task
         )
-        logger.info(f"Best hyperparameters for {method}): {optimal_params}")
+        logger.info(f"Best hyperparameters for {method}: {optimal_params}")
         return optimal_params
 
     def _read_hyperparameters_from_config(self, method):
