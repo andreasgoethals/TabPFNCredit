@@ -1,7 +1,7 @@
 # Description: Dataset selection (only 1 dataset at a time)
 dataset_pd:
   00_pd_toydata: false
-  #
+  # pd datasets
   01_gmsc: true
   02_taiwan_creditcard: false
   03_vehicle_loan: false
@@ -19,7 +19,7 @@ dataset_pd:
 
 dataset_lgd:
   00_lgd_toydata: false
-  #
+  # lgd datasets
   01_heloc: false
   03_loss2: false
   05_axa: false

@@ -1,6 +1,6 @@
 import warnings
 from typing import Dict, List
-from pathlib import Path
+import logging
 import category_encoders
 import numpy as np
 import pandas as pd
@@ -9,6 +9,8 @@ from sklearn.impute import SimpleImputer
 
 # toy datasets:
 from sklearn.datasets import load_breast_cancer, load_diabetes
+
+logger = logging.getLogger(__name__)
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -36,9 +38,9 @@ class Preprocessing:
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
-            print("00_pd_toydata preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("00_pd_toydata preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -57,9 +59,9 @@ class Preprocessing:
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
-            print("01_gmsc preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("01_gmsc preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -84,9 +86,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("02_taiwan_creditcard preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("02_taiwan_creditcard preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -182,9 +184,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("03_vehicle_loan preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("03_vehicle_loan preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -205,9 +207,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("06_lendingclub preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("06_lendingclub preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -231,9 +233,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("07_case_study preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("07_case_study preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -256,9 +258,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("09_myhom preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("09_myhom preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -292,9 +294,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("10_hackerearth preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("10_hackerearth preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -324,9 +326,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("11_cobranded preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("11_cobranded preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -352,9 +354,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("14_german_credit preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("14_german_credit preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -390,9 +392,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("22_bank_status preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("22_bank_status preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -412,9 +414,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("28_thomas preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("28_thomas preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -531,9 +533,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("34_hmeq_data preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("34_hmeq_data preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -551,9 +553,9 @@ class Preprocessing:
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
-            print("00_lgd_toydata preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("00_lgd_toydata preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -586,9 +588,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("01_heloc preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("01_heloc preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -646,9 +648,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("03_loss2 preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("03_loss2 preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -673,9 +675,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("05_axa preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("05_axa preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -763,9 +765,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("06_base_model preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("06_base_model preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -799,9 +801,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("07_base_modelisation preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("07_base_modelisation preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -902,7 +904,7 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
 
         total_dropped_rows = dropped_train + dropped_val + dropped_test
 
-        print(f"- Omitting rows with missing values: {total_dropped_rows} rows left out")
+        logger.info(f"Omitting rows with missing values: {total_dropped_rows} rows left out")
 
     elif methodconfig['missing_values'] == 2:
         # impute numeric with mean:
@@ -921,7 +923,7 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
             x_val[:, cols_cat_idx] = imputer_cat.transform(x_val[:, cols_cat_idx])
             x_test[:, cols_cat_idx] = imputer_cat.transform(x_test[:, cols_cat_idx])
 
-        print('- Imputed missing values with (num: mean) and (cat: mode)')
+        logger.info('Imputed missing values with (num: mean) and (cat: mode)')
 
     elif methodconfig['missing_values'] == 3:
         # impute with median:
@@ -940,7 +942,7 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
             x_val[:, cols_cat_idx] = imputer_cat.transform(x_val[:, cols_cat_idx])
             x_test[:, cols_cat_idx] = imputer_cat.transform(x_test[:, cols_cat_idx])
 
-        print('- Imputed missing values with (num: median) and (cat: mode)')
+        logger.info('Imputed missing values with (num: median) and (cat: mode)')
 
     else:
         # throw error that the methodconfig is not valid

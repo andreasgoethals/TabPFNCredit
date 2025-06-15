@@ -3,8 +3,10 @@ from abc import ABC, abstractmethod
 import itertools
 import optuna
 from sklearn.metrics import roc_auc_score, mean_squared_error
-import numpy as np
-from typing import Dict, Any, Optional
+from typing import Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class HyperparameterTuner(ABC):
@@ -69,7 +71,7 @@ class OptunaTuner(HyperparameterTuner):
         self.n_trials = n_trials
 
     def tune(self, model_factory, model_trainer, data, method: str, task: str) -> Dict[str, Any]:
-        print(f"[TUNER] Starting external hyperparameter tuning for {method} with {self.__class__.__name__}...")
+        logger.info(f"Starting external hyperparameter tuning for {method} with {self.__class__.__name__}...")
         study = optuna.create_study(direction="maximize")
 
         def objective(trial):
@@ -88,8 +90,7 @@ class OptunaTuner(HyperparameterTuner):
 
         study.optimize(objective, n_trials=self.n_trials)
 
-        print(f"[TUNER] Finished external hyperparameter tuning for {method}. Best params found:")
-        print(study.best_params)
+        logger.info(f"Finished external hyperparameter tuning for {method}. Best params found: {study.best_params}")
         return study.best_params
 
     def _create_trial_params(self, trial: optuna.Trial) -> Dict[str, Any]:

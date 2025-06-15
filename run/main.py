@@ -1,7 +1,7 @@
 import os
 import argparse
 
-from src.utils import set_random_seed, load_config
+from src.utils import set_random_seed, load_config, setup_logger
 from src.classes.experiment import Experiment
 import pandas as pd
 import shutil
@@ -36,24 +36,6 @@ methodconfig = load_config(Path(args.method))
 evaluationconfig = load_config(Path(args.evaluation))
 tuningconfig = load_config(Path(args.tuning))
 
-# Run experiment
-experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig)
-experiment.run()
-
-
-# Get the results
-rows = []
-for model_name, splits_dict in experiment.results.items():
-    for split_idx, metrics_dict in splits_dict.items():
-        row = {'model': model_name, 'split': split_idx}
-        row.update(metrics_dict)
-        rows.append(row)
-
-df = pd.DataFrame(rows)
-
-# Print the res
-print(df)
-
 # Get task type (pd or lgd)
 task = experimentconfig.get('task')
 
@@ -69,23 +51,42 @@ elif task == 'lgd':
 # Format timestamp
 timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
 
-now2 = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
-print('\nExperiment ended at: ', now2)
-
 # Format names
 base_folder = f"{task}_{dataset_name}"
 filename_prefix = f"{task}_{dataset_name}_{timestamp}"
 
 # Create output and config backup
-output_dir = Path("outputs") / base_folder
+output_dir = Path("outputs") / base_folder / filename_prefix
 output_dir.mkdir(parents=True, exist_ok=True)
-config_backup_dir = output_dir / f"configs_{filename_prefix}"
+config_backup_dir = output_dir / "config"
 config_backup_dir.mkdir(parents=True, exist_ok=True)
 
+# Run experiment
+experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig, output_dir)
+experiment.run()
+
+# Get the results
+rows = []
+for model_name, splits_dict in experiment.results.items():
+    for split_idx, metrics_dict in splits_dict.items():
+        row = {'model': model_name, 'split': split_idx}
+        row.update(metrics_dict)
+        rows.append(row)
+
+df = pd.DataFrame(rows)
+
+# Print the res
+print(df)
+
+now2 = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M')
+print('\nExperiment ended at: ', now2)
+
 # Save results
-output_file = output_dir / f"{filename_prefix}.csv"
+output_file = output_dir / "results.csv"
 df.to_csv(output_file, index=False)
-print(f"Results saved to {output_file}")
+print(f"Results saved to: {output_file}")
+
+print("Logs saved to: ", output_dir / "experiment.log")
 
 # Copy config files
 shutil.copy(args.data, config_backup_dir / "CONFIG_DATA.yaml")
@@ -94,59 +95,6 @@ shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
 shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
 shutil.copy(args.tuning, config_backup_dir / "CONFIG_TUNING.yaml")
 print(f"Configs backed up to: {config_backup_dir}")
-# rows = []
-# for model_name, splits_dict in experiment.results.items():
-#     for split_idx, metrics_dict in splits_dict.items():
-#         row = {'model': model_name, 'split': split_idx}
-#         row.update(metrics_dict)
-#         rows.append(row)
-#
-# df = pd.DataFrame(rows)
-#
-# # Print the res
-# print(df)
-#
-# # Get task type (pd or lgd)
-# task = experimentconfig.get('task')
-#
-# # Select dataset based on the task
-# dataset_name = ""
-# if task == 'pd':
-#     # Select dataset where 'true' is marked under dataset_pd
-#     dataset_name = next((key for key, value in dataconfig['dataset_pd'].items() if value), 'dataset_pd_unknown')
-# elif task == 'lgd':
-#     # Select dataset where 'true' is marked under dataset_lgd
-#     dataset_name = next((key for key, value in dataconfig['dataset_lgd'].items() if value), 'dataset_lgd_unknown')
-#
-# # Format timestamp
-# timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
-#
-# now2 = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
-# print('\nExperiment ended at: ', now2)
-#
-# # Format names
-# base_folder = f"{task}_{dataset_name}"
-# filename_prefix = f"{task}_{dataset_name}_{timestamp}"
-#
-# # Create output and config backup
-# output_dir = Path("outputs") / base_folder
-# output_dir.mkdir(parents=True, exist_ok=True)
-# config_backup_dir = output_dir / f"configs_{filename_prefix}"
-# config_backup_dir.mkdir(parents=True, exist_ok=True)
-#
-# # Save results
-# output_file = output_dir / f"{filename_prefix}.csv"
-# df.to_csv(output_file, index=False)
-# print(f"Results saved to {output_file}")
-#
-# # Copy config files
-# shutil.copy(args.data, config_backup_dir / "CONFIG_DATA.yaml")
-# shutil.copy(args.experiment, config_backup_dir / "CONFIG_EXPERIMENT.yaml")
-# shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
-# shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
-# shutil.copy(args.tuning, config_backup_dir / "CONFIG_TUNING.yaml")
-# print(f"Configs backed up to: {config_backup_dir}")
-
 
 
 

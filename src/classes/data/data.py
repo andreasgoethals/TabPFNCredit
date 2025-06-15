@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Dict, List
+import logging
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from sklearn.model_selection import train_test_split, KFold
 
 from src.classes.data.preprocessing import Preprocessing
 
+logger = logging.getLogger(__name__)
 
 class Data:
     def __init__(self, dataconfig, experimentconfig):
@@ -58,7 +60,7 @@ class Data:
 
         # check if we want artificial class imbalance
         if self.experimentconfig.get('imbalance', False):
-            print(f"Inducing class imbalance with ratio {self.experimentconfig['imbalance_ratio']} ...")
+            logger.info(f"Inducing class imbalance with ratio {self.experimentconfig['imbalance_ratio']} ...")
             self.x, self.y = self._introduce_class_imbalance(
                 self.x, self.y,
                 imbalance_ratio=self.experimentconfig.get('imbalance_ratio', 0.1),
@@ -110,13 +112,13 @@ class Data:
 
         # Count class occurrences
         unique, counts = np.unique(y, return_counts=True)
-        print(f"[INFO] Class distribution BEFORE imbalance: {dict(zip(unique, counts))}")
+        logger.info(f"Class distribution BEFORE imbalance: {dict(zip(unique, counts))}")
 
         # Find majority and minority classes
         class_counts = dict(zip(unique, counts))
         majority_class = unique[np.argmax(counts)]
         minority_class = unique[np.argmin(counts)]
-        print(f"[INFO] Majority class: {majority_class}, Minority class: {minority_class}")
+        logger.info(f"Majority class: {majority_class}, Minority class: {minority_class}")
 
         idx_major = np.where(y == majority_class)[0]
         idx_minor = np.where(y == minority_class)[0]
@@ -125,7 +127,7 @@ class Data:
         # Calculate how many minority samples to keep
         n_minor_new = int(n_major * imbalance_ratio / (1 - imbalance_ratio))
         n_minor_new = min(len(idx_minor), n_minor_new)
-        print(f"[INFO] Will keep {n_minor_new} of {len(idx_minor)} minority samples (ratio {imbalance_ratio})")
+        logger.info(f"Will keep {n_minor_new} of {len(idx_minor)} minority samples (ratio {imbalance_ratio})")
 
         # Randomly sample minority indices
         rng = np.random.RandomState(random_state)
@@ -139,131 +141,10 @@ class Data:
         x_new = x[idx_combined]
         y_new = y[idx_combined]
 
-        # Print new distribution
         unique_new, counts_new = np.unique(y_new, return_counts=True)
-        print(f"[INFO] Class distribution AFTER imbalance: {dict(zip(unique_new, counts_new))}")
-        print(f"[INFO] Total samples: {len(y_new)}\n")
+        logger.info(f"Class distribution AFTER imbalance: {dict(zip(unique_new, counts_new))}")
+        logger.info(f"Total samples: {len(y_new)}\n")
         return x_new, y_new
-
-    '''
-    def _load_data(self):
-
-        """ method definitions for pd datasets """
-
-        # Dataset-specific loading functions
-        def _load_00_pd_toydata():
-            # Load the toy data from sklearn
-            _data = load_breast_cancer()
-            print("00_pd_toydata loaded")
-            return _data
-
-        def _load_01_gmsc():
-            _data = pd.read_csv('data/pd/01 kaggle_give me some credit/gmsc.csv')
-            print("01_gmsc loaded")
-            return _data
-
-        def _load_02_taiwan_creditcard():
-            try:
-                _data = pd.read_csv('data/pd/02 taiwan creditcard/taiwan_creditcard.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/02 taiwan creditcard/taiwan_creditcard.csv', sep=',')
-            print("02_taiwan_creditcard loaded")
-            return _data
-
-
-        """ method definitions for lgd datasets """
-
-        def _load_01_heloc_lgd():
-            _data = 'this is a 01 data to be implemetned'
-            print("01_heloc_lgd loaded")
-            return _data
-
-        """ Dataset-specific loading calls """
-
-        if self.experimentconfig['task'] == 'pd':
-            if self.dataconfig['dataset_pd']['00_pd_toydata']:
-                self.dataset_name = '00_pd_toydata'
-                return _load_00_pd_toydata()
-
-            elif self.dataconfig['dataset_pd']['01_gmsc']:
-                self.dataset_name = '01_gmsc'
-                return _load_01_gmsc()
-
-            elif self.dataconfig['dataset_pd']['02_taiwan_creditcard']:
-                self.dataset_name = '02_taiwan_creditcard'
-                return _load_02_taiwan_creditcard()
-
-        elif self.experimentconfig['task'] == 'lgd':
-            if self.dataconfig['dataset']['01_heloc_lgd']:
-                self.dataset_name = '01_heloc_lgd'
-                return _load_01_heloc_lgd()
-
-        else:
-            raise ValueError('Invalid task in experimentconfig, or no dataset selected in dataconfig')
-
-    def _preprocess_data(self, _data):
-
-        """ method definitions for preprocessing pd datasets """
-
-        def _preprocess_00_pd_toydata(_data):
-            x = _data.data
-            y = _data.target
-            print("00_pd_toydata preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
-            cols = _data.feature_names
-            cols_cat = []
-            cols_num = cols
-            return x, y, cols, cols_cat, cols_num
-
-        def _preprocess_01_gmsc(_data):
-            _data = _data.drop(_data.columns[0], axis=1) # drop first column:
-
-            cols = _data.columns
-
-            x = _data['SeriousDlqin2yrs']
-            y = _data.drop('SeriousDlqin2yrs', axis=1)
-
-            cols_cat = []
-            cols_num = cols
-
-            print("01_gmsc preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
-
-            return x, y, cols, cols_cat, cols_num
-
-        def _preprocess_02_taiwan_creditcard(_data):
-
-            return x, y, cols, cols_cat, cols_num
-
-        """ method definitions for preprocessing lgd datasets """
-
-        def _preprocess_00_lgd_toydata(_data):
-            #todo: implement the preprocessing for lgd toydata
-            return x, y, cols, cols_cat, cols_num
-
-        def _preprocess_01_heloc(data):
-            # todo: implement the preprocessing for heloc data
-            return x, y, cols, cols_cat, cols_num
-
-        """ Dataset-specific preprocessing calls """
-
-        if self.experimentconfig['task'] == 'pd':
-            if self.dataconfig['dataset_pd']['00_pd_toydata']:
-                x, y, cols, cols_cat, cols_num = _preprocess_00_pd_toydata(_data)
-                return x, y, cols, cols_cat, cols_num
-            elif self.dataconfig['dataset_pd']['01_gmsc']:
-                x, y, cols, cols_cat, cols_num = _preprocess_01_gmsc(_data)
-                return x, y, cols, cols_cat, cols_num
-            elif self.dataconfig['dataset_pd']['02_taiwan_creditcard']:
-                x, y, cols, cols_cat, cols_num = _preprocess_02_taiwan_creditcard(_data)
-                return x, y, cols, cols_cat, cols_num
-
-        elif self.experimentconfig['task'] == 'lgd':
-            if self.dataconfig['dataset_lgd']['01_heloc']:
-                _preprocess_01_heloc(_data)
-    '''
 
     def load_data(self):
         ##########################################
@@ -272,13 +153,13 @@ class Data:
         def _load_00_pd_toydata():
             _data = load_breast_cancer()
             self.dataset_name = '00_pd_toydata'
-            print("00_pd_toydata loaded")
+            logger.info("00_pd_toydata loaded")
             return _data
 
         def _load_01_gmsc():
             _data = pd.read_csv('data/pd/01 kaggle_give me some credit/gmsc.csv')
             self.dataset_name = '01_gmsc'
-            print("01_gmsc loaded")
+            logger.info("01_gmsc loaded")
             return _data
 
         def _load_02_taiwan_creditcard():
@@ -286,7 +167,7 @@ class Data:
                 _data = pd.read_csv('data/pd/02 taiwan creditcard/taiwan_creditcard.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../../../data/pd/02 taiwan creditcard/taiwan_creditcard.csv', sep=',')
-            print("02_taiwan_creditcard loaded")
+            logger.info("02_taiwan_creditcard loaded")
             return _data
 
         def _load_03_vehicle_loan():
@@ -294,7 +175,7 @@ class Data:
                 _data = pd.read_csv('data/pd/03 vehicle loan/train.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/03 vehicle loan/train.csv', sep=',')
-            print("03_vehicle_loan loaded")
+            logger.info("03_vehicle_loan loaded")
             return _data
 
         def _load_06_lendingclub():
@@ -302,7 +183,7 @@ class Data:
                 _data = pd.read_csv('data/pd/06 lendingclub/loan_data.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/06 lendingclub/loan_data.csv', sep=',')
-            print("06_lendingclub loaded")
+            logger.info("06_lendingclub loaded")
             return _data
 
         def _load_07_case_study():
@@ -310,7 +191,7 @@ class Data:
                 _data = pd.read_csv('data/pd/07 case study/Case Study- Probability of Default.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/07 case study/Case Study- Probability of Default.csv', sep=',')
-            print("07_case_study loaded")
+            logger.info("07_case_study loaded")
             return _data
 
         def _load_09_myhom():
@@ -318,7 +199,7 @@ class Data:
                 _data = pd.read_csv('data/pd/09 myhom/train_data.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/09 myhom/train_data.csv', sep=',')
-            print("09_myhom loaded")
+            logger.info("09_myhom loaded")
             return _data
 
         def _load_10_hackerearth():
@@ -326,7 +207,7 @@ class Data:
                 _data = pd.read_csv('data/pd/10 hackerearth/train_indessa.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/10 hackerearth/train_indessa.csv', sep=',')
-            print("10_hackerearth loaded")
+            logger.info("10_hackerearth loaded")
             return _data
 
         def _load_11_cobranded():
@@ -334,7 +215,7 @@ class Data:
                 _data = pd.read_csv('data/pd/11 cobranded/Training_dataset_Original.csv', sep=',', low_memory=False)
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/11 cobranded/Training_dataset_Original.csv', sep=',', low_memory=False)
-            print("11_cobranded loaded")
+            logger.info("11_cobranded loaded")
             return _data
 
         def _load_14_german_credit():
@@ -342,7 +223,7 @@ class Data:
                 _data = pd.read_csv('data/pd/14 statlog german credit data/german.csv')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/14 statlog german credit data/german.csv')
-            print("14_german_credit loaded")
+            logger.info("14_german_credit loaded")
             return _data
 
         def _load_22_bank_status():
@@ -357,7 +238,7 @@ class Data:
                 _data = pd.read_csv('data/pd/28 thomas/Loan Data.csv', sep=';')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/28 thomas/Loan Data.csv', sep=';')
-            print("28_thomas loaded")
+            logger.info("28_thomas loaded")
             return _data
 
         def _load_29_loan_default():
@@ -368,7 +249,7 @@ class Data:
                 _data = pd.read_csv(
                     '../data/pd/29 loan default predictions - imperial college london/train_v2.csv/train_v2.csv',
                     sep=',', dtype=float)
-                print("29_loan_default loaded")
+            logger.info("29_loan_default loaded")
             return _data
 
         def _load_30_home_credit():
@@ -378,7 +259,7 @@ class Data:
             except FileNotFoundError:
                 _data = pd.read_csv(
                     '../data/pd/30 home credit default risk/home-credit-default-risk/application_train.csv', sep=',')
-            print("30_home_credit loaded")
+            logger.info("30_home_credit loaded")
             return _data
 
         def _load_34_hmeq_data():
@@ -386,7 +267,7 @@ class Data:
                 _data = pd.read_csv('data/pd/34 hmeq/hmeq.csv', sep=',')
             except FileNotFoundError:
                 _data = pd.read_csv('../data/pd/034 hmeq/hmeq.csv', sep=',')
-            print("34_hmeq_data loaded")
+            logger.info("34_hmeq_data loaded")
             return _data
 
         ###########################################
@@ -395,7 +276,7 @@ class Data:
         def _load_00_lgd_toydata():
             _data = load_diabetes()
             self.dataset_name = '00_lgd_toydata'
-            print("00_lgd_toydata loaded")
+            logger.info("00_lgd_toydata loaded")
             return _data
 
         def _load_01_heloc_lgd():
@@ -403,7 +284,7 @@ class Data:
                 _data = pd.read_csv(Path('') / 'lgd' / '01 heloc_lgd' / 'heloc_lgd.csv', low_memory=False)
             except FileNotFoundError:
                 _data = pd.read_csv(Path('../..') / 'data' / 'lgd' / '01 heloc_lgd' / 'heloc_lgd.csv', low_memory=False)
-            print("01_heloc_lgd loaded")
+            logger.info("01_heloc_lgd loaded")
             return _data
 
         def _load_03_loss2():
@@ -411,7 +292,7 @@ class Data:
                 _data = pd.read_csv(Path('') / 'lgd' / '03 loss2' / 'loss2.csv')
             except FileNotFoundError:
                 _data = pd.read_csv(Path('../..') / 'data' / 'lgd' / '03 loss2' / 'loss2.csv')
-            print("03_loss2 loaded")
+            logger.info("03_loss2 loaded")
             return _data
 
         def _load_05_axa():
@@ -419,7 +300,7 @@ class Data:
                 _data = pd.read_csv(Path('') / 'lgd' / '05 lgd_axa' / 'lgd_axa.csv')
             except FileNotFoundError:
                 _data = pd.read_csv(Path('../..') / 'data' / 'lgd' / '05 lgd_axa' / 'lgd_axa.csv')
-            print("05_axa loaded")
+            logger.info("05_axa loaded")
             return _data
 
         def _load_06_base_model():
@@ -427,7 +308,7 @@ class Data:
                 _data = pd.read_csv(Path('') / 'lgd' / '06 base_model' / 'base_model.csv')
             except FileNotFoundError:
                 _data = pd.read_csv(Path('../..') / 'data' / 'lgd' / '06 base_model' / 'base_model.csv')
-            print("06_base_model loaded")
+            logger.info("06_base_model loaded")
             return _data
 
         def _load_07_base_modelisation():
@@ -435,7 +316,7 @@ class Data:
                 _data = pd.read_csv(Path('') / 'lgd' / '07 base_modelisation' / 'base_modelisation.csv')
             except FileNotFoundError:
                 _data = pd.read_csv(Path('../..') / 'data' / 'lgd' / '07 base_modelisation' / 'base_modelisation.csv')
-            print("07_base_modelisation loaded")
+            logger.info("07_base_modelisation loaded")
             return _data
 
         """ Dataset-specific loading calls """
@@ -534,17 +415,17 @@ class Data:
             raise ValueError("row_limit must be a positive integer.")
         if isinstance(_data, pd.DataFrame):
             if len(_data) > row_limit:
-                print(f"- Dataset has {len(_data)} rows. Subsampling to {row_limit} rows.")
+                logger.info(f"Dataset has {len(_data)} rows. Subsampling to {row_limit} rows.")
                 _data = _data.sample(n=row_limit, random_state=42).reset_index(drop=True)
             else:
-                print(f"- Dataset has {len(_data)} rows. No subsampling needed.")
+                logger.info(f"Dataset has {len(_data)} rows. No subsampling needed.")
             return _data
         elif hasattr(_data, 'data') and hasattr(_data, 'target'):
             if _data.data.shape[0] > row_limit:
                 idx = np.random.RandomState(seed=42).choice(_data.data.shape[0], row_limit, replace=False)
                 _data.data = _data.data[idx]
                 _data.target = _data.target[idx]
-                print(f"- Subsampled toy dataset to {row_limit} rows.")
+                logger.info(f"Subsampled toy dataset to {row_limit} rows.")
             return _data
         else:
             raise TypeError("Unsupported data format for subsampling.")

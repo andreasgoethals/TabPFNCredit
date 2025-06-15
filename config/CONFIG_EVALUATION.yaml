@@ -1,7 +1,8 @@
-binary_threshold: 0.5  # Threshold for binary classification
-round_digits: 5  # Number of decimal places to round the results to
+binary_threshold: 0.5   # Threshold for binary classification
+round_digits: 5         # Number of decimal places to round the results to
 
 metrics:
+  # pd metrics
   pd:
     accuracy: True
     brier: True
@@ -11,6 +12,7 @@ metrics:
     aucroc: True
     aucpr: True
     h_measure: True
+  # lgd metrics
   lgd:
     mse: True
     mae: True

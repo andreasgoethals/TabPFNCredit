@@ -4,6 +4,8 @@ import warnings
 from typing import Dict, Any, Optional
 import numpy as np
 from tqdm import tqdm
+import os
+import logging
 
 # Foundation models
 from pytorch_tabnet.tab_model import TabNetClassifier
@@ -15,7 +17,9 @@ from src.classes.models.models import Models, ModelConfiguration
 from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
 from src.classes.tabpfn_tuner import create_classifier as create_tabpfn_classifier, create_regressor as create_tabpfn_regressor
 from src.classes.tuner import Tuner
-from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig
+from src.utils import _assert_dataconfig, _assert_experimentconfig, _assert_methodconfig, _assert_evaluationconfig, setup_logger
+
+logger = logging.getLogger(__name__)
 
 # Hide warnings
 warnings.filterwarnings("ignore")
@@ -66,10 +70,15 @@ class ModelTrainer:
 
 class Experiment:
     def __init__(self, dataconfig: Dict, experimentconfig: Dict, methodconfig: Dict, evaluationconfig: Dict,
-                 tuningconfig: Dict, paramconfig: Optional[Dict] = None):
+                 tuningconfig: Dict, log_path: Optional[str] = "outputs", paramconfig: Optional[Dict] = None):
+
+        log_path = os.path.join(log_path, "experiment.log")
+        setup_logger(log_path, "DEBUG")
+        logger = logging.getLogger(__name__)
+
         self.methodconfig = methodconfig
         now = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')
-        print('\nExperiment created at: ', now)
+        logger.info(f'Experiment created at: {now}')
 
         self.config = ModelConfiguration(
             task=experimentconfig['task'],
@@ -94,11 +103,11 @@ class Experiment:
         self.model_evaluator = ModelEvaluator(self.config)
         self.model_trainer = ModelTrainer()
 
-        print(f'Task: {self.config.task}')
+        logger.info(f'Task: {self.config.task}')
         for key, value in dataconfig[f'dataset_{self.config.task}'].items():
             if value:
-                print(f'Dataset: {key}')
-        print('CV splits: ', self.config.cv_splits)
+                logger.info(f'Dataset: {key}')
+        logger.info(f'CV splits: {self.config.cv_splits}')
 
     def run(self):
         self.data.load_preprocess_data()
@@ -130,12 +139,12 @@ class Experiment:
                     continue  # skip disabled methods
 
                 if method == 'tabpfn_hpo':
-                    print(f"[DEBUG] Using INTERNAL tuning for {method} (config params will be used)")
+                    logger.debug(f"Using INTERNAL tuning for {method} (config params will be used)")
                     # Always fetch params directly from config for internal-tuning
                     tabpfn_params = (self.config.hyperparameters['tuning_params']['pd'].get(method, {})
                                      if self.config.task == 'pd'
                                      else self.config.hyperparameters['tuning_params']['lgd'].get(method, {}))
-                    print(f"[DEBUG] Params for {method}: {tabpfn_params}")
+                    logger.debug(f"Params for {method}: {tabpfn_params}")
                     if self.config.task == 'pd':
                         model = create_tabpfn_classifier(method, tabpfn_params)
                     else:
@@ -143,14 +152,14 @@ class Experiment:
                 else:
                     # All other models (including tabpfn_rf): tune if not already tuned
                     if method not in tuned_hyperparams:
-                        print(f"---- Tuning {method} ----")
+                        logger.info(f"Tuning {method}")
                         tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
-                        print(f"[DEBUG] Best hyperparams for {method}: {tuned_hyperparams[method]}")
+                        logger.debug(f"Best hyperparams for {method}: {tuned_hyperparams[method]}")
                     else:
-                        print(f"[DEBUG] {method} already tuned, using cached params.")
+                        logger.debug(f"{method} already tuned, using cached params.")
                     # Use tuned hyperparams
                     if method == 'tabpfn_rf':
-                        print(f"[DEBUG] Creating tabpfn_rf model with tuned params: {tuned_hyperparams[method]}")
+                        logger.debug(f"Creating tabpfn_rf model with tuned params: {tuned_hyperparams[method]}")
                         # TabPFN_RF still uses external tuning
                         if self.config.task == 'pd':
                             model = create_tabpfn_classifier(method, tuned_hyperparams[method])
@@ -163,25 +172,33 @@ class Experiment:
                         else:
                             model = self.model_factory.create_regressor(method, tuned_hyperparams[method])
 
-                print(f"[DEBUG] Training model for {method} on fold {fold}...")
+                logger.debug(f"Training model for {method} on fold {fold}...")
                 # Train the model
+                start = datetime.datetime.now()
                 model = self.model_trainer.train_model(
                     model, method, x_train, y_train, x_val, y_val
                 )
+                end = datetime.datetime.now()
+                training_time = end - start
 
                 # Evaluate model
                 if method not in results:
                     results[method] = {}
 
+                if fold not in results[method]:
+                    results[method][fold] = {}
+
+                results[method][fold]['training_time'] = training_time.total_seconds()
+
                 if self.config.task == 'pd':
                     y_pred_proba = model.predict_proba(x_test)[:, 1]
-                    results[method][fold] = self.model_evaluator.evaluate_classification(
-                        y_test, y_pred_proba)
+                    results[method][fold].update(self.model_evaluator.evaluate_classification(
+                        y_test, y_pred_proba))
                 else:
                     y_pred = model.predict(x_test)
-                    results[method][fold] = self.model_evaluator.evaluate_regression(
-                        y_test, y_pred)
-                print(f"[DEBUG] Finished fold {fold} for {method}\n{'-'*60}")
+                    results[method][fold].update(self.model_evaluator.evaluate_regression(
+                        y_test, y_pred))
+                logger.debug(f"Finished fold {fold} for {method}\n{'-'*60}")
         self.results = results
 
     def _preprocess_data(self, x_train, x_val, x_test, y_train, y_val, y_test):
@@ -198,6 +215,8 @@ class Experiment:
         # Standardize data
         x_train, x_val, x_test, y_train, y_val, y_test = standardize_data(
             x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
+
+        logger.info(f'Data preprocessing finished')
 
         return x_train, x_val, x_test, y_train, y_val, y_test
 
@@ -222,13 +241,13 @@ class Experiment:
             method,
             task
         )
-        print(f"*Best hyperparameters ({method})* {optimal_params}")
+        logger.info(f"Best hyperparameters for {method}): {optimal_params}")
         return optimal_params
 
     def _read_hyperparameters_from_config(self, method):
         params = self.config.optimal_params
         if not params:
-            print("No optimal hyperparameters found in config. Using default hyperparameters.")
+            logger.info("No optimal hyperparameters found in config. Using default hyperparameters.")
             return {}
 
         current_dataset = None
