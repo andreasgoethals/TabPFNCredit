@@ -211,10 +211,6 @@ tuning_params:
         n_shared: [ 1,2,3 ]
         n_steps: [ 3,6,9 ]
     tabpfn:
-      param_space: {}
-      param_grid:
-        device: [ 'auto' ]
-        ignore_pretraining_limits: [ false ]
     xgb:
       param_space:
         n_estimators:

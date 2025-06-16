@@ -45,9 +45,6 @@ class Preprocessing:
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_01_gmsc(_data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str], list[str], list[str], list[int], list[int]]:
-            # ---- TEMP: Limit data for quick testing ----
-            _data = _data.iloc[:1000].copy()  # Take only first 1000 rows for testing
-
             y = _data['SeriousDlqin2yrs'].values.astype(int)
             x = _data.drop('SeriousDlqin2yrs', axis=1).values
 
