@@ -68,6 +68,7 @@ class ModelTrainer:
             )
         else:
             model.fit(x_train, y_train)
+
         return model
 
 
@@ -182,11 +183,10 @@ class Experiment:
                 logger.debug(f"Training model for {method} on fold {fold}...")
                 # Train the model
                 start = datetime.datetime.now()
+                logger.debug(f"Starttime: {start}")
                 model = self.model_trainer.train_model(
                     model, method, x_train, y_train, x_val, y_val
                 )
-                end = datetime.datetime.now()
-                training_time = end - start
 
                 # Evaluate model
                 if method not in results:
@@ -195,16 +195,21 @@ class Experiment:
                 if fold not in results[method]:
                     results[method][fold] = {}
 
-                results[method][fold]['training_time'] = training_time.total_seconds()
-
                 if self.config.task == 'pd':
                     y_pred_proba = model.predict_proba(x_test)[:, 1]
-                    results[method][fold].update(self.model_evaluator.evaluate_classification(
-                        y_test, y_pred_proba))
+                    results[method][fold] = self.model_evaluator.evaluate_classification(
+                        y_test, y_pred_proba)
                 else:
                     y_pred = model.predict(x_test)
-                    results[method][fold].update(self.model_evaluator.evaluate_regression(
-                        y_test, y_pred))
+                    results[method][fold] = self.model_evaluator.evaluate_regression(
+                        y_test, y_pred)
+
+                end = datetime.datetime.now()
+                logger.debug(f"Endtime: {end}")
+                training_time = (end - start).total_seconds()
+                logger.debug(f"Traintime: {training_time}")
+                results[method][fold]['training_time'] = training_time
+
                 logger.debug(f"Finished fold {fold} for {method}\n{'-' * 60}")
         self.results = results
 
