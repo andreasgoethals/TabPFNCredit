@@ -17,8 +17,8 @@ methods:
     lr: false         # Logistic Regression (LR)
     rf: false         # Random Forest (RF)
     svm: false        # Support Vector Machine (SVM)
-    tabnet: false     # TabNet
-    tabpfn: true     # TabPFN foundation model
+    tabnet: true     # TabNet
+    tabpfn: false     # TabPFN foundation model
     tabpfn_rf: false  # TabPFN tuned with RandomForest
     tabpfn_hpo: false  # automatic tuning capabilities for TabPFN models using Bayesian optimization via Hyperopt
     xgb: false        # Extreme Gradient Boosting (XGBoost)

@@ -53,9 +53,9 @@ class ModelTrainer:
         """
         if method == 'tabnet':
             model.fit(
-                x_train, y_train.reshape(-1, 1) if len(y_train.shape) == 1 else y_train,
-                eval_set=[(x_train, y_train.reshape(-1, 1) if len(y_train.shape) == 1 else y_train),
-                          (x_val, y_val.reshape(-1, 1) if len(y_val.shape) == 1 else y_val)],
+                x_train, y_train,  #y_train.reshape(-1, 1) if len(y_train.shape) == 1 else y_train,
+                eval_set=[(x_train, y_train), #y_train.reshape(-1, 1) if len(y_train.shape) == 1 else y_train),
+                          (x_val, y_val)], #y_val.reshape(-1, 1) if len(y_val.shape) == 1 else y_val)],
                 eval_name=['train', 'val'],
                 eval_metric=['auc' if isinstance(model, TabNetClassifier) else 'rmse'],
                 max_epochs=200,
@@ -157,19 +157,13 @@ class Experiment:
                     # All other models (including tabpfn_rf): tune if not already tuned
                     if method not in tuned_hyperparams:
                         logger.info(f"Tuning {method}")
-                        if self.config.hyperparameters['tuning_params'][self.config.task][
-                            method] is not None and 'param_space' in \
-                                self.config.hyperparameters['tuning_params'][self.config.task][method]:
-                            tuned_hyperparams[method] = [
-                                {} if self.config.hyperparameters['tuning_params'][self.config.task][
-                                          method] is None else self._get_optimal_hyperparameters(fold, indices, method)]
-                        elif self.config.hyperparameters['tuning_params'][self.config.task][
-                            method] is not None and 'param_space' not in \
-                                self.config.hyperparameters['tuning_params'][self.config.task][method]:
-                            tuned_hyperparams[method] = self.config.hyperparameters['tuning_params'][
-                                self.config.task].get(method, {})
-                        else:
+                        task_params = self.config.hyperparameters['tuning_params'][self.config.task][method]
+                        if task_params is None:
                             tuned_hyperparams[method] = {}
+                        elif 'param_space' in task_params:
+                            tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
+                        else:
+                            tuned_hyperparams[method] = tuned_hyperparams
                     else:
                         logger.debug(f"{method} already tuned, using cached params.")
 
