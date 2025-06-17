@@ -1,6 +1,6 @@
 import warnings
 from typing import Dict, List
-from pathlib import Path
+import logging
 import category_encoders
 import numpy as np
 import pandas as pd
@@ -9,6 +9,8 @@ from sklearn.impute import SimpleImputer
 
 # toy datasets:
 from sklearn.datasets import load_breast_cancer, load_diabetes
+
+logger = logging.getLogger(__name__)
 
 pd.set_option('future.no_silent_downcasting', True)
 
@@ -21,290 +23,6 @@ class Preprocessing:
         self.dataconfig = dataconfig
         self.experimentconfig = experimentconfig
         self.dataset_name = None
-
-    def load_data(self):
-        ##########################################
-        ### method definitions for pd datasets ###
-        ##########################################
-        def _load_00_pd_toydata():
-            _data = load_breast_cancer()
-            self.dataset_name = '00_pd_toydata'
-            print("00_pd_toydata loaded")
-            return _data
-
-        def _load_01_gmsc():
-            _data = pd.read_csv('data/pd/01 kaggle_give me some credit/gmsc.csv')
-            self.dataset_name = '01_gmsc'
-            print("01_gmsc loaded")
-            return _data
-
-        def _load_02_taiwan_creditcard():
-            try:
-                _data = pd.read_csv('data/pd/02 taiwan creditcard/taiwan_creditcard.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../../data/pd/02 taiwan creditcard/taiwan_creditcard.csv', sep=',')
-            print("02_taiwan_creditcard loaded")
-            return _data
-
-        def _load_03_vehicle_loan():
-            try:
-                _data = pd.read_csv('data/pd/03 vehicle loan/train.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/03 vehicle loan/train.csv', sep=',')
-            print("03_vehicle_loan loaded")
-            return _data
-
-        def _load_06_lendingclub():
-            try:
-                _data = pd.read_csv('data/pd/06 lendingclub/loan_data.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/06 lendingclub/loan_data.csv', sep=',')
-            print("06_lendingclub loaded")
-            return _data
-
-        def _load_07_case_study():
-            try:
-                _data = pd.read_csv('data/pd/07 case study/Case Study- Probability of Default.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/07 case study/Case Study- Probability of Default.csv', sep=',')
-            print("07_case_study loaded")
-            return _data
-
-        def _load_09_myhom():
-            try:
-                _data = pd.read_csv('data/pd/09 myhom/train_data.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/09 myhom/train_data.csv', sep=',')
-            print("09_myhom loaded")
-            return _data
-
-        def _load_10_hackerearth():
-            try:
-                _data = pd.read_csv('data/pd/10 hackerearth/train_indessa.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/10 hackerearth/train_indessa.csv', sep=',')
-            print("10_hackerearth loaded")
-            return _data
-
-        def _load_11_cobranded():
-            try:
-                _data = pd.read_csv('data/pd/11 cobranded/Training_dataset_Original.csv', sep=',', low_memory=False)
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/11 cobranded/Training_dataset_Original.csv', sep=',', low_memory=False)
-            print("11_cobranded loaded")
-            return _data
-
-        def _load_14_german_credit():
-            try:
-                _data = pd.read_csv('data/pd/14 statlog german credit data/german.csv')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/14 statlog german credit data/german.csv')
-            print("14_german_credit loaded")
-            return _data
-
-        def _load_22_bank_status():
-            try:
-                _data = pd.read_csv('data/pd/22 bank loan status dataset/credit_train.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/22 bank loan status dataset/credit_train.csv', sep=',')
-            return _data
-
-        def _load_28_thomas():
-            try:
-                _data = pd.read_csv('data/pd/28 thomas/Loan Data.csv', sep=';')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/28 thomas/Loan Data.csv', sep=';')
-            print("28_thomas loaded")
-            return _data
-
-        def _load_29_loan_default():
-            try:
-                _data = pd.read_csv(
-                    'data/pd/29 loan default predictions - imperial college london/train_v2.csv/train_v2.csv', sep=',', dtype=float)
-            except FileNotFoundError:
-                _data = pd.read_csv(
-                    '../data/pd/29 loan default predictions - imperial college london/train_v2.csv/train_v2.csv',
-                    sep=',', dtype=float)
-                print("29_loan_default loaded")
-            return _data
-
-        def _load_30_home_credit():
-            try:
-                _data = pd.read_csv(
-                    'data/pd/30 home credit default risk/home-credit-default-risk/application_train.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv(
-                    '../data/pd/30 home credit default risk/home-credit-default-risk/application_train.csv', sep=',')
-            print("30_home_credit loaded")
-            return _data
-
-        def _load_34_hmeq_data():
-            try:
-                _data = pd.read_csv('data/pd/34 hmeq/hmeq.csv', sep=',')
-            except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/034 hmeq/hmeq.csv', sep=',')
-            print("34_hmeq_data loaded")
-            return _data
-
-        ###########################################
-        ### method definitions for lgd datasets ###
-        ###########################################
-        def _load_00_lgd_toydata():
-            _data = load_diabetes()
-            self.dataset_name = '00_lgd_toydata'
-            print("00_lgd_toydata loaded")
-            return _data
-
-        def _load_01_heloc_lgd():
-            try:
-                _data = pd.read_csv(Path('data') / 'lgd' / '01 heloc_lgd' / 'heloc_lgd.csv', low_memory=False)
-            except FileNotFoundError:
-                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '01 heloc_lgd' / 'heloc_lgd.csv', low_memory=False)
-            print("01_heloc_lgd loaded")
-            return _data
-
-        def _load_03_loss2():
-            try:
-                _data = pd.read_csv(Path('data') / 'lgd' / '03 loss2' / 'loss2.csv')
-            except FileNotFoundError:
-                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '03 loss2' / 'loss2.csv')
-            print("03_loss2 loaded")
-            return _data
-
-        def _load_05_axa():
-            try:
-                _data = pd.read_csv(Path('data') / 'lgd' / '05 lgd_axa' / 'lgd_axa.csv')
-            except FileNotFoundError:
-                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '05 lgd_axa' / 'lgd_axa.csv')
-            print("05_axa loaded")
-            return _data
-
-        def _load_06_base_model():
-            try:
-                _data = pd.read_csv(Path('data') / 'lgd' / '06 base_model' / 'base_model.csv')
-            except FileNotFoundError:
-                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '06 base_model' / 'base_model.csv')
-            print("06_base_model loaded")
-            return _data
-
-        def _load_07_base_modelisation():
-            try:
-                _data = pd.read_csv(Path('data') / 'lgd' / '07 base_modelisation' / 'base_modelisation.csv')
-            except FileNotFoundError:
-                _data = pd.read_csv(Path('..') / 'data' / 'lgd' / '07 base_modelisation' / 'base_modelisation.csv')
-            print("07_base_modelisation loaded")
-            return _data
-
-        """ Dataset-specific loading calls """
-        # for PD datasets:
-        if self.experimentconfig['task'] == 'pd':
-            if self.dataconfig['dataset_pd']['00_pd_toydata']:
-                self.dataset_name = '00_pd_toydata'
-                return _load_00_pd_toydata()
-            elif self.dataconfig['dataset_pd']['01_gmsc']:
-                self.dataset_name = '01_gmsc'
-                return _load_01_gmsc()
-            elif self.dataconfig['dataset_pd']['02_taiwan_creditcard']:
-                self.dataset_name = '02_taiwan_creditcard'
-                return _load_02_taiwan_creditcard()
-
-            elif self.dataconfig['dataset_pd']['03_vehicle_loan']:
-                self.dataset_name = '03_vehicle_loan'
-                return _load_03_vehicle_loan()
-
-            elif self.dataconfig['dataset_pd']['06_lendingclub']:
-                self.dataset_name = '06_lendingclub'
-                return _load_06_lendingclub()
-            elif self.dataconfig['dataset_pd']['07_case_study']:
-                self.dataset_name = '07_case_study'
-                return _load_07_case_study()
-            elif self.dataconfig['dataset_pd']['09_myhom']:
-                self.dataset_name = '09_myhom'
-                return _load_09_myhom()
-            elif self.dataconfig['dataset_pd']['10_hackerearth']:
-                self.dataset_name = '10_hackerearth'
-                return _load_10_hackerearth()
-            elif self.dataconfig['dataset_pd']['11_cobranded']:
-                self.dataset_name = '11_cobranded'
-                return _load_11_cobranded()
-            #elif self.dataconfig['dataset_pd']['12_loan_defaulter']:
-            #    self.dataset_name = '12_loan_defaulter'
-            #    return _load_12_loan_defaulter()
-            #elif self.dataconfig['dataset_pd']['13_loan_data_2017']:
-            #    self.dataset_name = '13_loan_data_2017'
-            #    return _load_13_loan_data_2017
-
-
-            elif self.dataconfig['dataset_pd']['14_german_credit']:
-                self.dataset_name = '14_german_credit'
-                return _load_14_german_credit()
-            elif self.dataconfig['dataset_pd']['22_bank_status']:
-                self.dataset_name = '22_bank_status'
-                return _load_22_bank_status()
-            elif self.dataconfig['dataset_pd']['28_thomas']:
-                self.dataset_name = '28_thomas'
-                return _load_28_thomas()
-
-            elif self.dataconfig['dataset_pd']['29_loan_default']:
-                self.dataset_name = '29_loan_default'
-                return _load_29_loan_default()
-
-            elif self.dataconfig['dataset_pd']['30_home_credit']:
-                self.dataset_name = '30_home_credit'
-                return _load_30_home_credit()
-
-            elif self.dataconfig['dataset_pd']['34_hmeq_data']:
-                self.dataset_name = '34_hmeq_data'
-                return _load_34_hmeq_data()
-
-        # for LGD datasets:
-        elif self.experimentconfig['task'] == 'lgd':
-            if self.dataconfig['dataset_lgd']['00_lgd_toydata']:
-                self.dataset_name = '00_lgd_toydata'
-                return _load_00_lgd_toydata()
-
-            elif self.dataconfig['dataset_lgd']['01_heloc']:
-                self.dataset_name = '01_heloc'
-                return _load_01_heloc_lgd()
-
-            elif self.dataconfig['dataset_lgd']['03_loss2']:
-                self.dataset_name = '03_loss2'
-                return _load_03_loss2()
-
-            elif self.dataconfig['dataset_lgd']['05_axa']:
-                self.dataset_name = '05_axa'
-                return _load_05_axa()
-
-            elif self.dataconfig['dataset_lgd']['06_base_model']:
-                self.dataset_name = '06_base_model'
-                return _load_06_base_model()
-
-            elif self.dataconfig['dataset_lgd']['07_base_modelisation']:
-                self.dataset_name = '07_base_modelisation'
-                return _load_07_base_modelisation()
-        else:
-            raise ValueError('Invalid task in experimentconfig, or no dataset selected in dataconfig')
-
-    def subsample_if_necessary(self, _data):
-        row_limit = self.experimentconfig.get('row_limit', 0)
-        if not isinstance(row_limit, int) or row_limit <= 0:
-            raise ValueError("row_limit must be a positive integer.")
-        if isinstance(_data, pd.DataFrame):
-            if len(_data) > row_limit:
-                print(f"- Dataset has {len(_data)} rows. Subsampling to {row_limit} rows.")
-                _data = _data.sample(n=row_limit, random_state=42).reset_index(drop=True)
-            else:
-                print(f"- Dataset has {len(_data)} rows. No subsampling needed.")
-            return _data
-        elif hasattr(_data, 'data') and hasattr(_data, 'target'):
-            if _data.data.shape[0] > row_limit:
-                idx = np.random.RandomState(seed=42).choice(_data.data.shape[0], row_limit, replace=False)
-                _data.data = _data.data[idx]
-                _data.target = _data.target[idx]
-                print(f"- Subsampled toy dataset to {row_limit} rows.")
-            return _data
-        else:
-            raise TypeError("Unsupported data format for subsampling.")
 
     def preprocess_data(self, _data):
         ########################################################
@@ -320,14 +38,13 @@ class Preprocessing:
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
-            print("00_pd_toydata preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("00_pd_toydata preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_01_gmsc(_data: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str], list[str], list[str], list[int], list[int]]:
-
             y = _data['SeriousDlqin2yrs'].values.astype(int)
             x = _data.drop('SeriousDlqin2yrs', axis=1).values
 
@@ -339,9 +56,9 @@ class Preprocessing:
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
-            print("01_gmsc preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("01_gmsc preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -366,9 +83,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("02_taiwan_creditcard preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("02_taiwan_creditcard preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -464,9 +181,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("03_vehicle_loan preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("03_vehicle_loan preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -487,9 +204,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("06_lendingclub preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("06_lendingclub preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -513,9 +230,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("07_case_study preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("07_case_study preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -538,9 +255,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("09_myhom preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("09_myhom preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -574,9 +291,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("10_hackerearth preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("10_hackerearth preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -606,9 +323,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("11_cobranded preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("11_cobranded preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -634,9 +351,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("14_german_credit preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("14_german_credit preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -672,9 +389,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("22_bank_status preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("22_bank_status preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -694,45 +411,47 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("28_thomas preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("28_thomas preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_29_loan_default(_data):
-            # convert all columns to numeric:
+            import pandas as pd
+            import numpy as np
+
+            # Convert all to numeric, coercing errors to NaN
             _data = _data.apply(pd.to_numeric, errors='coerce')
 
-            # Drop ID and useless columns
+            # Drop ID column
             _data = _data.drop('id', axis=1)
 
-            # Split into covariates, labels
-            y = _data['loss'].values.astype(int)
-
-            #convert y to 0 if 0 and to 1 if not zero:
-            y = np.where(y==0, 0, 1)
-            x = _data.drop('loss', axis=1).values
-
-            # remove duplicate features by checking if columns have the same values:
+            # Remove constant/duplicate features
             _data = _data.loc[:, (_data != _data.iloc[0]).any()]
 
+            # Extract target
+            y = _data['loss'].values.astype(int)
+            y = np.where(y == 0, 0, 1)
 
+            # Drop target to get features
+            _data = _data.drop('loss', axis=1)
 
-            # Replace infinity values with a large finite number
+            # Create `x` from cleaned data
+            x = _data.values
+
+            # Replace infinity and clip to float32 range
             x = np.where(np.isinf(x), np.finfo(np.float32).max, x)
-            # Ensure all values are within a valid range for float32
             x = np.clip(x, np.finfo(np.float32).min, np.finfo(np.float32).max)
 
-            # only numeric cols:
-            cols = list(_data.drop('loss', axis=1).columns)
+            # Determine column indices
+            cols = list(_data.columns)
             cols_cat = []
             cols_num = cols
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
-
 
         def _preprocess_30_home_credit(_data):
             # Drop ID and useless columns
@@ -811,9 +530,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("34_hmeq_data preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("34_hmeq_data preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -831,9 +550,9 @@ class Preprocessing:
             cols_cat_idx = []
             cols_num_idx = list(range(len(cols)))
 
-            print("00_lgd_toydata preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("00_lgd_toydata preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -866,9 +585,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("01_heloc preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("01_heloc preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -926,9 +645,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("03_loss2 preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("03_loss2 preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -953,9 +672,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("05_axa preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("05_axa preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -1043,9 +762,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("06_base_model preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("06_base_model preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -1079,9 +798,9 @@ class Preprocessing:
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
 
-            print("07_base_modelisation preprocessed")
-            print("x shape: ", x.shape)
-            print("y shape: ", y.shape)
+            logger.info("07_base_modelisation preprocessed")
+            logger.info(f"x shape: {x.shape}")
+            logger.info(f"y shape: {y.shape}")
 
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
@@ -1182,7 +901,7 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
 
         total_dropped_rows = dropped_train + dropped_val + dropped_test
 
-        print(f"- Omitting rows with missing values: {total_dropped_rows} rows left out")
+        logger.info(f"Omitting rows with missing values: {total_dropped_rows} rows left out")
 
     elif methodconfig['missing_values'] == 2:
         # impute numeric with mean:
@@ -1201,7 +920,7 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
             x_val[:, cols_cat_idx] = imputer_cat.transform(x_val[:, cols_cat_idx])
             x_test[:, cols_cat_idx] = imputer_cat.transform(x_test[:, cols_cat_idx])
 
-        print('- Imputed missing values with (num: mean) and (cat: mode)')
+        logger.info('Imputed missing values with (num: mean) and (cat: mode)')
 
     elif methodconfig['missing_values'] == 3:
         # impute with median:
@@ -1220,7 +939,7 @@ def handle_missing_values(x_train, x_val, x_test, y_train, y_val, y_test, method
             x_val[:, cols_cat_idx] = imputer_cat.transform(x_val[:, cols_cat_idx])
             x_test[:, cols_cat_idx] = imputer_cat.transform(x_test[:, cols_cat_idx])
 
-        print('- Imputed missing values with (num: median) and (cat: mode)')
+        logger.info('Imputed missing values with (num: median) and (cat: mode)')
 
     else:
         # throw error that the methodconfig is not valid

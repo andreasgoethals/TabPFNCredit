@@ -1,16 +1,16 @@
 import random
+import logging
+import os
 
 import numpy as np
 import torch
 import yaml
-
 
 def load_config(config_path):
     with open(config_path, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     return config
-
 
 def _assert_experimentconfig(experimentconfig):
     # check wheter the task is pd or lgd; giver error otherwise:
@@ -35,13 +35,32 @@ def _assert_evaluationconfig(evaluationconfig):
     # todo: implement
     pass
 
+def setup_logger(path, log_level="INFO"):
+    logger = logging.getLogger()
+    if logger.hasHandlers():
+        logger.handlers.clear()
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(path),
+            logging.StreamHandler()
+        ]
+    )
 
 def set_random_seed(seed=0):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
+
+    if torch.mps.is_available():
+        torch.mps.manual_seed(seed)
+
+    elif torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
