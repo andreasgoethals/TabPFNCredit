@@ -240,7 +240,6 @@ tuning_params:
         learning_rate: [ 0.01, 0.1 ]
         subsample: [ 0.5, 0.7, 1 ]
         colsample_bytree: [ 0.6, 0.8, 1.0 ]
-    # added this for random_forest tuning hp tuning -> kind of double tuning strategy
     tabpfn_rf:
       param_space:
         n_estimators:
@@ -275,8 +274,9 @@ tuning_params:
         max_features: [ 'sqrt', null ]
     tabpfn_hpo: # this has an internal tuner already so we will not use Optuna or Grid search on this one
       n_trials: 50
-      metric: 'f1'
+      metric: 'f1' # Source code has a bug for roc_auc, use f1 for now
       random_state: 42
+
   # lgd parameters
   lgd:
     ab:

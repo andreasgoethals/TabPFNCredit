@@ -49,7 +49,7 @@ elif task == 'lgd':
     dataset_name = next((key for key, value in dataconfig['dataset_lgd'].items() if value), 'dataset_lgd_unknown')
 
 # Format timestamp
-timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
+timestamp = pd.Timestamp.now().strftime('%Y-%m-%d')
 
 # Format names
 base_folder = f"{task}_{dataset_name}"
@@ -65,11 +65,29 @@ config_backup_dir.mkdir(parents=True, exist_ok=True)
 experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig, output_dir)
 experiment.run()
 
+# Prepare config info for the results table
+imbalance = experimentconfig.get('imbalance', False)
+imbalance_ratio = experimentconfig.get('imbalance_ratio', None)
+tuning = tuningconfig.get('tune_hyperparameters', False)
+dataset_col = dataset_name
+
+# Compose imbalance_setting string
+if not imbalance:
+    imbalance_setting = 'off'
+else:
+    imbalance_setting = f'on (ratio={imbalance_ratio})'
+
 # Get the results
 rows = []
 for model_name, splits_dict in experiment.results.items():
     for split_idx, metrics_dict in splits_dict.items():
-        row = {'model': model_name, 'split': split_idx}
+        row = {
+            'dataset': dataset_col,
+            'imbalance_setting': imbalance_setting,
+            'tuning': tuning,
+            'model': model_name,
+            'split': split_idx,
+        }
         row.update(metrics_dict)
         rows.append(row)
 

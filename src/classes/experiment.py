@@ -163,7 +163,7 @@ class Experiment:
                         elif 'param_space' in task_params:
                             tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
                         else:
-                            tuned_hyperparams[method] = tuned_hyperparams
+                            tuned_hyperparams[method] = task_params
                     else:
                         logger.debug(f"{method} already tuned, using cached params.")
 
