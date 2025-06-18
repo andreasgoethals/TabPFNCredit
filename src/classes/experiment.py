@@ -141,18 +141,6 @@ class Experiment:
             for method, use_method in methods.items():
                 if not use_method:
                     continue  # skip disabled methods
-
-                # if method == 'tabpfn_hpo':
-                #     logger.debug(f"Using INTERNAL tuning for {method} (config params will be used)")
-                #     # Always fetch params directly from config for internal-tuning
-                #     tabpfn_params = (self.config.hyperparameters['tuning_params']['pd'].get(method, {})
-                #                      if self.config.task == 'pd'
-                #                      else self.config.hyperparameters['tuning_params']['lgd'].get(method, {}))
-                #     logger.debug(f"Params for {method}: {tabpfn_params}")
-                #     if self.config.task == 'pd':
-                #         model = create_tabpfn_classifier(method, tabpfn_params)
-                #     else:
-                #         model = create_tabpfn_regressor(method, tabpfn_params)
                 else:
                     # All other models (including tabpfn_rf): tune if not already tuned
                     if method not in tuned_hyperparams:
