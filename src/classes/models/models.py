@@ -135,7 +135,7 @@ class Models:
             'tabnet': lambda p: TabNetClassifier(verbose=0, optimizer_fn=torch.optim.Adam,
                                                  scheduler_params={'step_size': 10},
                                                  scheduler_fn=torch.optim.lr_scheduler.StepLR, **p),
-            'tabpfn': lambda p: TabPFNClassifier(**p),
+            'tabpfn': lambda p: TabPFNClassifier(ignore_pretraining_limits=True, **p),
             'tabpfn_rf': lambda p: tabpfn_create_classifier('tabpfn_rf', p),
             'tabpfn_hpo': lambda p: tabpfn_create_classifier('tabpfn_hpo', p),
             'xgb': lambda p: XGBClassifier(random_state=0, **p)
