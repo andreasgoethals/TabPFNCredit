@@ -276,6 +276,7 @@ tuning_params:
       n_trials: 50
       metric: 'f1' # Source code has a bug for roc_auc, use f1 for now
       random_state: 42
+    tabpfn_auto:
 
   # lgd parameters
   lgd:
