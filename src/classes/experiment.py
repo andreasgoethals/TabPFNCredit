@@ -178,7 +178,15 @@ class Experiment:
                     results[method][fold] = {}
 
                 if self.config.task == 'pd':
-                    y_pred_proba = model.predict_proba(x_test)[:, 1]
+                    if method.startswith('tabpfn'):  # covers tabpfn, tabpfn_rf, tabpfn_hpo
+                        batch_size = 10000  #  Make this less if you have GPU memory error
+                        preds = []
+                        for batch_start in range(0, x_test.shape[0], batch_size):
+                            batch_end = min(batch_start + batch_size, x_test.shape[0])
+                            preds.append(model.predict_proba(x_test[batch_start:batch_end])[:, 1])
+                        y_pred_proba = np.concatenate(preds)
+                    else:
+                        y_pred_proba = model.predict_proba(x_test)[:, 1]
                     results[method][fold] = self.model_evaluator.evaluate_classification(
                         y_test, y_pred_proba)
                 else:
