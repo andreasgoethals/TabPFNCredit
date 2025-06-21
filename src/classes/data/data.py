@@ -6,8 +6,6 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import load_breast_cancer, load_diabetes
 from sklearn.model_selection import train_test_split, KFold
-from collections import Counter
-from imblearn.over_sampling import SMOTE
 from src.classes.data.preprocessing import Preprocessing
 
 logger = logging.getLogger(__name__)
@@ -59,14 +57,6 @@ class Data:
         _data = self.subsample_if_necessary(_data)
         self.x, self.y, self.cols, self.cols_cat, self.cols_num, self.cols_cat_idx, self.cols_num_idx = self.preprocessing.preprocess_data(_data)
 
-        # check if we want artificial class imbalance
-        if self.experimentconfig.get('imbalance', False):
-            logger.info(f"Inducing class imbalance with ratio {self.experimentconfig['imbalance_ratio']} ...")
-            self.x, self.y = self._introduce_class_imbalance(
-                self.x, self.y,
-                imbalance_ratio=self.experimentconfig.get('imbalance_ratio', 0.1),
-            )
-
     def split_data(self) -> Dict[int, Dict[str, List[int]]]:
 
         # Retrieve the number of CV splits from experimentconfig
@@ -88,65 +78,6 @@ class Data:
             }
 
         return self.split_indices
-
-    @staticmethod
-    def _introduce_class_imbalance(x, y, imbalance_ratio=0.1, random_state=0):
-        """
-        Create artificial class imbalance in the dataset. Downsamples or oversamples
-        the minority class to reach the desired imbalance ratio.
-
-        Parameters
-        ----------
-        x : np.ndarray
-            Feature matrix.
-        y : np.ndarray
-            Target vector.
-        imbalance_ratio : float
-            Desired minority class ratio (e.g., 0.1 for 10% minority).
-        random_state : int
-            Random seed.
-
-        Returns
-        -------
-        x_new, y_new : np.ndarray
-            New dataset with induced class imbalance.
-        """
-        unique, counts = np.unique(y, return_counts=True)
-        logger.info(f"Class distribution BEFORE imbalance: {dict(zip(unique, counts))}")
-
-        # Identify majority and minority classes
-        majority_class = unique[np.argmax(counts)]
-        minority_class = unique[np.argmin(counts)]
-        idx_major = np.where(y == majority_class)[0]
-        idx_minor = np.where(y == minority_class)[0]
-
-        current_ratio = len(idx_minor) / (len(idx_major) + len(idx_minor))
-        logger.info(f"Current minority ratio: {current_ratio:.2f}, Desired: {imbalance_ratio}")
-
-        rng = np.random.RandomState(random_state)
-
-        # CASE 1: UNDERSAMPLING (if desired ratio < current)
-        if imbalance_ratio < current_ratio:
-            n_major = len(idx_major)
-            n_minor_new = int(n_major * imbalance_ratio / (1 - imbalance_ratio))
-            n_minor_new = min(len(idx_minor), n_minor_new)
-
-            idx_minor_sampled = rng.choice(idx_minor, size=n_minor_new, replace=False)
-            idx_combined = np.concatenate([idx_major, idx_minor_sampled])
-            rng.shuffle(idx_combined)
-            x_new, y_new = x[idx_combined], y[idx_combined]
-
-        # CASE 2: OVERSAMPLING (if desired ratio > current)
-        else:
-            # Use SMOTE or other oversampler to create synthetic minority points
-            smote = SMOTE(sampling_strategy=imbalance_ratio, random_state=random_state)
-            x_new, y_new = smote.fit_resample(x, y)
-
-        # Log final distribution
-        final_counts = dict(Counter(y_new))
-        logger.info(f"Class distribution AFTER imbalance: {final_counts}")
-        logger.info(f"Total samples: {len(y_new)}\n")
-        return x_new, y_new
 
     def load_data(self):
         ##########################################

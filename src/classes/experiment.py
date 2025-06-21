@@ -10,11 +10,13 @@ import logging
 # Foundation models
 from pytorch_tabnet.tab_model import TabNetClassifier
 
+from run.main import imbalance
 # Proprietary imports
 from src.classes.data.data import Data
 from src.classes.evaluation import ModelEvaluator
 from src.classes.models.models import Models, ModelConfiguration
-from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
+from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values, \
+    _introduce_class_imbalance
 from src.classes.tabpfn_tuner import create_classifier as create_tabpfn_classifier, \
     create_regressor as create_tabpfn_regressor
 from src.classes.tuner import Tuner
@@ -94,6 +96,8 @@ class Experiment:
             hyperparameters=tuningconfig,
             optimal_params=paramconfig,
             methods=methodconfig['methods'],
+            imbalance=experimentconfig['imbalance'],
+            imbalance_ratio=experimentconfig['imbalance_ratio']
         )
 
         _assert_experimentconfig(experimentconfig)
@@ -217,6 +221,15 @@ class Experiment:
         # Standardize data
         x_train, x_val, x_test, y_train, y_val, y_test = standardize_data(
             x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
+
+
+        # check if we want artificial class imbalance
+        if self.config.imbalance:
+            logger.info(f"Inducing class imbalance with ratio {self.config.imbalance_ratio} ...")
+            x_train, y_train = _introduce_class_imbalance(
+                x_train, y_train,
+                imbalance_ratio=self.config.imbalance_ratio,
+            )
 
         logger.info(f'Data preprocessing finished')
 

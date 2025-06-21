@@ -61,6 +61,11 @@ class ModelConfiguration:
     :ivar methods: A dictionary defining the methods to be used in the modeling
         process. Includes details of enabled or disabled methods.
     :type methods: Dict[str, Dict[str, bool]]
+    :ivar imbalance: a boolean defining whether to introduce artificial imbalance
+        in the training data
+    :type imbalance: bool
+    :ivar imbalance_ratio: a float number indicating the class imbalance ratio
+    :type imbalance_ratio: float
     """
     task: str
     cv_splits: int
@@ -71,6 +76,8 @@ class ModelConfiguration:
     hyperparameters: Dict[str, Dict[str, bool]]
     optimal_params: Dict[str, Dict[str, bool]]
     methods: Dict[str, Dict[str, bool]]
+    imbalance: bool
+    imbalance_ratio: float
 
 
 class Models:
