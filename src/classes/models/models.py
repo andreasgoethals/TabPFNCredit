@@ -138,6 +138,7 @@ class Models:
             'tabpfn': lambda p: TabPFNClassifier(ignore_pretraining_limits=True, **p),
             'tabpfn_rf': lambda p: tabpfn_create_classifier('tabpfn_rf', p),
             'tabpfn_hpo': lambda p: tabpfn_create_classifier('tabpfn_hpo', p),
+            'tabpfn_auto': lambda p: tabpfn_create_classifier('tabpfn_auto'),
             'xgb': lambda p: XGBClassifier(random_state=0, **p)
         }
         return models[method](params)

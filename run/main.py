@@ -7,11 +7,13 @@ from pathlib import Path
 
 import pandas as pd
 
+project_root = Path(__file__).resolve().parent.parent
+sys.path.append(str(project_root))
+
 from src.classes.experiment import Experiment
 from src.utils import set_random_seed, load_config
 
-project_root = Path(__file__).resolve().parent.parent
-sys.path.append(str(project_root))
+
 
 # Argument parser
 parser = argparse.ArgumentParser()
@@ -49,7 +51,7 @@ elif task == 'lgd':
     dataset_name = next((key for key, value in dataconfig['dataset_lgd'].items() if value), 'dataset_lgd_unknown')
 
 # Format timestamp
-timestamp = pd.Timestamp.now().strftime('%Y-%m-%d')
+timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
 
 # Format names
 base_folder = f"{dataset_name}"

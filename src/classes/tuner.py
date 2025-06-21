@@ -2,6 +2,7 @@
 from abc import ABC, abstractmethod
 import itertools
 import optuna
+from optuna.samplers import TPESampler
 from sklearn.metrics import roc_auc_score, mean_squared_error
 from typing import Dict, Any
 import logging
@@ -72,7 +73,7 @@ class OptunaTuner(HyperparameterTuner):
 
     def tune(self, model_factory, model_trainer, data, method: str, task: str) -> Dict[str, Any]:
         logger.info(f"Starting external hyperparameter tuning for {method} with {self.__class__.__name__}...")
-        study = optuna.create_study(direction="maximize")
+        study = optuna.create_study(sampler=TPESampler(seed=42), direction="maximize")
 
         def objective(trial):
             params = self._create_trial_params(trial)
@@ -119,7 +120,7 @@ class OptunaTuner(HyperparameterTuner):
         return params
 
 class Tuner:
-    INTERNAL_TUNING_METHODS = {'tabpfn_hpo'}
+    INTERNAL_TUNING_METHODS = {'tabpfn_hpo', 'tabpfn_auto'}
     @staticmethod
     def create_tuner(task: str,method: str, tuning_config: Dict[str, Dict[str, Any]]) -> HyperparameterTuner:
         if method in Tuner.INTERNAL_TUNING_METHODS:
