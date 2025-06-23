@@ -99,7 +99,7 @@ tuning_params:
       param_space:
         var_smoothing:
           type: 'float'
-          low: 1e-10
+          low: 0.00001
           high: 0.1
           log: true
       param_grid:

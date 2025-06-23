@@ -47,16 +47,20 @@ class GridSearchTuner(HyperparameterTuner):
             param_dict = dict(zip(param_names, params))
             param_dict = {k: None if v == 'None' else v for k, v in param_dict.items()}
 
-            model = (model_factory.create_classifier(method, param_dict)
-                     if task == 'pd'
-                     else model_factory.create_regressor(method, param_dict))
+            try:
+                model = (model_factory.create_classifier(method, param_dict)
+                         if task == 'pd'
+                         else model_factory.create_regressor(method, param_dict))
 
-            model = model_trainer.train_model(
-                model, method, data.x_train, data.y_train,
-                data.x_val, data.y_val
-            )
+                model = model_trainer.train_model(
+                    model, method, data.x_train, data.y_train,
+                    data.x_val, data.y_val
+                )
 
-            score = self._evaluate_model(model, data, task)
+                score = self._evaluate_model(model, data, task)
+            except Exception as e:
+                print(f"[GridSearch] Skipping params {param_dict} due to error: {e}")
+                continue
 
             if score > best_score:
                 best_score = score
@@ -77,17 +81,18 @@ class OptunaTuner(HyperparameterTuner):
 
         def objective(trial):
             params = self._create_trial_params(trial)
-
             model = (model_factory.create_classifier(method, params)
                      if task == 'pd'
                      else model_factory.create_regressor(method, params))
-
-            model = model_trainer.train_model(
-                model, method, data.x_train, data.y_train,
-                data.x_val, data.y_val
-            )
-
-            return self._evaluate_model(model, data, task)
+            try:
+                model = model_trainer.train_model(
+                    model, method, data.x_train, data.y_train,
+                    data.x_val, data.y_val
+                )
+                return self._evaluate_model(model, data, task)
+            except Exception as e:
+                logger.info(f"[Optuna] Trial failed with params: {params} | Error: {e}")
+                return None
 
         study.optimize(objective, n_trials=self.n_trials)
 
