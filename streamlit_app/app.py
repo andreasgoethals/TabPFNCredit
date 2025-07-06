@@ -1,7 +1,22 @@
 import os
 import streamlit as st
 import pandas as pd
-from plots import plot_metric_by_model, plot_grouped_bar_by_model
+from plots import (
+    plot_training_time_bar,
+    plot_training_time_vs_metric,
+    plot_model_metric_heatmap,
+    plot_model_boxplot,
+    plot_metric_bar_avg_by_model,
+    plot_combined_metric_bar,
+    plot_combined_boxplot,
+    plot_combined_metric_heatmap,
+    # plot_combined_radar,
+    plot_combined_radar_interactive,
+    plot_pairwise_comparison_table,
+    plot_relative_rank,
+)
+
+from app_helpers import generate_meta_results_for_task
 
 OUTPUTS_DIR = "outputs"
 TASK_SUBFOLDERS = [
@@ -14,79 +29,113 @@ TASK_SUBFOLDERS = [
 task = st.sidebar.selectbox("Select Task", TASK_SUBFOLDERS, index=0)
 task_dir = os.path.join(OUTPUTS_DIR, task)
 
-# Dataset selection
-all_dataset_folders = [
-    f for f in os.listdir(task_dir)
-    if os.path.isdir(os.path.join(task_dir, f)) and not f.startswith("config")
-]
-selected_datasets = st.sidebar.multiselect(
-    "Select Dataset(s)", sorted(all_dataset_folders), default=sorted(all_dataset_folders)[:1]
+# --- Generate meta results on app load ---
+results_files_by_dataset, combined_meta_path = generate_meta_results_for_task(task_dir)
+
+# ---- DATASET SELECTION ----
+dataset_options = sorted(results_files_by_dataset.keys()) + ["All Datasets (combined)"]
+selected_dataset = st.sidebar.selectbox("Select Dataset", dataset_options, index=0)
+
+if selected_dataset == "All Datasets (combined)":
+    dataset_path = os.path.join(task_dir, "total_combined")
+    results_files = ["total_combined_meta_results.csv"]
+else:
+    dataset_path = os.path.join(task_dir, selected_dataset)
+    results_files = results_files_by_dataset[selected_dataset]
+
+# Pick result file for display (usually meta or a run)
+selected_file = st.sidebar.selectbox(
+    "Select results file", results_files, index=0
 )
 
-results_files_by_dataset = {}
-for dataset in selected_datasets:
-    dataset_path = os.path.join(task_dir, dataset)
-    csv_files = [
-        f for f in os.listdir(dataset_path)
-        if f.endswith(".csv") and os.path.isfile(os.path.join(dataset_path, f))
-    ]
-    # --- Meta results creation (always create on app load) ---
-    meta_name = f"{dataset}_meta_results.csv"
-    meta_path = os.path.join(dataset_path, meta_name)
-    if len(csv_files) > 1:
-        dfs = [pd.read_csv(os.path.join(dataset_path, f)) for f in csv_files]
-        meta_df = pd.concat(dfs, ignore_index=True)
-        meta_df.to_csv(meta_path, index=False)
-        if meta_name not in csv_files:
-            csv_files.append(meta_name)
-    # Always include meta file if exists
-    if os.path.exists(meta_path) and meta_name not in csv_files:
-        csv_files.append(meta_name)
-    results_files_by_dataset[dataset] = sorted(csv_files, reverse=True)
-
-# Results selection
-selected_files = {}
-for dataset, files in results_files_by_dataset.items():
-    if files:
-        chosen_files = st.sidebar.multiselect(
-            f"Select results file(s) for {dataset}",
-            files,
-            default=files[:1],
-            key=f"{dataset}_files"
-        )
-        selected_files[dataset] = chosen_files
-
-# --- Main area ---
+# --- MAIN AREA ---
 st.title("TABPFN Credit Benchmark Results")
 all_dfs = {}
-for dataset, files in selected_files.items():
-    for result_file in files:
-        csv_path = os.path.join(task_dir, dataset, result_file)
-        df = pd.read_csv(csv_path)
-        # For display, cast bool to str (fixes Streamlit blank checkbox issue)
-        if 'tuning' in df.columns:
-            df['tuning'] = df['tuning'].astype(str)
-        st.subheader(f"{dataset}: {result_file}")
-        st.dataframe(df)
-        all_dfs[f"{dataset}/{result_file}"] = df
+csv_path = os.path.join(dataset_path, selected_file)
+df = pd.read_csv(csv_path)
 
-# --- Plots ---
-if all_dfs:
-    st.header("Visualizations")
-    # Metric selection (main metrics, rest can be added)
-    plot_metrics = ["accuracy", "f1", "aucroc", "training_time"]
-    # Use available metrics in the current data
-    all_metrics = [col for df in all_dfs.values() for col in df.columns if df[col].dtype in ['float64', 'int64']]
-    metrics_avail = [m for m in plot_metrics if m in all_metrics]
-    if not metrics_avail:
-        metrics_avail = all_metrics  # fallback: show all
+if 'tuning' in df.columns:
+    df['tuning'] = df['tuning'].astype(str)
+st.subheader(f"{selected_dataset}: {selected_file}")
+st.dataframe(df)
 
-    metric = st.selectbox("Select metric to plot", metrics_avail, index=0)
+all_dfs[f"{selected_dataset}/{selected_file}"] = df
 
-    for label, df in all_dfs.items():
-        st.markdown(f"#### {label}")
-        plot_metric_by_model(df, metric, title=f"{metric} by Model")
 
-    if len(all_dfs) > 1:
-        st.subheader("Comparison Across Selected Results")
-        plot_grouped_bar_by_model(all_dfs, metric)
+# # ---- PLOTS ----
+MIN_TRAIN_TIME = 20  # in seconds
+
+if not selected_file.endswith("_meta_results.csv"):
+    st.markdown("### Bar Plot (average over splits)")
+    # Metric selection
+    plot_metrics = ["accuracy", "brier", "f1", "precision", "recall", "aucroc", "aucpr", "h_measure", "training_time"]
+    available_metrics = [col for col in df.columns if col in plot_metrics and df[col].dtype in ['float64', 'int64']]
+    metric = st.selectbox("Select the evaluation metric", available_metrics, index=0)
+
+    plot_metric_bar_avg_by_model(df, metric, title=f"{metric} by Model (mean over folds)")
+
+    # Training time plot
+    st.markdown(f"### Training Time (only models ≥ {MIN_TRAIN_TIME}s)")
+    plot_training_time_bar(df, min_time=MIN_TRAIN_TIME)
+
+
+# Check if this is a meta file (endswith "_meta_results.csv") and only one selected file
+if selected_file.endswith("_meta_results.csv"):
+    st.header("Meta Results Plots")
+
+    plot_metrics = ["accuracy", "brier", "f1", "precision", "recall", "aucroc", "aucpr", "h_measure", "training_time"]
+    available_metrics = [col for col in df.columns if col in plot_metrics and df[col].dtype in ['float64', 'int64']]
+    metric = st.selectbox("Select metric for bar plot", available_metrics, index=0)
+
+    if selected_dataset == "All Datasets (combined)":
+        # ---- COMBINED ALL DATASETS: Show all comparative plots ----
+        st.markdown("### [A] Bar Plot (All Datasets, Average per Model)")
+        plot_combined_metric_bar(df, metric, title=f"{metric} by Model (All Datasets)")
+
+        st.markdown("### [B] Boxplot of Metric by Model (All Datasets)")
+        plot_combined_boxplot(df, metric)
+
+        st.markdown("### [C] Model × Metric Heatmap (All Datasets)")
+        plot_combined_metric_heatmap(df, [m for m in available_metrics if m != "training_time"])
+
+        # Training Time vs. Metric
+        st.markdown("### [D] Training Time vs. Metric")
+        min_train_time = st.slider("Min training time for scatter (seconds)", min_value=0, max_value=600, value=60,
+                                   step=10)
+
+        # Add min_metric slider for currently selected metric (dynamically set range)
+        metric_min = float(df[metric].min())
+        metric_max = float(df[metric].max())
+        metric_default = float(df[metric].quantile(0.1))  # Or set to metric_min if you prefer
+        min_metric = st.slider(f"Min {metric} for scatter", min_value=metric_min, max_value=metric_max,
+                               value=metric_default, step=0.01)
+
+        plot_training_time_vs_metric(df, metric, min_time=min_train_time, min_metric=min_metric)
+
+        st.markdown("### [E] Radar/Spider Plot: Model Comparison")
+        radar_metrics = st.multiselect("Select metrics for radar plot", [m for m in available_metrics if m != "training_time"], default=["accuracy", "aucroc", "f1"])
+        if len(radar_metrics) >= 3:
+            plot_combined_radar_interactive(df, radar_metrics)
+        else:
+            st.info("Select at least 3 metrics for radar plot.")
+
+        st.markdown(f"### [F] Pairwise Comparison Table for {metric}")
+        plot_pairwise_comparison_table(df, metric)
+
+        st.markdown("### [G] Relative Rank Plot")
+        plot_relative_rank(df, metric)
+
+    else:
+        # ---- SINGLE DATASET META PLOTS (as before) ----
+        st.markdown("#### Bar Plot (Mean over Folds)")
+        plot_metric_bar_avg_by_model(df, metric, title=f"{metric} by Model (mean over folds)")
+
+        st.markdown("#### Boxplot of Metric by Model")
+        plot_model_boxplot({selected_dataset: df}, metric)
+
+        st.markdown("#### Model × Metric Heatmap")
+        plot_model_metric_heatmap(df, [m for m in available_metrics if m != "training_time"])
+
+        st.markdown("#### Training Time vs. Metric (for slower models)")
+        min_train_time = st.slider("Min training time for scatter (seconds)", min_value=0, max_value=600, value=60, step=10)
+        plot_training_time_vs_metric(df, metric, min_time=min_train_time)

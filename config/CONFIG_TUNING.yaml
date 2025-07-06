@@ -274,7 +274,7 @@ tuning_params:
         max_features: [ 'sqrt', null ]
     tabpfn_hpo: # this has an internal tuner already so we will not use Optuna or Grid search on this one
       n_trials: 50
-      metric: 'f1' # Source code has a bug for roc_auc, use f1 for now
+      metric: 'roc_auc'
       random_state: 42
     tabpfn_auto:
 
