@@ -178,9 +178,16 @@ def plot_training_time_vs_metric(df, metric, min_time=60, min_metric=None):
 def plot_combined_metric_bar(df, metric, title=None):
     # Group by model, mean over everything (all datasets, splits, etc.)
     mean_df = df.replace(0, np.nan).groupby("model")[metric].mean().reset_index()
+    mean_df = mean_df.sort_values(metric, ascending=False)
     palette = {m: "#FF8000" if is_tabpfn(m) else "#2980b9" for m in mean_df["model"]}
     fig, ax = plt.subplots(figsize=(10, 4))
     bars = ax.bar(mean_df["model"], mean_df[metric], color=[palette[m] for m in mean_df["model"]])
+
+    min_val = mean_df[metric].min()
+    max_val = mean_df[metric].max()
+    padding = (max_val - min_val) * 0.05
+    ax.set_ylim(min_val - padding, max_val + padding)
+
     ax.set_ylabel(metric)
     ax.set_title(title or f"{metric} by Model (All Datasets)")
     # Bold x-ticks for TabPFN
