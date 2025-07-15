@@ -41,3 +41,6 @@ dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,
 02_taiwan_creditcard,off,True,tabpfn_rf,0,0.8228,0.13295,0.46755,0.66269,0.36119,0.28706,0.78468,0.55353,76.104434
 02_taiwan_creditcard,off,True,tabpfn_rf,1,0.8203,0.13385,0.47256,0.67195,0.36442,0.2915,0.7792,0.56476,71.188078
 02_taiwan_creditcard,off,True,tabpfn_rf,2,0.8111,0.14141,0.45982,0.65686,0.35372,0.27388,0.77514,0.54798,71.911724
+02_taiwan_creditcard,off,False,tabpfn,0,0.8276,0.13258,0.46592,0.70019,0.34912,0.28753,0.77716,0.54502,17.239996
+02_taiwan_creditcard,off,False,tabpfn,1,0.8233,0.13436,0.46144,0.70616,0.34269,0.28754,0.77272,0.55449,14.470446
+02_taiwan_creditcard,off,False,tabpfn,2,0.8112,0.14138,0.45685,0.66002,0.34932,0.27654,0.77643,0.53221,15.119127

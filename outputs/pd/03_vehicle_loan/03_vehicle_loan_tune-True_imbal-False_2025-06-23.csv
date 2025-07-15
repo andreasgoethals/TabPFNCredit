@@ -41,3 +41,6 @@ dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,
 03_vehicle_loan,off,True,tabpfn_rf,0,0.78304,0.16449,0.01202,0.54321,0.00608,0.06048,0.63268,0.30961,344.591767
 03_vehicle_loan,off,True,tabpfn_rf,1,0.7813,0.16415,0.02016,0.4386,0.01032,0.0675,0.64088,0.31833,375.645936
 03_vehicle_loan,off,True,tabpfn_rf,2,0.7834,0.16334,0.03321,0.43662,0.01726,0.06431,0.63775,0.30912,353.771514
+03_vehicle_loan,off,False,tabpfn,0,0.78283,0.16648,0.0,0.0,0.0,0.05979,0.63148,0.30896,377.522923
+03_vehicle_loan,off,False,tabpfn,1,0.7819,0.16647,0.0,0.0,0.0,0.04673,0.61448,0.29769,393.648816
+03_vehicle_loan,off,False,tabpfn,2,0.78448,0.16536,0.0,0.0,0.0,0.06148,0.63342,0.31085,390.874506
