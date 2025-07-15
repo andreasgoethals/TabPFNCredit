@@ -21,7 +21,7 @@ def plot_metric_bar_avg_by_model(df, metric, title=""):
 
     mean_df = df[df[metric] != 0].copy()
     mean_df = mean_df.groupby(group_cols)[metric].mean().reset_index()
-
+    mean_df = mean_df.sort_values(metric, ascending=False)
     # Assign colors: highlight TabPFN models
     model_names = mean_df["model"].tolist()
     colors = ["#FF8000" if is_tabpfn(m) else "#2980b9" for m in model_names]  # Orange for TabPFN, blue otherwise
@@ -33,6 +33,11 @@ def plot_metric_bar_avg_by_model(df, metric, title=""):
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
+
+    min_val = mean_df[metric].min()
+    max_val = mean_df[metric].max()
+    padding = (max_val - min_val) * 0.05
+    ax.set_ylim(min_val - padding, max_val + padding)
 
     ax.set_ylabel(metric)
     ax.set_title(title or f"{metric} by Model (mean over folds)")
