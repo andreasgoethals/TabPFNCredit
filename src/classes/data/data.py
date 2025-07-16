@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import load_breast_cancer, load_diabetes
 from sklearn.model_selection import train_test_split, KFold
-
 from src.classes.data.preprocessing import Preprocessing
 
 logger = logging.getLogger(__name__)
@@ -58,14 +57,6 @@ class Data:
         _data = self.subsample_if_necessary(_data)
         self.x, self.y, self.cols, self.cols_cat, self.cols_num, self.cols_cat_idx, self.cols_num_idx = self.preprocessing.preprocess_data(_data)
 
-        # check if we want artificial class imbalance
-        if self.experimentconfig.get('imbalance', False):
-            logger.info(f"Inducing class imbalance with ratio {self.experimentconfig['imbalance_ratio']} ...")
-            self.x, self.y = self._introduce_class_imbalance(
-                self.x, self.y,
-                imbalance_ratio=self.experimentconfig.get('imbalance_ratio', 0.1),
-            )
-
     def split_data(self) -> Dict[int, Dict[str, List[int]]]:
 
         # Retrieve the number of CV splits from experimentconfig
@@ -87,64 +78,6 @@ class Data:
             }
 
         return self.split_indices
-
-    @staticmethod
-    def _introduce_class_imbalance(x, y, imbalance_ratio=0.1, random_state=0):
-        """
-        Downsample the minority class to achieve a given class imbalance.
-
-        Parameters
-        ----------
-        x : np.ndarray
-            Feature matrix.
-        y : np.ndarray
-            Target vector (1D, integer or categorical).
-        imbalance_ratio : float
-            Desired ratio of minority class in the output data (e.g. 0.1 for 10%).
-        random_state : int
-            Random seed.
-
-        Returns
-        -------
-        x_new, y_new : np.ndarray
-            Feature matrix and labels with induced class imbalance.
-        """
-
-        # Count class occurrences
-        unique, counts = np.unique(y, return_counts=True)
-        logger.info(f"Class distribution BEFORE imbalance: {dict(zip(unique, counts))}")
-
-        # Find majority and minority classes
-        class_counts = dict(zip(unique, counts))
-        majority_class = unique[np.argmax(counts)]
-        minority_class = unique[np.argmin(counts)]
-        logger.info(f"Majority class: {majority_class}, Minority class: {minority_class}")
-
-        idx_major = np.where(y == majority_class)[0]
-        idx_minor = np.where(y == minority_class)[0]
-        n_major = len(idx_major)
-
-        # Calculate how many minority samples to keep
-        n_minor_new = int(n_major * imbalance_ratio / (1 - imbalance_ratio))
-        n_minor_new = min(len(idx_minor), n_minor_new)
-        logger.info(f"Will keep {n_minor_new} of {len(idx_minor)} minority samples (ratio {imbalance_ratio})")
-
-        # Randomly sample minority indices
-        rng = np.random.RandomState(random_state)
-        idx_minor_sampled = rng.choice(idx_minor, size=n_minor_new, replace=False)
-
-        # Combine indices and shuffle
-        idx_combined = np.concatenate([idx_major, idx_minor_sampled])
-        rng.shuffle(idx_combined)
-
-        # Final data
-        x_new = x[idx_combined]
-        y_new = y[idx_combined]
-
-        unique_new, counts_new = np.unique(y_new, return_counts=True)
-        logger.info(f"Class distribution AFTER imbalance: {dict(zip(unique_new, counts_new))}")
-        logger.info(f"Total samples: {len(y_new)}\n")
-        return x_new, y_new
 
     def load_data(self):
         ##########################################

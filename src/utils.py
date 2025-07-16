@@ -64,3 +64,8 @@ def set_random_seed(seed=0):
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+    else:
+        raise SystemError(
+            'GPU device not found. For fast training, please enable GPU. See section above for instructions.'
+        )
