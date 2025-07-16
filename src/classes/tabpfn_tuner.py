@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, Union
 from tabpfn import TabPFNClassifier, TabPFNRegressor
+from tabpfn_extensions.post_hoc_ensembles.sklearn_interface import AutoTabPFNClassifier
 from tabpfn_extensions.rf_pfn import (
     RandomForestTabPFNClassifier,
     RandomForestTabPFNRegressor,
@@ -61,6 +62,9 @@ def create_classifier(
             **{k: v for k, v in params.items() if
                k not in {'n_trials', 'metric', 'categorical_feature_indices', 'random_state'}}
         )
+    elif method == 'tabpfn_auto':
+        print("[TabPFN_AUTO] Creating AutoTabPFNClassifier with internal tuning:")
+        return AutoTabPFNClassifier(random_state=42, ignore_pretraining_limits=True)
     else:
         raise ValueError(f"Unknown TabPFN classifier method: {method}")
 

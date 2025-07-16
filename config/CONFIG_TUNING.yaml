@@ -99,7 +99,7 @@ tuning_params:
       param_space:
         var_smoothing:
           type: 'float'
-          low: 1e-10
+          low: 0.00001
           high: 0.1
           log: true
       param_grid:
@@ -240,7 +240,6 @@ tuning_params:
         learning_rate: [ 0.01, 0.1 ]
         subsample: [ 0.5, 0.7, 1 ]
         colsample_bytree: [ 0.6, 0.8, 1.0 ]
-    # added this for random_forest tuning hp tuning -> kind of double tuning strategy
     tabpfn_rf:
       param_space:
         n_estimators:
@@ -275,8 +274,10 @@ tuning_params:
         max_features: [ 'sqrt', null ]
     tabpfn_hpo: # this has an internal tuner already so we will not use Optuna or Grid search on this one
       n_trials: 50
-      metric: 'f1'
+      metric: 'roc_auc'
       random_state: 42
+    tabpfn_auto:
+
   # lgd parameters
   lgd:
     ab:

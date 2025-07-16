@@ -14,7 +14,8 @@ from pytorch_tabnet.tab_model import TabNetClassifier
 from src.classes.data.data import Data
 from src.classes.evaluation import ModelEvaluator
 from src.classes.models.models import Models, ModelConfiguration
-from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values
+from src.classes.data.preprocessing import standardize_data, encode_cat_vars, handle_missing_values, \
+    _introduce_class_imbalance
 from src.classes.tabpfn_tuner import create_classifier as create_tabpfn_classifier, \
     create_regressor as create_tabpfn_regressor
 from src.classes.tuner import Tuner
@@ -94,6 +95,8 @@ class Experiment:
             hyperparameters=tuningconfig,
             optimal_params=paramconfig,
             methods=methodconfig['methods'],
+            imbalance=experimentconfig['imbalance'],
+            imbalance_ratio=experimentconfig['imbalance_ratio']
         )
 
         _assert_experimentconfig(experimentconfig)
@@ -141,18 +144,6 @@ class Experiment:
             for method, use_method in methods.items():
                 if not use_method:
                     continue  # skip disabled methods
-
-                # if method == 'tabpfn_hpo':
-                #     logger.debug(f"Using INTERNAL tuning for {method} (config params will be used)")
-                #     # Always fetch params directly from config for internal-tuning
-                #     tabpfn_params = (self.config.hyperparameters['tuning_params']['pd'].get(method, {})
-                #                      if self.config.task == 'pd'
-                #                      else self.config.hyperparameters['tuning_params']['lgd'].get(method, {}))
-                #     logger.debug(f"Params for {method}: {tabpfn_params}")
-                #     if self.config.task == 'pd':
-                #         model = create_tabpfn_classifier(method, tabpfn_params)
-                #     else:
-                #         model = create_tabpfn_regressor(method, tabpfn_params)
                 else:
                     # All other models (including tabpfn_rf): tune if not already tuned
                     if method not in tuned_hyperparams:
@@ -163,7 +154,7 @@ class Experiment:
                         elif 'param_space' in task_params:
                             tuned_hyperparams[method] = self._get_optimal_hyperparameters(fold, indices, method)
                         else:
-                            tuned_hyperparams[method] = tuned_hyperparams
+                            tuned_hyperparams[method] = task_params
                     else:
                         logger.debug(f"{method} already tuned, using cached params.")
 
@@ -190,7 +181,15 @@ class Experiment:
                     results[method][fold] = {}
 
                 if self.config.task == 'pd':
-                    y_pred_proba = model.predict_proba(x_test)[:, 1]
+                    if method.startswith('tabpfn'):  # covers tabpfn, tabpfn_rf, tabpfn_hpo
+                        batch_size = 10000  #  Make this less if you have GPU memory error
+                        preds = []
+                        for batch_start in range(0, x_test.shape[0], batch_size):
+                            batch_end = min(batch_start + batch_size, x_test.shape[0])
+                            preds.append(model.predict_proba(x_test[batch_start:batch_end])[:, 1])
+                        y_pred_proba = np.concatenate(preds)
+                    else:
+                        y_pred_proba = model.predict_proba(x_test)[:, 1]
                     results[method][fold] = self.model_evaluator.evaluate_classification(
                         y_test, y_pred_proba)
                 else:
@@ -221,6 +220,15 @@ class Experiment:
         # Standardize data
         x_train, x_val, x_test, y_train, y_val, y_test = standardize_data(
             x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
+
+
+        # check if we want artificial class imbalance
+        if self.config.imbalance:
+            logger.info(f"Inducing class imbalance with ratio {self.config.imbalance_ratio} ...")
+            x_train, y_train = _introduce_class_imbalance(
+                x_train, y_train,
+                imbalance_ratio=self.config.imbalance_ratio,
+            )
 
         logger.info(f'Data preprocessing finished')
 

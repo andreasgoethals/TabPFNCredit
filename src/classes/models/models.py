@@ -61,6 +61,11 @@ class ModelConfiguration:
     :ivar methods: A dictionary defining the methods to be used in the modeling
         process. Includes details of enabled or disabled methods.
     :type methods: Dict[str, Dict[str, bool]]
+    :ivar imbalance: a boolean defining whether to introduce artificial imbalance
+        in the training data
+    :type imbalance: bool
+    :ivar imbalance_ratio: a float number indicating the class imbalance ratio
+    :type imbalance_ratio: float
     """
     task: str
     cv_splits: int
@@ -71,6 +76,8 @@ class ModelConfiguration:
     hyperparameters: Dict[str, Dict[str, bool]]
     optimal_params: Dict[str, Dict[str, bool]]
     methods: Dict[str, Dict[str, bool]]
+    imbalance: bool
+    imbalance_ratio: float
 
 
 class Models:
@@ -125,9 +132,9 @@ class Models:
             'bnb': lambda p: BernoulliNB(**p),
             'cb': lambda p: CatBoostClassifier(random_state=0, **p),
             'dt': lambda p: DecisionTreeClassifier(random_state=0, **p),
-            'gnb': lambda p: GaussianNB(),
+            'gnb': lambda p: GaussianNB(**p),
             'knn': lambda p: KNeighborsClassifier(**p),
-            'lda': lambda p: LinearDiscriminantAnalysis(),
+            'lda': lambda p: LinearDiscriminantAnalysis(random_state=0, **p),
             'lgbm': lambda p: LGBMClassifier(random_state=0, verbose=-1, **p),
             'lr': lambda p: LogisticRegression(random_state=0, solver='liblinear', **p),
             'rf': lambda p: RandomForestClassifier(random_state=0, **p),
@@ -135,9 +142,10 @@ class Models:
             'tabnet': lambda p: TabNetClassifier(verbose=0, optimizer_fn=torch.optim.Adam,
                                                  scheduler_params={'step_size': 10},
                                                  scheduler_fn=torch.optim.lr_scheduler.StepLR, **p),
-            'tabpfn': lambda p: TabPFNClassifier(**p),
-            'tabpfn_rf': lambda p: tabpfn_create_classifier('tabpfn_rf', **p),
-            'tabpfn_hpo': lambda p: tabpfn_create_classifier('tabpfn_hpo', **p),
+            'tabpfn': lambda p: TabPFNClassifier(ignore_pretraining_limits=True, **p),
+            'tabpfn_rf': lambda p: tabpfn_create_classifier('tabpfn_rf', p),
+            'tabpfn_hpo': lambda p: tabpfn_create_classifier('tabpfn_hpo', p),
+            'tabpfn_auto': lambda p: tabpfn_create_classifier('tabpfn_auto'),
             'xgb': lambda p: XGBClassifier(random_state=0, **p)
         }
         return models[method](params)

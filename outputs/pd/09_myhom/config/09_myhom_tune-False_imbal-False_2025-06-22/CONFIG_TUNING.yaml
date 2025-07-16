@@ -1,0 +1,509 @@
+tune_hyperparameters: false    # true: tune hyperparameters, false: use base models
+tuning_method: 'optuna'       # optuna | grid | none: use stored hyperparameters
+n_trials: 20
+
+tuning_params:
+  # pd parameters
+  pd:
+    ab:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 100
+          step: 10
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.1
+      param_grid:
+        n_estimators: [ 50, 100 ]
+        learning_rate: [ 0.01, 0.1 ]
+    ann:
+      param_space:
+        num_hidden_layers:
+          type: 'int'
+          low: 1
+          high: 3
+        hidden_layer_size:
+          type: 'int'
+          low: 16
+          high: 128
+        dropout_rate:
+          type: 'float'
+          low: 0.0
+          high: 0.5
+        epochs:
+          type: 'int'
+          low: 30
+          high: 100
+        batch_size:
+          type: 'categorical'
+          values: [ 64, 128, 256, 512 ]
+        learning_rate:
+          type: 'float'
+          low: 0.0001
+          high: 0.01
+          log: true
+      param_grid:
+        num_hidden_layers: [ 1 ]
+        hidden_layer_size: [ 32,64 ]
+        activation: [ 'relu' ]
+        dropout_rate: [ 0,0.1 ]
+        epochs: [ 50 ]
+        batch_size: [ 256 ]
+        learning_rate: [ 0.001 ]
+        weight_decay: [ 0.01 ]
+        early_stopping_delay: [ 5 ]
+    bnb:
+      param_space:
+        alpha:
+          type: 'float'
+          low: 0.01
+          high: 1.0
+          log: true
+      param_grid:
+        alpha: [ 0.1, 0.5 ]
+    cb:
+      param_space:
+        iterations:
+          type: 'int'
+          low: 50
+          high: 300
+        depth:
+          type: 'int'
+          low: 4
+          high: 10
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+      param_grid:
+        iterations: [ 50, 100, 250 ]
+        depth: [ 4, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]
+    dt:
+      param_space:
+        criterion:
+          type: 'categorical'
+          values: [ 'gini', 'entropy' ]
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 20
+      param_grid:
+        criterion: [ 'gini' ]
+        max_depth: [ 10 ]
+    gnb:
+      param_space:
+        var_smoothing:
+          type: 'float'
+          low: 1e-10
+          high: 0.1
+          log: true
+      param_grid:
+        var_smoothing: [ 0.0001, 0.001 ]
+    knn:
+      param_space:
+        n_neighbors:
+          type: 'int'
+          low: 1
+          high: 20
+      param_grid:
+        n_neighbors: [ 3, 5 ]
+    lda:
+      param_space:
+        solver:
+          type: 'categorical'
+          values: [ 'svd', 'lsqr', 'eigen' ]
+      param_grid:
+        solver: [ 'svd', 'lsqr' ]
+    lgbm:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 300
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 12
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+        subsample:
+          type: 'float'
+          low: 0.5
+          high: 1.0
+        colsample_bytree:
+          type: 'float'
+          low: 0.5
+          high: 1.0
+      param_grid:
+        n_estimators: [ 50, 100, 250 ]
+        max_depth: [ 3, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]
+        subsample: [ 0.5, 0.7, 1 ]
+        colsample_bytree: [ 0.6, 0.8, 1.0 ]
+    lr:
+      param_space:
+        C:
+          type: 'float'
+          low: 0.001
+          high: 100.0
+          log: true
+        penalty:
+          type: 'categorical'
+          values: [ 'l1', 'l2' ]
+      param_grid:
+        C: [ 0.001, 0.01, 0.1, 1.0]
+        penalty: [ 'l1', 'l2','elasticnet' ]
+    rf:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 10
+          high: 100
+        max_depth:
+          type: 'int'
+          low: 1
+          high: 32
+      param_grid:
+        n_estimators: [ 100, 200, 300 ]
+        max_depth: [ None ]
+        min_samples_split: [ 2 ]
+        min_samples_leaf: [ 1, 2 ]
+        max_features: [ "sqrt", "log2", None ]
+    svm:
+      param_space:
+        C:
+          type: 'float'
+          low: 0.01
+          high: 10.0
+          log: true
+        kernel:
+          type: 'categorical'
+          values: [ 'linear', 'rbf', 'poly' ]
+      param_grid:
+        C: [ 0.1, 1 ]
+        kernel: [ 'linear', 'rbf' ]
+    tabnet:
+      param_space:
+        n_d:
+          type: 'int'
+          low: 8
+          high: 64
+        n_steps:
+          type: 'int'
+          low: 3
+          high: 10
+        n_shared:
+          type: 'int'
+          low: 1
+          high: 5
+      param_grid:
+        scheduler_params: [ { "step_size": 10, "gamma": 0.9 },
+                            { "step_size": 20, "gamma": 0.9 } ]
+        n_d: [ 8, 16 ]
+        n_shared: [ 1,2,3 ]
+        n_steps: [ 3,6,9 ]
+    tabpfn:
+    xgb:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 300
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 12
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+        subsample:
+          type: 'float'
+          low: 0.5
+          high: 1.0
+        colsample_bytree:
+          type: 'float'
+          low: 0.5
+          high: 1.0
+      param_grid:
+        n_estimators: [ 50, 100, 250 ]
+        max_depth: [ 3, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]
+        subsample: [ 0.5, 0.7, 1 ]
+        colsample_bytree: [ 0.6, 0.8, 1.0 ]
+    tabpfn_rf:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 200
+          step: 50
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 10
+        min_samples_split:
+          type: 'int'
+          low: 2
+          high: 100
+        min_samples_leaf:
+          type: 'int'
+          low: 1
+          high: 10
+        criterion:
+          type: 'categorical'
+          values: [ 'gini', 'entropy' ]
+        max_features:
+          type: 'categorical'
+          values: [ 'sqrt', 'log2', null ]
+      param_grid:
+        n_estimators: [ 50, 100, 200 ]
+        max_depth: [ 5, 10, null ]
+        min_samples_split: [ 2, 100 ]
+        min_samples_leaf: [ 1, 5 ]
+        criterion: [ 'gini', 'entropy' ]
+        max_features: [ 'sqrt', null ]
+    tabpfn_hpo: # this has an internal tuner already so we will not use Optuna or Grid search on this one
+      n_trials: 50
+      metric: 'f1' # Source code has a bug for roc_auc, use f1 for now
+      random_state: 42
+    tabpfn_auto:
+
+  # lgd parameters
+  lgd:
+    ab:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 200
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+      param_grid:
+        n_estimators: [ 50, 100 ]
+        learning_rate: [ 0.01, 0.1 ]
+    ann:
+      param_space:
+        num_hidden_layers:
+          type: 'int'
+          low: 1
+          high: 3
+        hidden_layer_size:
+          type: 'int'
+          low: 16
+          high: 128
+        dropout_rate:
+          type: 'float'
+          low: 0.0
+          high: 0.5
+        epochs:
+          type: 'int'
+          low: 30
+          high: 100
+        batch_size:
+          type: 'categorical'
+          values: [ 64, 128, 256, 512 ]
+        learning_rate:
+          type: 'float'
+          low: 0.0001
+          high: 0.01
+          log: true
+      param_grid:
+        num_hidden_layers: [ 1 ]
+        hidden_layer_size: [ 32,64 ]
+        activation: [ 'relu' ]
+        dropout_rate: [ 0,0.1 ]
+        epochs: [ 50 ]
+        batch_size: [ 256 ]
+        learning_rate: [ 0.001 ]
+        weight_decay: [ 0.01 ]
+        early_stopping_delay: [ 5 ]
+    cb:
+      param_space:
+        iterations:
+          type: 'int'
+          low: 50
+          high: 300
+        depth:
+          type: 'int'
+          low: 4
+          high: 10
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+      param_grid:
+        iterations: [ 50, 100 ] #, 250]
+        depth: [ 4, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]
+        verbose: [ False ]
+    dt:
+      param_space:
+        criterion:
+          type: 'categorical'
+          values: [ 'squared_error', 'absolute_error', 'friedman_mse' ]
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 20
+      param_grid:
+        criterion: [ 'absolute_error' ]
+        max_depth: [ 10 ]
+    en:
+      param_space:
+        alpha:
+          type: 'float'
+          low: 0.0001
+          high: 1.0
+          log: true
+        l1_ratio:
+          type: 'float'
+          low: 0.0
+          high: 1.0
+      param_grid:
+        alpha: [ 0.1, 0.5 ]
+        l1_ratio: [ 0.1, 0.5 ]
+    gb:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 200
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+      param_grid:
+        n_estimators: [ 50, 100 ]
+        learning_rate: [ 0.01, 0.1 ]
+    knn:
+      param_space:
+        n_neighbors:
+          type: 'int'
+          low: 1
+          high: 20
+      param_grid:
+        n_neighbors: [ 3, 5 ]
+    lgbm:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 300
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 12
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+      param_grid:
+        n_estimators: [ 50, 100, 250 ]
+        max_depth: [ 3, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]
+    lr:
+      param_space:
+        fit_intercept:
+          type: 'categorical'
+          values: [ true, false ]
+      param_grid:
+        fit_intercept: [ True, False ] # to provide at least one hyperpara
+    rf:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 300
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 50
+        min_samples_split:
+          type: 'int'
+          low: 2
+          high: 20
+        min_samples_leaf:
+          type: 'int'
+          low: 1
+          high: 10
+        max_features:
+          type: 'categorical'
+          values: [ 'sqrt', 'log2', null ]
+      param_grid:
+        n_estimators: [ 100, 200, 300 ]
+        max_depth: [ None, 50 ]
+        min_samples_split: [ 2 ]
+        min_samples_leaf: [ 1, 2 ]
+        max_features: [ "sqrt", "log2", None ]
+    svr:
+      param_space:
+        C:
+          type: 'float'
+          low: 0.01
+          high: 10.0
+          log: true
+        kernel:
+          type: 'categorical'
+          values: [ 'linear', 'rbf', 'poly' ]
+      param_grid:
+        C: [ 0.1, 1 ]
+        kernel: [ 'linear', 'rbf' ]
+    tabnet:
+      param_space:
+        n_d:
+          type: 'int'
+          low: 8
+          high: 64
+        n_steps:
+          type: 'int'
+          low: 3
+          high: 10
+        n_shared:
+          type: 'int'
+          low: 1
+          high: 5
+      param_grid:
+        scheduler_params: [ { "step_size": 10, "gamma": 0.9 },
+                            { "step_size": 20, "gamma": 0.9 } ]
+        n_d: [ 8, 16 ]
+        n_shared: [ 1,2,3 ]
+        n_steps: [ 3,6,9 ]
+    tabpfn:
+      param_grid:
+        device: [ 'auto' ]
+        ignore_pretraining_limits: [ false ]
+    xgb:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 300
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 12
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+      param_grid:
+        n_estimators: [ 50, 100 ]
+        max_depth: [ 3, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]

@@ -1,0 +1,7 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+10_hackerearth,on (ratio=0.1),True,ann,0,0.76666,0.18032,0.0,0.0,0.0,0.17787,0.72256,0.47682,3609.005558
+10_hackerearth,on (ratio=0.1),True,ann,1,0.76252,0.18496,0.0,0.0,0.0,0.16114,0.70945,0.47137,3131.459004
+10_hackerearth,on (ratio=0.1),True,ann,2,0.76576,0.18182,0.0,0.0,0.0,0.16586,0.71295,0.46857,3226.221418
+10_hackerearth,on (ratio=0.1),True,tabpfn_auto,0,0.82924,0.14081,0.43744,0.94573,0.28452,0.30399,0.78931,0.63475,98250.387783
+10_hackerearth,on (ratio=0.1),True,tabpfn_auto,1,0.81451,0.15348,0.37005,0.95629,0.22941,0.28102,0.77755,0.61809,97190.680973
+10_hackerearth,on (ratio=0.1),True,tabpfn_auto,2,0.82783,0.14067,0.43464,0.94153,0.28253,0.30159,0.78795,0.63599,77372.554987

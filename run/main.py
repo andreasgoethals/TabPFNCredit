@@ -1,17 +1,19 @@
-import os
 import argparse
-
-from src.utils import set_random_seed, load_config, setup_logger
-from src.classes.experiment import Experiment
-import pandas as pd
-import shutil
 import datetime
-
+import os
+import shutil
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root))
+
+from src.classes.experiment import Experiment
+from src.utils import set_random_seed, load_config
+
+
 
 # Argument parser
 parser = argparse.ArgumentParser()
@@ -52,24 +54,44 @@ elif task == 'lgd':
 timestamp = pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')
 
 # Format names
-base_folder = f"{task}_{dataset_name}"
-filename_prefix = f"{task}_{dataset_name}_{timestamp}"
+base_folder = f"{dataset_name}"
+experiment_folder = f"{dataset_name}_tune-{tuningconfig['tune_hyperparameters']}_imbal-{experimentconfig['imbalance']}_{timestamp}"
 
 # Create output and config backup
-output_dir = Path("outputs") / base_folder / filename_prefix
+output_dir = Path("outputs") / task / base_folder
 output_dir.mkdir(parents=True, exist_ok=True)
-config_backup_dir = output_dir / "config"
+config_backup_dir = Path('outputs') / task / base_folder / 'config' / experiment_folder
+config_backup_dir.mkdir(parents=True, exist_ok=True)
+logs_dir = Path('outputs') / 'logs' / experiment_folder
 config_backup_dir.mkdir(parents=True, exist_ok=True)
 
 # Run experiment
-experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig, output_dir)
+experiment = Experiment(dataconfig, experimentconfig, methodconfig, evaluationconfig, tuningconfig, logs_dir)
 experiment.run()
+
+# Prepare config info for the results table
+imbalance = experimentconfig.get('imbalance', False)
+imbalance_ratio = experimentconfig.get('imbalance_ratio', None)
+tuning = tuningconfig.get('tune_hyperparameters', False)
+dataset_col = dataset_name
+
+# Compose imbalance_setting string
+if not imbalance:
+    imbalance_setting = 'off'
+else:
+    imbalance_setting = f'on (ratio={imbalance_ratio})'
 
 # Get the results
 rows = []
 for model_name, splits_dict in experiment.results.items():
     for split_idx, metrics_dict in splits_dict.items():
-        row = {'model': model_name, 'split': split_idx}
+        row = {
+            'dataset': dataset_col,
+            'imbalance_setting': imbalance_setting,
+            'tuning': tuning,
+            'model': model_name,
+            'split': split_idx,
+        }
         row.update(metrics_dict)
         rows.append(row)
 
@@ -82,7 +104,7 @@ now2 = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M')
 print('\nExperiment ended at: ', now2)
 
 # Save results
-output_file = output_dir / "results.csv"
+output_file = output_dir / f"{dataset_name}_tune-{tuningconfig['tune_hyperparameters']}_imbal-{experimentconfig['imbalance']}_{timestamp}.csv"
 df.to_csv(output_file, index=False)
 print(f"Results saved to: {output_file}")
 
@@ -95,6 +117,3 @@ shutil.copy(args.method, config_backup_dir / "CONFIG_METHOD.yaml")
 shutil.copy(args.evaluation, config_backup_dir / "CONFIG_EVALUATION.yaml")
 shutil.copy(args.tuning, config_backup_dir / "CONFIG_TUNING.yaml")
 print(f"Configs backed up to: {config_backup_dir}")
-
-
-

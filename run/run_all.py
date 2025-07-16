@@ -22,7 +22,7 @@ with open(experiment_config_path) as f:
     base_experiment_config = yaml.safe_load(f)
 
 # Loop over tasks
-for task in ["pd", "lgd"]:
+for task in ["pd"]: # can add lgd if needed later on
     dataset_section = f"dataset_{task}"
     if dataset_section not in base_data_config:
         print(f"No datasets found for task '{task}'. Skipping...")
@@ -30,6 +30,9 @@ for task in ["pd", "lgd"]:
 
     # Loop over datasets
     for dataset_name in base_data_config[dataset_section]:
+        if not base_data_config[dataset_section][dataset_name]:
+            continue
+
         print(f"\n Running experiment: task='{task}', dataset='{dataset_name}'")
 
         # Create copies of the base configs
