@@ -134,7 +134,7 @@ class Models:
             'dt': lambda p: DecisionTreeClassifier(random_state=0, **p),
             'gnb': lambda p: GaussianNB(**p),
             'knn': lambda p: KNeighborsClassifier(**p),
-            'lda': lambda p: LinearDiscriminantAnalysis(random_state=0, **p),
+            'lda': lambda p: LinearDiscriminantAnalysis(**p),
             'lgbm': lambda p: LGBMClassifier(random_state=0, verbose=-1, **p),
             'lr': lambda p: LogisticRegression(random_state=0, solver='liblinear', **p),
             'rf': lambda p: RandomForestClassifier(random_state=0, **p),

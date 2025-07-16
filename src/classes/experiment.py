@@ -156,7 +156,8 @@ class Experiment:
                         else:
                             tuned_hyperparams[method] = task_params
                     else:
-                        logger.debug(f"{method} already tuned, using cached params.")
+                        if self.config.tune_hyperparameters:
+                            logger.debug(f"{method} already tuned, using cached params.")
 
                     if self.config.task == 'pd':
                         logging.info(f"Creating classifier with method: {method}")
