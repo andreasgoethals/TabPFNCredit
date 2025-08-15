@@ -1,6 +1,7 @@
 import os
 import streamlit as st
 import pandas as pd
+import pathlib
 from plots import (
     plot_training_time_bar,
     plot_training_time_vs_metric,
@@ -14,6 +15,7 @@ from plots import (
     plot_combined_radar_interactive,
     plot_pairwise_comparison_table,
     plot_relative_rank,
+    plot_ranking_bar,
 )
 
 from app_helpers import generate_meta_results_for_task
@@ -33,7 +35,8 @@ task_dir = os.path.join(OUTPUTS_DIR, task)
 results_files_by_dataset, combined_meta_path = generate_meta_results_for_task(task_dir)
 
 # ---- DATASET SELECTION ----
-dataset_options = sorted(results_files_by_dataset.keys()) + ["All Datasets (combined)"]
+dataset_options = ["All Datasets (combined)" if d == "total_combined" else d
+                   for d in sorted(results_files_by_dataset.keys())]
 selected_dataset = st.sidebar.selectbox("Select Dataset", dataset_options, index=0)
 
 if selected_dataset == "All Datasets (combined)":
@@ -139,3 +142,18 @@ if selected_file.endswith("_meta_results.csv"):
         st.markdown("#### Training Time vs. Metric (for slower models)")
         min_train_time = st.slider("Min training time for scatter (seconds)", min_value=0, max_value=600, value=60, step=10)
         plot_training_time_vs_metric(df, metric, min_time=min_train_time)
+
+# --- RANKING CSV (aggregated ranks from outputs/analysis) ---
+ranking_file = pathlib.Path("outputs/analysis/pd_ranking.csv")
+if ranking_file.exists():
+    st.sidebar.markdown("---")
+    if st.sidebar.checkbox("Show Aggregated Ranking Table & Plot", value=False):
+        st.header("Aggregated Rankings (Wide Table)")
+        rank_df = pd.read_csv(ranking_file)
+        st.dataframe(rank_df)
+
+        # choose a metric_dataset column
+        metric_cols = [c for c in rank_df.columns if c != "model"]
+        selected_rank_col = st.selectbox("Select ranking column to plot", metric_cols, index=0)
+
+        plot_ranking_bar(rank_df, selected_rank_col)
