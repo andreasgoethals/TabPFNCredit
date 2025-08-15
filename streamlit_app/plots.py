@@ -212,7 +212,6 @@ def plot_combined_boxplot(df, metric):
     st.pyplot(plt)
     plt.close()
 
-
 def plot_combined_metric_heatmap(df, metrics):
     mean_df = df.replace(0, np.nan).groupby("model")[metrics].mean().reset_index()
     plt.figure(figsize=(12, 6))
@@ -278,8 +277,6 @@ def plot_combined_radar_interactive(df, metrics):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-
-
 # The pairwise comparison table answers: “How many times does model A beat model B?”
 # for a given metric (e.g., accuracy), across all datasets/folds/configurations in the results.
 def plot_pairwise_comparison_table(df, metric):
@@ -307,8 +304,6 @@ def plot_pairwise_comparison_table(df, metric):
                 comp.loc[m1, m2] = wins
     st.dataframe(comp)
 
-
-
 def plot_relative_rank(df, metric):
     # For each group (dataset/split/imbalance/tuning), rank models by metric
     df = df[df[metric] != 0].copy()
@@ -321,6 +316,26 @@ def plot_relative_rank(df, metric):
     bars = ax.bar(mean_ranks["model"], mean_ranks["rank"], color=[palette[m] for m in mean_ranks["model"]])
     ax.set_ylabel("Avg. Rank (lower=better)")
     ax.set_title(f"Relative Rank of {metric} (All Datasets)")
+    for label in ax.get_xticklabels():
+        if is_tabpfn(label.get_text()):
+            label.set_fontweight("bold")
+            label.set_color("#FF8000")
+    st.pyplot(fig)
+    plt.close()
+
+def plot_ranking_bar(rank_df, rank_col):
+    """
+    Plot bar chart for a specific metric_dataset rank column from the pd_ranking.csv file.
+    Lower rank is better. NaNs are kept as NaNs (will be skipped in plot).
+    """
+    df_plot = rank_df[["model", rank_col]].copy()
+    df_plot = df_plot.dropna(subset=[rank_col])
+    df_plot = df_plot.sort_values(rank_col, ascending=True)  # ascending since rank 1 is best
+    palette = {m: "#FF8000" if is_tabpfn(m) else "#2980b9" for m in df_plot["model"]}
+    fig, ax = plt.subplots(figsize=(10, 4))
+    bars = ax.bar(df_plot["model"], df_plot[rank_col], color=[palette[m] for m in df_plot["model"]])
+    ax.set_ylabel("Rank (lower=better)")
+    ax.set_title(f"Ranking: {rank_col}")
     for label in ax.get_xticklabels():
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
