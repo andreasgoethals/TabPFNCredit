@@ -6,7 +6,7 @@ given default (lgd).
 
 ## Setup
 
-- Python 3.9 in a conda environment
+- Python 3.12 in a conda environment
 - Install required packages: `pip install -r requirements.txt`
 
 ## Configuration
