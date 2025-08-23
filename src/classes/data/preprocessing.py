@@ -266,7 +266,7 @@ class Preprocessing:
         def _preprocess_10_hackerearth(_data):
             target_col = 'loan_status'
 
-            _data = _data.drop(columns=['member_id', 'batch_enrolled', 'emp_title', 'desc', 'title', 'zip_code'])
+            _data = _data.drop(columns=['member_id', 'batch_enrolled', 'emp_title', 'pymnt_plan', 'desc', 'title', 'zip_code'])
 
             # clean _data['emp_length']
             _data['emp_length'] = _data['emp_length'].replace('< 1 year', 0)
@@ -333,7 +333,7 @@ class Preprocessing:
 
 
         def _preprocess_14_german_credit(_data):
-            target_col = '1.1'
+            target_col = 'target'
 
             # drop any row where the target column is missing:
             _data = _data.dropna(subset=[target_col])
@@ -347,8 +347,8 @@ class Preprocessing:
 
             cols = list(_data.drop(target_col, axis=1).columns)
 
-            cols_cat = ['A11','A34','A43','A65','A75','A93','A101','A121','A143','A152','A173','A192','A201']
-            cols_num = ['6','1169','4','4.1','2','1']
+            cols_cat = ['feature_1','feature_3','feature_4','feature_6','feature_7','feature_9','feature_10','feature_12','feature_14','feature_15','feature_17','feature_19','feature_20']
+            cols_num = ['feature_2','feature_5','feature_8','feature_11','feature_13','feature_16']
 
             cols_cat_idx = [cols.index(col) for col in cols_cat if col in cols]
             cols_num_idx = [cols.index(col) for col in cols_num if col in cols]
@@ -360,6 +360,9 @@ class Preprocessing:
             return x, y, cols, cols_cat, cols_num, cols_cat_idx, cols_num_idx
 
         def _preprocess_22_bank_status(_data):
+            logger.debug(f"Found {len(_data[_data.isnull().all(axis=1)])} completely empty rows that will be dropped.")
+            _data = _data.dropna(how="all").reset_index(drop=True)
+
             _data = _data.drop(columns=['Loan ID', 'Customer ID'])
 
             _data['Loan Status'] = _data['Loan Status'].replace('Fully Paid', 0)

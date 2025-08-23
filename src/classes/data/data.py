@@ -153,10 +153,11 @@ class Data:
 
         def _load_14_german_credit():
             try:
-                _data = pd.read_csv('data/pd/14 statlog german credit data/german.csv')
+                _data = pd.read_csv('data/pd/14 statlog german credit data/german.data', delim_whitespace=True, header=None)
             except FileNotFoundError:
-                _data = pd.read_csv('../data/pd/14 statlog german credit data/german.csv')
+                _data = pd.read_csv('../data/pd/14 statlog german credit data/german.data', delim_whitespace=True, header=None)
             logger.info("14_german_credit loaded")
+            _data.columns = [f"feature_{i+1}" for i in range(_data.shape[1] - 1)] + ["target"]
             return _data
 
         def _load_22_bank_status():
