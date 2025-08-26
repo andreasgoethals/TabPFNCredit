@@ -40,11 +40,15 @@ class NNClassifier(BaseEstimator, ClassifierMixin):
         self.random_seed = random_seed
         self.model = None
         set_random_seed(self.random_seed)
+        # Add device selection
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def fit(self, X, y, X_val=None, y_val=None):
         set_random_seed(self.random_seed)
         input_dim = X.shape[1]
         self.model = NN(input_dim, self.num_hidden_layers, self.hidden_layer_size, self.activation, self.dropout_rate)
+        # Move model to device
+        self.model.to(self.device)
         criterion = nn.BCELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
 
@@ -56,7 +60,7 @@ class NNClassifier(BaseEstimator, ClassifierMixin):
             y_val_tensor = torch.tensor(y_val, dtype=torch.float32).view(-1, 1)
 
         dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True, pin_memory=(self.device.type == 'cuda'))
 
         best_val_loss = np.inf
         epochs_no_improve = 0
@@ -64,6 +68,9 @@ class NNClassifier(BaseEstimator, ClassifierMixin):
         self.model.train()
         for epoch in range(self.epochs):
             for batch_X, batch_y in dataloader:
+                # Move batch to device
+                batch_X = batch_X.to(self.device, non_blocking=(self.device.type == 'cuda'))
+                batch_y = batch_y.to(self.device, non_blocking=(self.device.type == 'cuda'))
                 optimizer.zero_grad()
                 outputs = self.model(batch_X)
                 loss = criterion(outputs, batch_y)
@@ -73,8 +80,9 @@ class NNClassifier(BaseEstimator, ClassifierMixin):
             if X_val is not None and y_val is not None:
                 self.model.eval()
                 with torch.no_grad():
-                    val_outputs = self.model(X_val_tensor)
-                    val_loss = criterion(val_outputs, y_val_tensor).item()
+                    # Move val tensors to device
+                    val_outputs = self.model(X_val_tensor.to(self.device))
+                    val_loss = criterion(val_outputs, y_val_tensor.to(self.device)).item()
                 self.model.train()
 
                 if val_loss < best_val_loss:
@@ -89,9 +97,9 @@ class NNClassifier(BaseEstimator, ClassifierMixin):
 
     def predict_proba(self, X):
         self.model.eval()
-        X_tensor = torch.tensor(X, dtype=torch.float32)
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            outputs = self.model(X_tensor).numpy()
+            outputs = self.model(X_tensor).cpu().numpy()
         return np.hstack((1 - outputs, outputs))
 
     def predict(self, X, threshold=0.5):
@@ -112,11 +120,15 @@ class NNRegressor(BaseEstimator, RegressorMixin):
         self.random_seed = random_seed
         self.model = None
         set_random_seed(self.random_seed)
+        # Add device selection
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def fit(self, X, y, X_val=None, y_val=None):
         set_random_seed(self.random_seed)
         input_dim = X.shape[1]
         self.model = NN(input_dim, self.num_hidden_layers, self.hidden_layer_size, self.activation, self.dropout_rate)
+        # Move model to device
+        self.model.to(self.device)
         criterion = nn.MSELoss()
         optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
 
@@ -128,7 +140,7 @@ class NNRegressor(BaseEstimator, RegressorMixin):
             y_val_tensor = torch.tensor(y_val, dtype=torch.float32).view(-1, 1)
 
         dataset = torch.utils.data.TensorDataset(X_tensor, y_tensor)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=self.batch_size, shuffle=True, pin_memory=(self.device.type == 'cuda'))
 
         best_val_loss = np.inf
         epochs_no_improve = 0
@@ -136,6 +148,9 @@ class NNRegressor(BaseEstimator, RegressorMixin):
         self.model.train()
         for epoch in range(self.epochs):
             for batch_X, batch_y in dataloader:
+                # Move batch to device
+                batch_X = batch_X.to(self.device, non_blocking=(self.device.type == 'cuda'))
+                batch_y = batch_y.to(self.device, non_blocking=(self.device.type == 'cuda'))
                 optimizer.zero_grad()
                 outputs = self.model(batch_X)
                 loss = criterion(outputs, batch_y)
@@ -145,8 +160,9 @@ class NNRegressor(BaseEstimator, RegressorMixin):
             if X_val is not None and y_val is not None:
                 self.model.eval()
                 with torch.no_grad():
-                    val_outputs = self.model(X_val_tensor)
-                    val_loss = criterion(val_outputs, y_val_tensor).item()
+                    # Move val tensors to device
+                    val_outputs = self.model(X_val_tensor.to(self.device))
+                    val_loss = criterion(val_outputs, y_val_tensor.to(self.device)).item()
                 self.model.train()
 
                 if val_loss < best_val_loss:
@@ -161,7 +177,7 @@ class NNRegressor(BaseEstimator, RegressorMixin):
 
     def predict(self, X):
         self.model.eval()
-        X_tensor = torch.tensor(X, dtype=torch.float32)
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         with torch.no_grad():
-            outputs = self.model(X_tensor).numpy()
+            outputs = self.model(X_tensor).cpu().numpy()
         return outputs

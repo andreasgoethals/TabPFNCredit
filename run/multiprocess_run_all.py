@@ -1,9 +1,14 @@
 import os
 import subprocess
 import yaml
+import sys
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+project_root = Path(__file__).resolve().parent.parent
+sys.path.append(str(project_root))
+
+os.chdir(project_root)
 
 def run_experiment(task, dataset_section, dataset_name, data_config_path,
                    experiment_config_path, method_config_path, evaluation_config_path,
@@ -94,12 +99,13 @@ for task in ["pd"]:
 
 
 # Assign one GPU per process, as available
-gpu_ids = list(range(4))  # Change if more/less GPUs
+gpu_ids = list(range(3))  # Change if more/less GPUs
 
 with ProcessPoolExecutor(max_workers=len(gpu_ids)) as executor:
     future_to_dataset = {}
     for i, (task, dataset_section, dataset_name) in enumerate(datasets):
         gpu_id = gpu_ids[i % len(gpu_ids)]
+        print(f"\n[STARTED] {dataset_name}")
         future = executor.submit(
             run_experiment,
             task, dataset_section, dataset_name, data_config_path,
