@@ -38,3 +38,6 @@ dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,
 06_lendingclub,on (ratio=0.1),False,xgb,0,0.83025,0.14806,0.06228,0.30508,0.03468,0.05259,0.61836,0.22345,0.103103
 06_lendingclub,on (ratio=0.1),False,xgb,1,0.83683,0.14412,0.0746,0.34426,0.04183,0.04784,0.60486,0.21874,0.104368
 06_lendingclub,on (ratio=0.1),False,xgb,2,0.83584,0.14707,0.05755,0.36364,0.03125,0.04132,0.59163,0.22032,0.103279
+06_lendingclub,on (ratio=0.1),False,tabpfn,0,0.83746,0.13451,0.0,0.0,0.0,0.11285,0.67734,0.28885,3.681411
+06_lendingclub,on (ratio=0.1),False,tabpfn,1,0.84247,0.1309,0.0,0.0,0.0,0.10903,0.66985,0.2817,3.499446
+06_lendingclub,on (ratio=0.1),False,tabpfn,2,0.8396,0.13573,0.0,0.0,0.0,0.10042,0.66927,0.27062,3.4792
