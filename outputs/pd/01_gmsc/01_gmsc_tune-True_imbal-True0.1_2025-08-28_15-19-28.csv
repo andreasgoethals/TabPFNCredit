@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+01_gmsc,on (ratio=0.1),True,tabpfn_rf,0,0.9356,0.05084,0.25116,0.47577,0.17062,0.37245,0.83589,0.31609,84.755759
+01_gmsc,on (ratio=0.1),True,tabpfn_rf,1,0.9298,0.0554,0.24353,0.48707,0.16236,0.36522,0.83734,0.32009,90.083235
+01_gmsc,on (ratio=0.1),True,tabpfn_rf,2,0.9377,0.04946,0.24849,0.5099,0.16427,0.39793,0.84818,0.32482,120.34297

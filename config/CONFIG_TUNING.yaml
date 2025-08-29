@@ -10,14 +10,13 @@ tuning_params:
         n_estimators:
           type: 'int'
           low: 50
-          high: 100
-          step: 10
+          high: 500
         learning_rate:
           type: 'float'
           low: 0.01
           high: 0.1
       param_grid:
-        n_estimators: [ 50, 100 ]
+        n_estimators: [ 50, 100, 250 ]
         learning_rate: [ 0.01, 0.1 ]
     ann:
       param_space:
@@ -27,34 +26,39 @@ tuning_params:
           high: 3
         hidden_layer_size:
           type: 'int'
-          low: 16
-          high: 128
+          low: 32
+          high: 512
         dropout_rate:
           type: 'float'
           low: 0.0
-          high: 0.5
+          high: 0.6
         epochs:
           type: 'int'
-          low: 30
+          low: 25
           high: 100
         batch_size:
           type: 'categorical'
-          values: [ 64, 128, 256, 512 ]
+          values: [ 32, 64, 128, 256, 512 ]
         learning_rate:
           type: 'float'
-          low: 0.0001
+          low: 0.00001
+          high: 0.01
+          log: true
+        weight_decay:
+          type: 'float'
+          low: 0.000001
           high: 0.01
           log: true
       param_grid:
-        num_hidden_layers: [ 1 ]
-        hidden_layer_size: [ 32,64 ]
+        num_hidden_layers: [ 1, 2, 3 ]
+        hidden_layer_size: [ 32, 64 ]
         activation: [ 'relu' ]
-        dropout_rate: [ 0,0.1 ]
-        epochs: [ 50 ]
-        batch_size: [ 256 ]
-        learning_rate: [ 0.001 ]
-        weight_decay: [ 0.01 ]
-        early_stopping_delay: [ 5 ]
+        dropout_rate: [ 0.0, 0.5 ]
+        epochs: [ 100]
+        batch_size: [ 128, 256 ]
+        learning_rate: [ 0.0001, 0.001, 0.01 ]
+        weight_decay: [ 0.00001, 0.0001, 0.001 ]
+        early_stopping_delay: [ 10, 15 ]
     bnb:
       param_space:
         alpha:
@@ -68,21 +72,40 @@ tuning_params:
       param_space:
         iterations:
           type: 'int'
-          low: 50
-          high: 300
+          low: 100
+          high: 500
         depth:
           type: 'int'
-          low: 4
-          high: 10
+          low: 3
+          high: 12
         learning_rate:
           type: 'float'
           low: 0.01
           high: 0.3
           log: true
+        l2_leaf_reg:
+          type: 'float'
+          low: 1.0
+          high: 10.0
+          log: true
+        border_count:
+          type: 'int'
+          low: 32
+          high: 255
+        bagging_temperature:
+          type: 'float'
+          low: 0.0
+          high: 1.0
+        random_strength:
+          type: 'float'
+          low: 0.0
+          high: 2.0
       param_grid:
-        iterations: [ 50, 100, 250 ]
-        depth: [ 4, 6, 10 ]
-        learning_rate: [ 0.01, 0.1 ]
+        iterations: [ 100, 300, 500 ]
+        depth: [ 4, 6, 8, 10 ]
+        learning_rate: [ 0.01, 0.1, 0.2 ]
+        l2_leaf_reg: [ 1, 3, 5, 10 ]
+        border_count: [ 64, 128, 255 ]
     dt:
       param_space:
         criterion:
@@ -91,10 +114,25 @@ tuning_params:
         max_depth:
           type: 'int'
           low: 3
+          high: 30
+        min_samples_split:
+          type: 'int'
+          low: 2
           high: 20
+        min_samples_leaf:
+          type: 'int'
+          low: 1
+          high: 20
+        ccp_alpha:
+          type: 'float'
+          low: 0.0
+          high: 0.1
       param_grid:
-        criterion: [ 'gini' ]
-        max_depth: [ 10 ]
+        criterion: [ 'gini', 'entropy' ]
+        max_depth: [ 3, 5, 10, 15, None ]
+        min_samples_split: [ 2, 5, 10 ]
+        min_samples_leaf: [ 1, 2, 4 ]
+        ccp_alpha: [ 0, 1]
     gnb:
       param_space:
         var_smoothing:
@@ -109,26 +147,38 @@ tuning_params:
         n_neighbors:
           type: 'int'
           low: 1
-          high: 20
+          high: 30
+        weights:
+          type: 'categorical'
+          values: [ 'uniform', 'distance' ]
+        metric:
+          type: 'categorical'
+          values: [ 'euclidean', 'manhattan', 'minkowski' ]
+        p:
+          type: 'int'
+          low: 1
+          high: 3
       param_grid:
-        n_neighbors: [ 3, 5 ]
+        n_neighbors: [ 3, 5, 7, 11, 15 ]
+        weights: [ 'uniform', 'distance' ]
+        metric: [ 'euclidean', 'manhattan' ]
     lda:
       param_space:
         solver:
           type: 'categorical'
-          values: [ 'svd', 'lsqr', 'eigen' ]
+          values: [ 'svd', 'lsqr' ]
       param_grid:
         solver: [ 'svd', 'lsqr' ]
     lgbm:
       param_space:
         n_estimators:
           type: 'int'
-          low: 50
-          high: 300
+          low: 100
+          high: 500
         max_depth:
           type: 'int'
-          low: 3
-          high: 12
+          low: -1
+          high: 15
         learning_rate:
           type: 'float'
           low: 0.01
@@ -136,66 +186,145 @@ tuning_params:
           log: true
         subsample:
           type: 'float'
-          low: 0.5
+          low: 0.6
           high: 1.0
         colsample_bytree:
           type: 'float'
-          low: 0.5
+          low: 0.6
           high: 1.0
+        reg_alpha:
+          type: 'float'
+          low: 0.0001
+          high: 10.0
+          log: true
+        reg_lambda:
+          type: 'float'
+          low: 0.0001
+          high: 10.0
+          log: true
+        min_child_samples:
+          type: 'int'
+          low: 10
+          high: 100
+        num_leaves:
+          type: 'int'
+          low: 20
+          high: 300
       param_grid:
-        n_estimators: [ 50, 100, 250 ]
+        n_estimators: [ 100, 300, 500 ]
         max_depth: [ 3, 6, 10 ]
-        learning_rate: [ 0.01, 0.1 ]
-        subsample: [ 0.5, 0.7, 1 ]
-        colsample_bytree: [ 0.6, 0.8, 1.0 ]
+        learning_rate: [ 0.01, 0.1, 0.2 ]
+        subsample: [ 0.8, 0.9, 1.0 ]
+        colsample_bytree: [ 0.8, 0.9, 1.0 ]
+        reg_alpha: [ 0.001, 0.1, 1.0 ]
+        reg_lambda: [ 0.001, 0.1, 1.0 ]
+        num_leaves: [ 31, 50, 100 ]
     lr:
       param_space:
         C:
           type: 'float'
-          low: 0.001
-          high: 100.0
+          low: 0.0001
+          high: 100
           log: true
         penalty:
           type: 'categorical'
-          values: [ 'l1', 'l2' ]
+          values: [ 'l1', 'l2']
       param_grid:
-        C: [ 0.001, 0.01, 0.1, 1.0]
-        penalty: [ 'l1', 'l2','elasticnet' ]
+        C: [ 0.001, 0.01, 0.1, 1.0, 10.0, 100.0 ]
+        penalty: [ 'l1', 'l2' ]
     rf:
       param_space:
         n_estimators:
           type: 'int'
-          low: 10
-          high: 100
+          low: 50
+          high: 500
         max_depth:
           type: 'int'
+          low: 5
+          high: 25
+        min_samples_split:
+          type: 'int'
+          low: 2
+          high: 10
+        min_samples_leaf:
+          type: 'int'
           low: 1
-          high: 32
+          high: 10
+        max_features:
+          type: 'categorical'
+          values: [ 'sqrt', 'log2']
       param_grid:
-        n_estimators: [ 100, 200, 300 ]
-        max_depth: [ None ]
-        min_samples_split: [ 2 ]
-        min_samples_leaf: [ 1, 2 ]
-        max_features: [ "sqrt", "log2", None ]
+        n_estimators: [ 50. 100, 250, 500 ]
+        max_depth: [ 5, 25]
+        max_features: [ "sqrt", "log2"]
     svm:
       param_space:
         C:
           type: 'float'
+          low: 0.001
+          high: 10
+          log: true
+      param_grid:
+        C: [ 0.01, 0.1, 1, 10 ]
+    xgb:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 100
+          high: 500
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 10
+        learning_rate:
+          type: 'float'
           low: 0.01
+          high: 0.3
+          log: true
+        subsample:
+          type: 'float'
+          low: 0.6
+          high: 1.0
+        colsample_bytree:
+          type: 'float'
+          low: 0.6
+          high: 1.0
+        reg_alpha:
+          type: 'float'
+          low: 0.001
           high: 10.0
           log: true
-        kernel:
-          type: 'categorical'
-          values: [ 'linear', 'rbf', 'poly' ]
+        reg_lambda:
+          type: 'float'
+          low: 1.0
+          high: 10.0
+          log: true
+        min_child_weight:
+          type: 'int'
+          low: 1
+          high: 10
+        gamma:
+          type: 'float'
+          low: 0.0
+          high: 5.0
       param_grid:
-        C: [ 0.1, 1 ]
-        kernel: [ 'linear', 'rbf' ]
+        n_estimators: [ 100, 300, 500 ]
+        max_depth: [ 3, 6, 10 ]
+        learning_rate: [ 0.01, 0.1, 0.2 ]
+        subsample: [ 0.8, 0.9, 1.0 ]
+        colsample_bytree: [ 0.8, 0.9, 1.0 ]
+        reg_alpha: [ 0.0, 0.1, 1.0 ]
+        reg_lambda: [ 1.0, 5.0, 10.0 ]
     tabnet:
       param_space:
         n_d:
           type: 'int'
           low: 8
-          high: 64
+          high: 128
+        n_a:
+          type: 'int'
+          low: 8
+          high: 128
         n_steps:
           type: 'int'
           low: 3
@@ -204,79 +333,26 @@ tuning_params:
           type: 'int'
           low: 1
           high: 5
-      param_grid:
-        scheduler_params: [ { "step_size": 10, "gamma": 0.9 },
-                            { "step_size": 20, "gamma": 0.9 } ]
-        n_d: [ 8, 16 ]
-        n_shared: [ 1,2,3 ]
-        n_steps: [ 3,6,9 ]
-    tabpfn:
-    xgb:
-      param_space:
-        n_estimators:
-          type: 'int'
-          low: 50
-          high: 300
-        max_depth:
-          type: 'int'
-          low: 3
-          high: 12
-        learning_rate:
+        gamma:
           type: 'float'
-          low: 0.01
-          high: 0.3
+          low: 1.0
+          high: 2.0
+        lambda_sparse:
+          type: 'float'
+          low: 0.000001
+          high: 0.001
           log: true
-        subsample:
-          type: 'float'
-          low: 0.5
-          high: 1.0
-        colsample_bytree:
-          type: 'float'
-          low: 0.5
-          high: 1.0
       param_grid:
-        n_estimators: [ 50, 100, 250 ]
-        max_depth: [ 3, 6, 10 ]
-        learning_rate: [ 0.01, 0.1 ]
-        subsample: [ 0.5, 0.7, 1 ]
-        colsample_bytree: [ 0.6, 0.8, 1.0 ]
+        n_d: [ 8, 16, 32, 64 ]
+        n_a: [ 8, 16, 32 ]
+        n_steps: [ 3, 5, 7 ]
+        n_shared: [ 1, 2, 3 ]
+        gamma: [ 1.0, 1.3, 1.5 ]
+        lambda_sparse: [ 0.000001, 0.0001, 0.001 ]
+    tabpfn:
     tabpfn_rf:
-      param_space:
-        n_estimators:
-          type: 'int'
-          low: 50
-          high: 200
-          step: 50
-        max_depth:
-          type: 'int'
-          low: 3
-          high: 10
-        min_samples_split:
-          type: 'int'
-          low: 2
-          high: 100
-        min_samples_leaf:
-          type: 'int'
-          low: 1
-          high: 10
-        criterion:
-          type: 'categorical'
-          values: [ 'gini', 'entropy' ]
-        max_features:
-          type: 'categorical'
-          values: [ 'sqrt', 'log2', null ]
-      param_grid:
-        n_estimators: [ 50, 100, 200 ]
-        max_depth: [ 5, 10, null ]
-        min_samples_split: [ 2, 100 ]
-        min_samples_leaf: [ 1, 5 ]
-        criterion: [ 'gini', 'entropy' ]
-        max_features: [ 'sqrt', null ]
-    tabpfn_hpo: # this has an internal tuner already so we will not use Optuna or Grid search on this one
-      n_trials: 50
-      metric: 'roc_auc'
-      random_state: 42
     tabpfn_auto:
+    tabpfn_hpo:
 
   # lgd parameters
   lgd:
@@ -285,14 +361,13 @@ tuning_params:
         n_estimators:
           type: 'int'
           low: 50
-          high: 200
+          high: 500
         learning_rate:
           type: 'float'
           low: 0.01
-          high: 0.3
-          log: true
+          high: 0.1
       param_grid:
-        n_estimators: [ 50, 100 ]
+        n_estimators: [ 50, 100, 250 ]
         learning_rate: [ 0.01, 0.1 ]
     ann:
       param_space:
@@ -303,28 +378,33 @@ tuning_params:
         hidden_layer_size:
           type: 'int'
           low: 16
-          high: 128
+          high: 256
         dropout_rate:
           type: 'float'
           low: 0.0
-          high: 0.5
+          high: 0.6
         epochs:
           type: 'int'
           low: 30
-          high: 100
+          high: 150
         batch_size:
           type: 'categorical'
           values: [ 64, 128, 256, 512 ]
         learning_rate:
           type: 'float'
-          low: 0.0001
+          low: 0.00001
+          high: 0.01
+          log: true
+        weight_decay:
+          type: 'float'
+          low: 0.000001
           high: 0.01
           log: true
       param_grid:
-        num_hidden_layers: [ 1 ]
+        num_hidden_layers: [ 1, 2 ]
         hidden_layer_size: [ 32,64 ]
         activation: [ 'relu' ]
-        dropout_rate: [ 0,0.1 ]
+        dropout_rate: [ 0,0.5 ]
         epochs: [ 50 ]
         batch_size: [ 256 ]
         learning_rate: [ 0.001 ]
@@ -334,19 +414,24 @@ tuning_params:
       param_space:
         iterations:
           type: 'int'
-          low: 50
-          high: 300
+          low: 10
+          high: 500
         depth:
           type: 'int'
-          low: 4
+          low: 3
           high: 10
         learning_rate:
           type: 'float'
           low: 0.01
           high: 0.3
           log: true
+        l2_leaf_reg:
+          type: 'float'
+          low: 1.0
+          high: 10.0
+      verbose: [false]
       param_grid:
-        iterations: [ 50, 100 ] #, 250]
+        iterations: [ 50, 100, 250]
         depth: [ 4, 6, 10 ]
         learning_rate: [ 0.01, 0.1 ]
         verbose: [ False ]
@@ -360,14 +445,14 @@ tuning_params:
           low: 3
           high: 20
       param_grid:
-        criterion: [ 'absolute_error' ]
-        max_depth: [ 10 ]
+        criterion: [ 'squared_error', 'absolute_error', 'friedman_mse' ]
+        max_depth: [ 3, 10, 20 ]
     en:
       param_space:
         alpha:
           type: 'float'
           low: 0.0001
-          high: 1.0
+          high: 100
           log: true
         l1_ratio:
           type: 'float'
@@ -394,25 +479,44 @@ tuning_params:
       param_space:
         n_neighbors:
           type: 'int'
-          low: 1
-          high: 20
+          low: 3
+          high: 30
+      weights:
+        type: 'categorical'
+        values: [ 'uniform', 'distance' ]
+      p:
+        type: 'int'
+        low: 1
+        high: 2
       param_grid:
         n_neighbors: [ 3, 5 ]
     lgbm:
       param_space:
         n_estimators:
           type: 'int'
-          low: 50
-          high: 300
+          low: 100
+          high: 500
+        num_leaves:
+          type: 'int'
+          low: 25
+          high: 150
         max_depth:
           type: 'int'
-          low: 3
-          high: 12
+          low: -1
+          high: 20
         learning_rate:
           type: 'float'
           low: 0.01
           high: 0.3
           log: true
+        subsample:
+          type: 'float'
+          low: 0.6
+          high: 1.0
+        colsample_bytree:
+          type: 'float'
+          low: 0.6
+          high: 1.0
       param_grid:
         n_estimators: [ 50, 100, 250 ]
         max_depth: [ 3, 6, 10 ]
@@ -429,11 +533,11 @@ tuning_params:
         n_estimators:
           type: 'int'
           low: 50
-          high: 300
+          high: 500
         max_depth:
           type: 'int'
           low: 3
-          high: 50
+          high: 25
         min_samples_split:
           type: 'int'
           low: 2
@@ -444,13 +548,11 @@ tuning_params:
           high: 10
         max_features:
           type: 'categorical'
-          values: [ 'sqrt', 'log2', null ]
+          values: [ 'sqrt', 'log2' ]
       param_grid:
         n_estimators: [ 100, 200, 300 ]
         max_depth: [ None, 50 ]
-        min_samples_split: [ 2 ]
-        min_samples_leaf: [ 1, 2 ]
-        max_features: [ "sqrt", "log2", None ]
+        max_features: [ "sqrt", "log2" ]
     svr:
       param_space:
         C:
@@ -458,12 +560,47 @@ tuning_params:
           low: 0.01
           high: 10.0
           log: true
-        kernel:
-          type: 'categorical'
-          values: [ 'linear', 'rbf', 'poly' ]
+        gamma:
+          type: 'float'
+          low: 0.0001
+          high: 0.1
+          log: true
+        epsilon:
+          type: 'float'
+          low: 0.001
+          high: 1.0
+          log: true
       param_grid:
         C: [ 0.1, 1 ]
-        kernel: [ 'linear', 'rbf' ]
+        epsilon: [ 0.01, 0.01 ]
+        gamma: [ 0.01, 0.01 ]
+    xgb:
+      param_space:
+        n_estimators:
+          type: 'int'
+          low: 50
+          high: 500
+        max_depth:
+          type: 'int'
+          low: 3
+          high: 12
+        learning_rate:
+          type: 'float'
+          low: 0.01
+          high: 0.3
+          log: true
+        subsample:
+          type: 'float'
+          low: 0.6
+          high: 1.0
+        colsample_bytree:
+          type: 'float'
+          low: 0.6
+          high: 1.0
+      param_grid:
+        n_estimators: [ 50, 100 ]
+        max_depth: [ 3, 6, 10 ]
+        learning_rate: [ 0.01, 0.1 ]
     tabnet:
       param_space:
         n_d:
@@ -485,25 +622,4 @@ tuning_params:
         n_shared: [ 1,2,3 ]
         n_steps: [ 3,6,9 ]
     tabpfn:
-      param_grid:
-        device: [ 'auto' ]
-        ignore_pretraining_limits: [ false ]
-    xgb:
-      param_space:
-        n_estimators:
-          type: 'int'
-          low: 50
-          high: 300
-        max_depth:
-          type: 'int'
-          low: 3
-          high: 12
-        learning_rate:
-          type: 'float'
-          low: 0.01
-          high: 0.3
-          log: true
-      param_grid:
-        n_estimators: [ 50, 100 ]
-        max_depth: [ 3, 6, 10 ]
-        learning_rate: [ 0.01, 0.1 ]
+    tabpfn_rf:

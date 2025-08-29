@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+34_hmeq_data,off,True,tabpfn_hpo,0,0.94917,0.03728,0.86296,0.92982,0.80506,0.8381,0.98455,0.95191,164.997698
+34_hmeq_data,off,True,tabpfn_hpo,1,0.9532,0.03687,0.87172,0.94048,0.81234,0.83824,0.98438,0.95468,107.487627
+34_hmeq_data,off,True,tabpfn_hpo,2,0.94411,0.04538,0.85414,0.91292,0.80247,0.79431,0.97476,0.9353,116.854189

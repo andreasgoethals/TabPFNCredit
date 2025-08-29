@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+28_thomas,off,True,tabpfn_hpo,0,0.76528,0.1776,0.25,0.57143,0.16,0.11082,0.62346,0.39903,93.463974
+28_thomas,off,True,tabpfn_hpo,1,0.72794,0.19885,0.2449,0.45,0.16822,0.05959,0.59083,0.34874,100.323761
+28_thomas,off,True,tabpfn_hpo,2,0.71569,0.1995,0.0,0.0,0.0,0.10201,0.6388,0.43214,65.858882

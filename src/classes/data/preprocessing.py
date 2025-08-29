@@ -1054,7 +1054,7 @@ def _introduce_class_imbalance(x, y, imbalance_ratio=0.1, random_state=0):
     idx_major = np.where(y == majority_class)[0]
     idx_minor = np.where(y == minority_class)[0]
 
-    current_ratio = len(idx_minor) / (len(idx_major) + len(idx_minor))
+    current_ratio = len(idx_minor) / len(idx_major)
     logger.info(f"Current minority ratio: {current_ratio:.2f}, Desired: {imbalance_ratio}")
 
     rng = np.random.RandomState(random_state)
@@ -1062,7 +1062,7 @@ def _introduce_class_imbalance(x, y, imbalance_ratio=0.1, random_state=0):
     # CASE 1: UNDERSAMPLING (if desired ratio < current)
     if imbalance_ratio < current_ratio:
         n_major = len(idx_major)
-        n_minor_new = int(n_major * imbalance_ratio / (1 - imbalance_ratio))
+        n_minor_new = int(n_major * imbalance_ratio)
         n_minor_new = min(len(idx_minor), n_minor_new)
 
         idx_minor_sampled = rng.choice(idx_minor, size=n_minor_new, replace=False)
@@ -1072,7 +1072,6 @@ def _introduce_class_imbalance(x, y, imbalance_ratio=0.1, random_state=0):
 
     # CASE 2: OVERSAMPLING (if desired ratio > current)
     else:
-        # Use SMOTE or other oversampler to create synthetic minority points
         smote = SMOTE(sampling_strategy=imbalance_ratio, random_state=random_state)
         x_new, y_new = smote.fit_resample(x, y)
 
