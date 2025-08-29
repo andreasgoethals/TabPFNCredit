@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+29_loan_default,off,True,tabpfn_rf,0,0.9083,0.08307,0.00865,0.14815,0.00445,0.06004,0.63846,0.13072,2759.612076
+29_loan_default,off,True,tabpfn_rf,1,0.9065,0.08374,0.01475,0.38889,0.00752,0.07304,0.65155,0.15449,3212.241348
+29_loan_default,off,True,tabpfn_rf,2,0.9005,0.08916,0.004,0.05882,0.00207,0.05403,0.63225,0.13805,4983.279835

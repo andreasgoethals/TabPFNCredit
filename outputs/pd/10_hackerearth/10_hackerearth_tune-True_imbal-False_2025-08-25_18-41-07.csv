@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+10_hackerearth,off,True,tabpfn_rf,0,0.8416,0.11763,0.53136,0.79964,0.39787,0.37746,0.82758,0.68391,899.977279
+10_hackerearth,off,True,tabpfn_rf,1,0.8345,0.1233,0.52015,0.82902,0.37896,0.36114,0.81971,0.6841,476.514919
+10_hackerearth,off,True,tabpfn_rf,2,0.8342,0.12264,0.5279,0.79096,0.39615,0.36395,0.82469,0.67733,371.363182

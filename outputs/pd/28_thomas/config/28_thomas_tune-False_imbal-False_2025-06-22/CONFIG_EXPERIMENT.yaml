@@ -1,6 +1,0 @@
-cv_splits: 3
-imbalance: false
-imbalance_ratio: 0.1
-row_limit: 100000
-task: pd
-val_size: 0.2

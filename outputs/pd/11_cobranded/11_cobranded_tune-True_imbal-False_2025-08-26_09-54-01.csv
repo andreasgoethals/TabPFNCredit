@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+11_cobranded,off,True,tabpfn_rf,0,0.7899,0.1468,0.51105,0.61547,0.43693,0.30969,0.81175,0.5789,182.41799
+11_cobranded,off,True,tabpfn_rf,1,0.7948,0.14019,0.51143,0.62009,0.43517,0.33353,0.82278,0.59855,153.436895
+11_cobranded,off,True,tabpfn_rf,2,0.7951,0.14352,0.51016,0.63588,0.42595,0.31718,0.81429,0.59266,184.117303

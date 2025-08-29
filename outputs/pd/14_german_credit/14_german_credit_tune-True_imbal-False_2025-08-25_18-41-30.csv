@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+14_german_credit,off,True,tabpfn_rf,0,0.76647,0.15698,0.5125,0.64062,0.42708,0.32557,0.79451,0.61623,63.403794
+14_german_credit,off,True,tabpfn_rf,1,0.74775,0.15808,0.44737,0.69388,0.3301,0.38888,0.82284,0.64996,61.662601
+14_german_credit,off,True,tabpfn_rf,2,0.76877,0.15925,0.47619,0.76087,0.34653,0.34526,0.80868,0.66801,61.75387

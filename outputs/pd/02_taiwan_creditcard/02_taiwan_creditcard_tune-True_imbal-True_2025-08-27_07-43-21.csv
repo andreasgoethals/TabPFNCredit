@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+02_taiwan_creditcard,on (ratio=0.5),True,tabpfn_rf,0,0.8004,0.14831,0.45761,0.55177,0.3909,0.22008,0.73833,0.48952,198.40017
+02_taiwan_creditcard,on (ratio=0.5),True,tabpfn_rf,1,0.8056,0.14658,0.47854,0.58723,0.4038,0.23914,0.74829,0.50307,187.941693
+02_taiwan_creditcard,on (ratio=0.5),True,tabpfn_rf,2,0.7896,0.15645,0.45237,0.55386,0.38231,0.20357,0.73,0.48948,169.943926

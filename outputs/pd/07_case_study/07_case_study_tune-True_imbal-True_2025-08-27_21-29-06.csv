@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+07_case_study,on (ratio=0.5),True,tabpfn_rf,0,0.9313,0.05664,0.21306,0.3875,0.14692,0.27236,0.78501,0.24125,63.752184
+07_case_study,on (ratio=0.5),True,tabpfn_rf,1,0.9245,0.06202,0.19424,0.37759,0.13075,0.25625,0.78263,0.23276,66.107198
+07_case_study,on (ratio=0.5),True,tabpfn_rf,2,0.9283,0.05701,0.20067,0.33333,0.14354,0.2971,0.80258,0.24145,79.653979

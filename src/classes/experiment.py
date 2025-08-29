@@ -222,7 +222,6 @@ class Experiment:
         x_train, x_val, x_test, y_train, y_val, y_test = standardize_data(
             x_train, x_val, x_test, y_train, y_val, y_test, self.methodconfig)
 
-
         # check if we want artificial class imbalance
         if self.config.imbalance:
             logger.info(f"Inducing class imbalance with ratio {self.config.imbalance_ratio} ...")

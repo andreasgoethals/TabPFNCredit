@@ -1,7 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-09_myhom,on (ratio=0.1),True,ann,0,0.59897,0.32289,0.0,0.0,0.0,0.00882,0.53352,0.41972,315.634316
-09_myhom,on (ratio=0.1),True,ann,1,0.59666,0.31695,0.0,0.0,0.0,0.01109,0.53695,0.43933,341.622492
-09_myhom,on (ratio=0.1),True,ann,2,0.60437,0.33628,0.0,0.0,0.0,0.01383,0.54289,0.43221,284.097249
-09_myhom,on (ratio=0.1),True,tabpfn_auto,0,0.59897,0.33866,0.0,0.0,0.0,0.03103,0.57608,0.45075,1637.894688
-09_myhom,on (ratio=0.1),True,tabpfn_auto,1,0.59666,0.34158,0.0,0.0,0.0,0.0387,0.586,0.47384,1601.394491
-09_myhom,on (ratio=0.1),True,tabpfn_auto,2,0.60437,0.33506,0.0,0.0,0.0,0.02993,0.57867,0.45741,1466.918291
