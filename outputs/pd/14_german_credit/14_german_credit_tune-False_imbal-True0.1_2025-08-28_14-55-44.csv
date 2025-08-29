@@ -38,3 +38,6 @@ dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,
 14_german_credit,on (ratio=0.1),False,xgb,0,0.7515,0.21392,0.27826,0.84211,0.16667,0.25041,0.74055,0.59782,0.078528
 14_german_credit,on (ratio=0.1),False,xgb,1,0.71471,0.24007,0.27481,0.64286,0.17476,0.21877,0.73119,0.54235,0.059418
 14_german_credit,on (ratio=0.1),False,xgb,2,0.71772,0.2563,0.24194,0.65217,0.14851,0.16143,0.68991,0.4806,0.079604
+14_german_credit,on (ratio=0.1),False,tabpfn,0,0.71257,0.21343,0.0,0.0,0.0,0.25357,0.75525,0.57468,1.841613
+14_german_credit,on (ratio=0.1),False,tabpfn,1,0.69069,0.22674,0.01905,0.5,0.00971,0.2982,0.77125,0.61072,1.160664
+14_german_credit,on (ratio=0.1),False,tabpfn,2,0.6967,0.23295,0.0,0.0,0.0,0.22081,0.73338,0.54076,1.654926
