@@ -65,6 +65,17 @@ To run an experiment, make sure the configuration files are set up according to 
 Alternatively, the `multiprocess_run_all.py` allows to run several experiments at once by specifying a number of available
 GPUs. Therefore, in the `CONFIG_DATA.yaml` multiple datasets should be set to `true`.
 
+The final results are stored in the `outputs/pd` or `outputs/lgd` folders (depending on the `task` type).
+
+## Parse Outputs 
+
+To parse the final outputs and save ranking results in the `outputs/analysis/pd_ranking.csv` or `outputs/analysis/lgd_rnaking.csv`,
+make sure that the necessary datasets are set to `True` in the `CONFIG_DATA.yaml` and run the following command from the root folder:    
+
+`python -m analysis.parse_outputs`
+
+Once the results are parsed, they can be inspected in the Streamlit application.
+
 ## Start Streamlit Application
 
 To get an interactive visualization of the results, you can locally run the Streamlit application with the following
