@@ -1,0 +1,4 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+07_case_study,off,True,tabpfn_hpo,0,0.9387,0.0484,0.31085,0.55789,0.21545,0.43175,0.86083,0.38975,862.896545
+07_case_study,off,True,tabpfn_hpo,1,0.93557,0.05196,0.28198,0.56069,0.18835,0.41388,0.84866,0.36807,798.840464
+07_case_study,off,True,tabpfn_hpo,2,0.93973,0.04931,0.30631,0.64557,0.20079,0.40181,0.84765,0.39303,940.54152
