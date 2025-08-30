@@ -1,0 +1,7 @@
+dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
+11_cobranded,on (ratio=0.1),True,ann,0,0.75382,0.17633,0.0,0.0,0.0,0.30257,0.80915,0.58004,1827.645413
+11_cobranded,on (ratio=0.1),True,ann,1,0.75067,0.17512,0.0,0.0,0.0,0.29868,0.80753,0.57953,1732.398959
+11_cobranded,on (ratio=0.1),True,ann,2,0.75688,0.16977,0.0,0.0,0.0,0.30264,0.80874,0.57856,2356.598051
+11_cobranded,on (ratio=0.1),True,tabpfn_auto,0,0.76799,0.17509,0.13018,0.84489,0.07053,0.34272,0.82945,0.61335,25717.073734
+11_cobranded,on (ratio=0.1),True,tabpfn_auto,1,0.76507,0.17902,0.12877,0.85424,0.06963,0.34881,0.83236,0.61729,30113.293063
+11_cobranded,on (ratio=0.1),True,tabpfn_auto,2,0.76764,0.17514,0.09968,0.85965,0.05291,0.33793,0.82733,0.60797,29011.437589
