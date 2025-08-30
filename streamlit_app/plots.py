@@ -12,6 +12,22 @@ def is_tabpfn(model):
     return "tabpfn" in model.lower()
 
 
+def _rotate_xticks(ax, deg=30):
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(deg)
+        lbl.set_horizontalalignment("right")
+
+
+def _rotate_heatmap_ticks(ax, x_deg=30):
+    # Rotate x to avoid overlap; keep y horizontal for readability
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(x_deg)
+        lbl.set_horizontalalignment("right")
+    for lbl in ax.get_yticklabels():
+        lbl.set_rotation(0)
+        lbl.set_verticalalignment("center")
+
+
 def plot_metric_bar_avg_by_model(df, metric, title=""):
     group_cols = ["model"]
     if "tuning" in df.columns:
@@ -33,6 +49,9 @@ def plot_metric_bar_avg_by_model(df, metric, title=""):
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
+
+    # Rotate to avoid overlap
+    _rotate_xticks(ax, deg=30)
 
     min_val = mean_df[metric].min()
     max_val = mean_df[metric].max()
@@ -75,6 +94,9 @@ def plot_training_time_bar(df, min_time=60, title=None):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
 
+    # Rotate to avoid overlap
+    _rotate_xticks(ax, deg=30)
+
     # Legend
     import matplotlib.patches as mpatches
     tabpfn_patch = mpatches.Patch(color="#FF8000", label="TabPFN Family")
@@ -109,6 +131,9 @@ def plot_model_boxplot(all_dfs, metric):
             if is_tabpfn(ticklabel.get_text()):
                 ticklabel.set_fontweight("bold")
                 ticklabel.set_color("#FF8000")
+        # Rotate to avoid overlap
+        _rotate_xticks(ax, deg=30)
+
         st.pyplot(plt)
         plt.close()
 
@@ -136,17 +161,25 @@ def plot_model_metric_heatmap(df, metrics):
                 if is_tabpfn(model_name):
                     ytick.set_color("#FF8000")
                     ytick.set_fontweight("bold")
+
+            # Rotate ticks to avoid overlap
+            _rotate_heatmap_ticks(ax, x_deg=30)
+
             st.pyplot(plt)
             plt.close()
     else:
         tdf = mean_df.set_index("model")[metrics]
-        plt.figure(figsize=(max(12, len(metrics)*2), 6))
+        plt.figure(figsize=(max(12, len(metrics) * 2), 6))
         ax = sns.heatmap(tdf, annot=True, cmap="viridis", fmt=".3f", annot_kws={"color": "black"})
         plt.title("Model × Metric Heatmap")
         for ytick, model_name in zip(ax.get_yticklabels(), tdf.index):
             if is_tabpfn(model_name):
                 ytick.set_color("#FF8000")
                 ytick.set_fontweight("bold")
+
+        # Rotate ticks to avoid overlap
+        _rotate_heatmap_ticks(ax, x_deg=30)
+
         st.pyplot(plt)
         plt.close()
 
@@ -195,6 +228,10 @@ def plot_combined_metric_bar(df, metric, title=None):
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
+
+    # Rotate to avoid overlap
+    _rotate_xticks(ax, deg=30)
+
     st.pyplot(fig)
     plt.close()
 
@@ -209,6 +246,9 @@ def plot_combined_boxplot(df, metric):
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
+    # Rotate to avoid overlap
+    _rotate_xticks(ax, deg=30)
+
     st.pyplot(plt)
     plt.close()
 
@@ -222,6 +262,10 @@ def plot_combined_metric_heatmap(df, metrics):
         if is_tabpfn(ytick.get_text()):
             ytick.set_fontweight("bold")
             ytick.set_color("#FF8000")
+
+    # Rotate heatmap ticks
+    _rotate_heatmap_ticks(hm, x_deg=30)
+
     st.pyplot(plt)
     plt.close()
 
@@ -320,6 +364,10 @@ def plot_relative_rank(df, metric):
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
+
+    # Rotate to avoid overlap
+    _rotate_xticks(ax, deg=30)
+
     st.pyplot(fig)
     plt.close()
 
@@ -340,6 +388,9 @@ def plot_ranking_bar(rank_df, rank_col):
         if is_tabpfn(label.get_text()):
             label.set_fontweight("bold")
             label.set_color("#FF8000")
+
+    # Rotate to avoid overlap
+    _rotate_xticks(ax, deg=30)
+
     st.pyplot(fig)
     plt.close()
-
