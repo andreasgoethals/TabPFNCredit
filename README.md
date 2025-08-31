@@ -4,6 +4,21 @@ This project implements and benchmarks different models for credit scoring, focu
 of default (pd) as well as loss
 given default (lgd).
 
+## FINAL REMARKS
+In this project, we have:
+- Restructured and modularized the project file structure
+- Adjusted and extended the modular configuration system
+- Fixed some preprocessing and model bugs
+- Implemented tuned TabPFN variants
+- Implemented Optuna tuning for model tuning
+- Implemented imbalance handling
+- Implemented a multi-process execution system
+- Implemented a streamlit application for interactive visualization of the results
+- Ran experiments for different models and datasets with different imbalance settings (Note: Due to computing restrictions we were not able to fully run dataset 29 as well as all experiments for tabpfn_hpo)
+
+Results data can be found in the `outputs/pd` folder.
+In the streamlit application, you can inspect the results for different models and datasets as well as for all models and datasets combined (Select "All Datasets (combined)" in the "Select Dataset" dropdown)
+
 ## Setup
 
 - Python 3.12 in a conda environment
