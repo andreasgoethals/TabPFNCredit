@@ -18,6 +18,7 @@ The project uses a modular configuration system with multiple YAML files in the 
 - Controls dataset selection for each task (PD and LGD)
 - Only one dataset should be active (set to `true`) per task
 - All other datasets should be set to `false`
+- EXCEPTION: If running the `multiprocess_run_all.py`, multiple datasets can be set to `true`at once.
 
 ### 2. Method Configuration (CONFIG_METHOD.yaml)
 
@@ -51,12 +52,13 @@ The project uses a modular configuration system with multiple YAML files in the 
     data/       - datasets for different tasks
     outputs/    - results for different tasks split by dataset
         logs/   - logs of specific runs
-    run/        - main.py to execute benchmarking
+    run/        - main.py to execute benchmarking for single dataset
+                - multiprocess_run_all.py to execute benchmarking for multiple datasets (simultaneously, depending on available GPUs)
     src/        
-    classes/    - files for evaluation, tuning and experiment
-        data/   - data loading and preprocessing
-        models/ - all models
-    streamlit_app/ - code for interactive streamlit application
+        classes/    - files for evaluation, tuning and experiment
+            data/   - data loading and preprocessing
+            models/ - all models
+    streamlit_app/  - code for interactive streamlit application
 
 ## Running Experiments
 
