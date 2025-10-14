@@ -1,4 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-22_bank_status,on (ratio=0.1),True,tabpfn_rf,0,0.81357,0.15918,0.34243,0.99383,0.20685,0.22791,0.73824,0.54742,73.891852
-22_bank_status,on (ratio=0.1),True,tabpfn_rf,1,0.81566,0.15087,0.31516,0.96789,0.18822,0.20248,0.7172,0.51236,84.981496
-22_bank_status,on (ratio=0.1),True,tabpfn_rf,2,0.81827,0.15243,0.33966,0.97077,0.20584,0.21972,0.72908,0.53866,83.4894

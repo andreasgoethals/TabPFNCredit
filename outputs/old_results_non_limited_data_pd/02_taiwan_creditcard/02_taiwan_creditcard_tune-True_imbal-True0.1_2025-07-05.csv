@@ -1,7 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-02_taiwan_creditcard,on (ratio=0.1),True,ann,0,0.7846,0.17133,0.0,0.0,0.0,0.19726,0.69563,0.47049,1468.033046
-02_taiwan_creditcard,on (ratio=0.1),True,ann,1,0.7791,0.1745,0.0,0.0,0.0,0.19303,0.69629,0.46783,1516.215474
-02_taiwan_creditcard,on (ratio=0.1),True,ann,2,0.7727,0.17518,0.0,0.0,0.0,0.22384,0.70809,0.47856,1493.667196
-02_taiwan_creditcard,on (ratio=0.1),True,tabpfn_auto,0,0.7998,0.15392,0.17681,0.77338,0.09981,0.27971,0.76588,0.53909,2386.928543
-02_taiwan_creditcard,on (ratio=0.1),True,tabpfn_auto,1,0.7972,0.15707,0.19842,0.78193,0.11363,0.27756,0.76231,0.5482,2252.244564
-02_taiwan_creditcard,on (ratio=0.1),True,tabpfn_auto,2,0.7906,0.16414,0.22674,0.70575,0.13506,0.26156,0.76202,0.52448,2370.380292

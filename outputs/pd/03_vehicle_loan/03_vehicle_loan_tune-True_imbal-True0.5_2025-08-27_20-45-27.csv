@@ -1,4 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-03_vehicle_loan,on (ratio=0.5),True,tabpfn_rf,0,0.7554,0.17744,0.15187,0.29796,0.10191,0.03448,0.59482,0.27177,222.229415
-03_vehicle_loan,on (ratio=0.5),True,tabpfn_rf,1,0.7496,0.18431,0.15234,0.29373,0.10283,0.02136,0.57031,0.26591,193.823499
-03_vehicle_loan,on (ratio=0.5),True,tabpfn_rf,2,0.7688,0.17329,0.11418,0.33559,0.06879,0.03956,0.60547,0.2818,183.219722
