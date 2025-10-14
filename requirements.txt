@@ -1,20 +1,37 @@
-catboost>=1.2.5
+# --- Core Python Libraries ---
+numpy==2.3.3
+pandas==2.3.3
+PyYAML==6.0.3
+tqdm==4.67.1
+
+# --- Machine Learning & Optimization ---
+scikit-learn==1.7.2
+imbalanced-learn==0.14.0
+optuna==4.5.0
+scipy==1.16.2
+statsmodels==0.14.5
+
+# --- Deep Learning Framework ---
+torch==2.8.0
+pytorch-tabnet==4.1.0   ## -- To be removed after TALENT --
+
+# --- Foundation Models for Tabular Data ---
+tabpfn==2.2.1           ## -- To be removed after TALENT --
+tabpfn-extensions[all] @ git+https://github.com/PriorLabs/tabpfn-extensions.git  ## -- To be removed after TALENT --
+lamda-talent @ git+https://github.com/qile2000/LAMDA-TALENT.git
+
+# --- Gradient Boosting & Classical ML ---
+xgboost==3.0.5          ## -- To be removed after TALENT --
+lightgbm==4.6.0         ## -- To be removed after TALENT --
+catboost==1.2.8         ## -- To be removed after TALENT --
 category_encoders==2.8.1
 hmeasure==0.1.6
-imbalanced-learn>=0.13.0
-lightgbm>=4.3.0
-matplotlib>=3.9.0
-numpy>=2.1.0
-optuna>=4.0.0
-pandas>=2.2.2
-plotly>=5.22.0
-pytorch-tabnet==4.1.0
-PyYAML>=6.0.1
-scikit-learn>=1.5.0
-seaborn>=0.13.2
-streamlit>=1.32.0
-tabpfn==2.1.2
-tabpfn-extensions[all] @ git+https://github.com/PriorLabs/tabpfn-extensions.git
-torch>=2.4.0
-tqdm>=4.66.0
-xgboost>=2.1.0
+
+# --- Visualization & UI ---
+matplotlib==3.10.7
+seaborn==0.13.2
+plotly==6.3.1
+streamlit==1.50.0
+
+# --- Utilities & Typing ---
+typing_extensions==4.15.0

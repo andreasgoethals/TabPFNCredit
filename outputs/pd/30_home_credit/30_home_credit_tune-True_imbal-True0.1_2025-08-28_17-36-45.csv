@@ -1,4 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-30_home_credit,on (ratio=0.1),True,tabpfn_rf,0,0.9188,0.07199,0.04695,0.39216,0.02497,0.1211,0.68962,0.1727,595.252118
-30_home_credit,on (ratio=0.1),True,tabpfn_rf,1,0.9179,0.07191,0.04201,0.33962,0.02239,0.12784,0.69605,0.17484,611.878123
-30_home_credit,on (ratio=0.1),True,tabpfn_rf,2,0.9117,0.07607,0.05156,0.3038,0.02817,0.13305,0.69858,0.18384,747.909407

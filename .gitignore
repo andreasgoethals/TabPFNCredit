@@ -1,5 +1,45 @@
-data/*
+# ---- Data ----
+# Keep folder structure but ignore contents
+data/raw/*
+data/processed/*
+!data/.gitkeep          # Keeps empty data folders tracked
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# ---- Configs & Checkpoints ----
+checkpoints/
+*.ckpt
+*.pth
+*.pt
+*.h5
+*.model
+
+# ---- Python Cache ----
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ---- Environment / OS Files ----
+.env
+*.log
+*.tmp
 .DS_Store
-catboost_info/
-tmp_configs/
+Thumbs.db
+
+# ---- Editor Settings ----
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ---- Build / Distribution ----
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# ---- Streamlit ----
+.streamlit/
+

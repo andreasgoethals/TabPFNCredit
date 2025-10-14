@@ -1,7 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-07_case_study,on (ratio=0.1),True,ann,0,0.93397,0.06193,0.0,0.0,0.0,0.06636,0.64418,0.11502,1389.079563
-07_case_study,on (ratio=0.1),True,ann,1,0.93391,0.06197,0.0,0.0,0.0,0.05966,0.63845,0.10804,1247.08098
-07_case_study,on (ratio=0.1),True,ann,2,0.93349,0.06225,0.0,0.0,0.0,0.06395,0.64322,0.11179,1758.914992
-07_case_study,on (ratio=0.1),True,tabpfn_auto,0,0.93775,0.04949,0.31405,0.57646,0.21581,0.41217,0.85331,0.385,26536.866681
-07_case_study,on (ratio=0.1),True,tabpfn_auto,1,0.93742,0.05015,0.2792,0.58466,0.18339,0.39973,0.85026,0.37533,31004.246055
-07_case_study,on (ratio=0.1),True,tabpfn_auto,2,0.93784,0.04977,0.30795,0.59331,0.20794,0.40195,0.85255,0.38623,28472.414325

@@ -1,4 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-09_myhom,on (ratio=0.1),True,tabpfn_rf,0,0.59854,0.33119,0.01056,0.45455,0.00534,0.01049,0.53734,0.43512,77.265984
-09_myhom,on (ratio=0.1),True,tabpfn_rf,1,0.59837,0.33247,0.01472,0.7,0.00744,0.00788,0.52045,0.42211,79.988813
-09_myhom,on (ratio=0.1),True,tabpfn_rf,2,0.60266,0.31987,0.01488,0.38889,0.00758,0.0183,0.55619,0.44116,63.666906

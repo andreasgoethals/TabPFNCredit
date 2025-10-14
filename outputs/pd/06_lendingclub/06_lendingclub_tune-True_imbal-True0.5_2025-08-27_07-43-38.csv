@@ -1,4 +1,0 @@
-dataset,imbalance_setting,tuning,model,split,accuracy,brier,f1,precision,recall,h_measure,aucroc,aucpr,training_time
-06_lendingclub,on (ratio=0.5),True,tabpfn_rf,0,0.83025,0.13739,0.05575,0.29091,0.03083,0.06073,0.62315,0.22996,97.317537
-06_lendingclub,on (ratio=0.5),True,tabpfn_rf,1,0.83088,0.13575,0.12621,0.33621,0.07769,0.06422,0.62962,0.2328,115.850919
-06_lendingclub,on (ratio=0.5),True,tabpfn_rf,2,0.82832,0.13718,0.09571,0.30851,0.05664,0.06555,0.63607,0.22593,81.591028
