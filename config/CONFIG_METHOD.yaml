@@ -1,6 +1,6 @@
 missing_values: 3     # 0: don't handle missing values, 1: drop rows with missing values, 2: impute with mode(cat) and mean(num), 3: impute with median(num) and mode(cat)
 encode_cat: 1         # 0: no encoding, 1: one-hot, 2: WoE encoding
-standardize: 2        # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
+standardize: 1        # 0: no standardization, 1: standardnormal distribution, 2: min-max scaling
 
 methods:
   # pd methods
