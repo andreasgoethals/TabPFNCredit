@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from sklearn.datasets import load_breast_cancer, load_diabetes
 from sklearn.model_selection import train_test_split, KFold
-from data.dataset_preprocessing import Dataset_Preprocessing
+from src.data.dataset_preprocessing import Dataset_Preprocessing
 
 logger = logging.getLogger(__name__)
 

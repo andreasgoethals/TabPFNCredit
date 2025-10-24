@@ -1,26 +1,30 @@
 # --- Core scientific stack ---
-numpy
-pandas
-PyYAML
-tqdm
-scipy
-scikit-learn
-statsmodels
+numpy>=1.24
+pandas>=2.0
+PyYAML>=6.0
+tqdm>=4.65
+scipy>=1.10
+scikit-learn>=1.3
+statsmodels>=0.14
+notebook>=7.0
 
 # --- Torch + TALENT ---
-torch           # version will be auto-managed by TALENT
+torch==2.0.1  # TALENT requires exactly 2.0.1
 talent @ git+https://github.com/qile2000/LAMDA-TALENT.git
 
 # --- Data preprocessing ---
-category_encoders
-imbalanced-learn
-optuna
+category_encoders>=2.6
+imbalanced-learn>=0.11
+optuna>=3.3
 
 # --- Visualization ---
-matplotlib
-seaborn
-plotly
-streamlit
+matplotlib>=3.7
+seaborn>=0.13
+plotly>=5.17
+streamlit>=1.29
+
+# --- Evaluation ---
+hmeasure>=0.1.6
 
 # --- Utilities ---
-typing_extensions
+typing_extensions>=4.8
