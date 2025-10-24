@@ -162,13 +162,6 @@ tuning_params:
         n_neighbors: [ 3, 5, 7, 11, 15 ]
         weights: [ 'uniform', 'distance' ]
         metric: [ 'euclidean', 'manhattan' ]
-    lda:
-      param_space:
-        solver:
-          type: 'categorical'
-          values: [ 'svd', 'lsqr' ]
-      param_grid:
-        solver: [ 'svd', 'lsqr' ]
     lgbm:
       param_space:
         n_estimators:

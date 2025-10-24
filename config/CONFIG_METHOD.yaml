@@ -12,7 +12,6 @@ methods:
     dt: false         # Decision Tree (DT)
     gnb: false        # Gaussian Naive Bayes (GNB)
     knn: false        # K-Nearest Neighbors (KNN)
-    lda: false        # Linear Discriminant Analysis (LDA)
     lgbm: false       # LightGBM (LGBM)
     lr: false         # Logistic Regression (LR)
     rf: false         # Random Forest (RF)
