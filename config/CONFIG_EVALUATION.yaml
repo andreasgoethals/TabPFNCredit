@@ -1,22 +1,48 @@
-binary_threshold: 0.5   # Threshold for binary classification
-round_digits: 5         # Number of decimal places to round the results to
+# ============================================================
+# CONFIG_EVALUATION.yaml
+# ============================================================
+# This file defines how model performance is evaluated.
+# It specifies:
+#   1. The threshold for binary classification (PD tasks)
+#   2. The number of decimal digits used for rounding
+#   3. Which evaluation metrics should be computed
+#
+# The metrics are grouped by task:
+#   - PD  (Probability of Default → classification)
+#   - LGD (Loss Given Default → regression)
+#
+# ============================================================
 
+# ------------------------------------------------------------
+# Global evaluation settings
+# ------------------------------------------------------------
+binary_threshold: 0.5   # Classification threshold for PD tasks (0–1)
+round_digits: 5         # Number of decimal places to round results
+
+# ------------------------------------------------------------
+# Metric configuration by task
+# ------------------------------------------------------------
 metrics:
-  # pd metrics
+  # ----------------------------------------------------------
+  # Probability of Default (PD) – Classification metrics
+  # ----------------------------------------------------------
   pd:
-    accuracy: True
-    brier: True
-    f1: True
-    precision: True
-    recall: True
-    aucroc: True
-    aucpr: True
-    h_measure: True
-  # lgd metrics
+    accuracy: true       # Overall classification accuracy
+    brier: true          # Brier score for probabilistic calibration
+    f1: true             # Harmonic mean of precision and recall
+    precision: true      # Positive predictive value
+    recall: true         # Sensitivity or true positive rate
+    aucroc: true         # Area Under the ROC Curve
+    aucpr: true          # Area Under the Precision–Recall Curve
+    h_measure: true      # H-measure (alternative to AUCROC)
+
+  # ----------------------------------------------------------
+  # Loss Given Default (LGD) – Regression metrics
+  # ----------------------------------------------------------
   lgd:
-    mse: True
-    mae: True
-    r2: True
-    rmse: True
+    mse: true            # Mean Squared Error
+    mae: true            # Mean Absolute Error
+    r2: true             # Coefficient of determination
+    rmse: true           # Root Mean Squared Error
 
 

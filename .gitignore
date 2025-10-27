@@ -44,7 +44,3 @@ dist/
 # ---- Streamlit ----
 .streamlit/
 
-# Export Directory to File
-exportconfig.json
-repository.txt
-exports/

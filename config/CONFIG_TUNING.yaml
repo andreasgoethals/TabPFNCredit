@@ -1,3 +1,4 @@
+# CONFIG_TUNING.yaml
 tune_hyperparameters: true    # true: tune hyperparameters, false: use base models with default parameters
 tuning_method: 'optuna'       # optuna | grid | none: use stored hyperparameters
 n_trials: 20                  # number of trials for tuning
