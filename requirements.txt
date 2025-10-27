@@ -10,7 +10,7 @@ notebook>=7.0
 
 # --- Torch + TALENT ---
 torch==2.0.1  # TALENT requires exactly 2.0.1
-talent @ git+https://github.com/qile2000/LAMDA-TALENT.git
+TALENT @ git+https://github.com/LAMDA-Tabular/TALENT.git@main
 
 # --- Data preprocessing ---
 category_encoders>=2.6

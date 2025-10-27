@@ -1,32 +1,70 @@
-# Dataset selection (only 1 dataset at a time)
+# ============================================================
+# CONFIG_DATA.yaml
+# ============================================================
+# This configuration file defines:
+#   1. How datasets are split into train/validation/test sets
+#   2. Where the PD and LGD data folders are located (relative paths)
+#   3. Which Probability of Default (PD) and Loss Given Default (LGD)
+#      datasets should be included in the experiment
+#
+# NOTE:
+# - All paths are relative to the repository root.
+# - Toggle datasets on/off with `true` or `false`.
+# - The task type (PD, LGD, BOTH) will be automatically inferred
+#   based on which datasets are enabled below.
+# ============================================================
 
+# ------------------------------------------------------------
+# Split configuration
+# ------------------------------------------------------------
+split:
+  test_size: 0.2      # Fraction of full data reserved for testing
+  val_size: 0.2       # Fraction of full data used for validation
+  cv_splits: 3        # Number of cross-validation folds
+  seed: 42            # Random seed for reproducibility
+  row_limit: 1000     # Max number of rows to load from each dataset (None = all rows)
+#                       This is the total number of rows before any test/train or cv split.
 
+# ------------------------------------------------------------
+# Folder paths
+# ------------------------------------------------------------
+paths:
+  # The following paths should point to the folders containing
+  # the raw PD and LGD datasets.
+  pd_dir: "data/raw/pd"
+  lgd_dir: "data/raw/lgd"
+
+# ------------------------------------------------------------
+# Probability of Default (PD) datasets
+# ------------------------------------------------------------
 dataset_pd:
-  00_pd_toydata: false
-  # pd datasets
-  01_gmsc: true
-  02_taiwan_creditcard: false
-  03_vehicle_loan: false
-  06_lendingclub: false
-  07_case_study: false
-  09_myhom: false
-  10_hackerearth: false
-  11_cobranded: false
-  14_german_credit: false
-  22_bank_status: false
-  28_thomas: false
-  29_loan_default: false
-  30_home_credit: false
-  34_hmeq_data: false
+  # Enable or disable datasets here.
+  0001_gmsc: true               # Give Me Some Credit dataset
+  0002_taiwan_creditcard: false # Taiwan Credit Card dataset
+  0003_vehicle_loan: false
+  0004_lendingclub: false
+  0005_case_study: false
+  0006_myhom: false
+  0007_hackerearth: false
+  0008_cobranded: false
+  0009_german_credit: false
+  0010_bank_status: false
+  0011_thomas: false
+  0012_loan_default: false
+  0013_home_credit: false
+  0014_hmeq_data: false
 
+# ------------------------------------------------------------
+# Loss Given Default (LGD) datasets
+# ------------------------------------------------------------
 dataset_lgd:
-  00_lgd_toydata: false
-  # lgd datasets
-  01_heloc: false
-  03_loss2: false
-  05_axa: false
-  06_base_model: false
-  07_base_modelisation: false
+  # These datasets correspond to LGD regression tasks.
+  0001_heloc: false
+  0002_loss2: false
+  0003_axa: false
+  0004_base_model: false
+  0005_base_modelisation: false
+
 
 
 
