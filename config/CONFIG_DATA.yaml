@@ -39,31 +39,31 @@ paths:
 # ------------------------------------------------------------
 dataset_pd:
   # Enable or disable datasets here.
-  0001_gmsc: true               # Give Me Some Credit dataset
-  0002_taiwan_creditcard: false # Taiwan Credit Card dataset
-  0003_vehicle_loan: false
-  0004_lendingclub: false
-  0005_case_study: false
-  0006_myhom: false
-  0007_hackerearth: false
-  0008_cobranded: false
-  0009_german_credit: false
-  0010_bank_status: false
-  0011_thomas: false
-  0012_loan_default: false
-  0013_home_credit: false
-  0014_hmeq_data: false
+  0001.gmsc: true               # Give Me Some Credit dataset
+  0002.taiwan_creditcard: false # Taiwan Credit Card dataset
+  0003.vehicle_loan: false
+  0004.lendingclub: false
+  0005.case_study: false
+  0006.myhom: false
+  0007.hackerearth: false
+  0008.cobranded: false
+  0009.german: false
+  0010.bank_status: false
+  0011.thomas: false
+  0012.loan_default: false
+  0013.home_credit: false
+  0014.hmeq: false
 
 # ------------------------------------------------------------
 # Loss Given Default (LGD) datasets
 # ------------------------------------------------------------
 dataset_lgd:
   # These datasets correspond to LGD regression tasks.
-  0001_heloc: false
-  0002_loss2: false
-  0003_axa: false
-  0004_base_model: false
-  0005_base_modelisation: false
+  0001.heloc: false
+  0002.loss2: false
+  0003.axa: false
+  0004.base_model: false
+  0005.base_modelisation: false
 
 
 
