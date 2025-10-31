@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from typing import Optional
 
 class RawDataInspector:
     """
@@ -9,10 +10,10 @@ class RawDataInspector:
     Automatically infers task (PD/LGD) and computes dataset-level diagnostics.
     """
 
-    def __init__(self, dataset_name: str, raw_root: str = "data/raw/"):
+    def __init__(self, dataset_name: str, task: Optional[str] = None, raw_root: str = "data/raw/"):
         self.dataset_name = dataset_name
         self.raw_root = Path(raw_root)
-        self.task = self._infer_task()
+        self.task = task or self._infer_task()
         self.file_path = self._find_dataset_path()
         self.df = None
         self.report = {}
@@ -79,13 +80,42 @@ class RawDataInspector:
 
         # Potential issues
         issues = []
+
+        # Constant columns
         if n_constant > 0:
-            issues.append(f"{n_constant} columns have constant values.")
+            constant_cols = df.columns[df.nunique() == 1].tolist()
+            issues.append(
+                f"{n_constant} constant columns: {constant_cols[:10]}"
+                + ("..." if len(constant_cols) > 10 else "")
+            )
+
+        # High-cardinality columns (possibly IDs)
         if len(high_card_cols) > 0:
-            issues.append(f"{len(high_card_cols)} high-cardinality columns (possibly IDs).")
-        if df.duplicated().sum() > 0:
-            issues.append("Duplicate rows detected.")
-        if len(issues) == 0:
+            issues.append(
+                f"{len(high_card_cols)} high-cardinality columns (>90% unique): {high_card_cols[:10]}"
+                + ("..." if len(high_card_cols) > 10 else "")
+            )
+
+        # Duplicate rows
+        n_dupes = df.duplicated().sum()
+        if n_dupes > 0:
+            dupe_indices = df.index[df.duplicated()].tolist()[:10]
+            issues.append(
+                f"{n_dupes} duplicate rows detected (first few indices: {dupe_indices})"
+            )
+
+        # Missing values
+        cols_with_missing = df.columns[df.isnull().any()].tolist()
+        if cols_with_missing:
+            missing_rows = df[df.isnull().any(axis=1)].index[:10].tolist()
+            issues.append(
+                f"{len(cols_with_missing)} columns contain missing values: {cols_with_missing[:10]}"
+                + ("..." if len(cols_with_missing) > 10 else "")
+                + f" | Example row indices with NaN: {missing_rows}"
+            )
+
+        # If nothing suspicious
+        if not issues:
             issues = ["No immediate structural issues detected."]
 
         self.report = {

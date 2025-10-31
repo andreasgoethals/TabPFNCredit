@@ -13,12 +13,6 @@
 # ============================================================
 
 # ------------------------------------------------------------
-# Imbalance configuration
-# ------------------------------------------------------------
-imbalance: false        # If true, simulate artificial imbalance for PD datasets
-imbalance_ratio: 0.5    # Ratio of minority class (e.g., 0.2 = 20% positive class)
-
-# ------------------------------------------------------------
 # Preprocessing settings
 # ------------------------------------------------------------
 
@@ -76,3 +70,5 @@ max_epochs: 100        # Maximum number of epochs for deep models
 batch_size: 128        # Batch size for training (ignored by classical models)
 tune: true             # Whether to perform hyperparameter tuning
 n_trials: 50           # Number of tuning trials when tune = true
+early_stopping: true   # Whether to use early stopping during training
+early_stopping_patience: 10 # Patience epochs for early stopping
