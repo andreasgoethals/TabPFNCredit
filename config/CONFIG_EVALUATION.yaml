@@ -16,8 +16,8 @@
 # ------------------------------------------------------------
 # Global evaluation settings
 # ------------------------------------------------------------
-binary_threshold: 0.5   # Classification threshold for PD tasks (0–1)
 round_digits: 5         # Number of decimal places to round results
+cv_metric: "f1"         # Metric used for model selection and tuning
 
 # ------------------------------------------------------------
 # Metric configuration by task

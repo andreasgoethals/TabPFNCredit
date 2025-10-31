@@ -19,8 +19,8 @@
 # ------------------------------------------------------------
 split:
   test_size: 0.2      # Fraction of full data reserved for testing
-  val_size: 0.2       # Fraction of full data used for validation
-  cv_splits: 3        # Number of cross-validation folds
+  val_size: 0.2       # Fraction of train data used for validation
+  cv_splits: 3        # Number of cross-validation folds (1 = no CV)
   seed: 42            # Random seed for reproducibility
   row_limit: 1000     # Max number of rows to load from each dataset (None = all rows)
 #                       This is the total number of rows before any test/train or cv split.
@@ -41,7 +41,7 @@ dataset_pd:
   # Enable or disable datasets here.
   0001.gmsc: true               # Give Me Some Credit dataset
   0002.taiwan_creditcard: false # Taiwan Credit Card dataset
-  0003.vehicle_loan: false
+  0003.vehicle_loan: false  
   0004.lendingclub: false
   0005.case_study: false
   0006.myhom: false
