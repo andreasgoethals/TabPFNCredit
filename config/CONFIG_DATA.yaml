@@ -18,7 +18,7 @@
 # Split configuration
 # ------------------------------------------------------------
 split:
-  test_size: 0.2      # Fraction of full data reserved for testing
+  test_size: 0.2      # Fraction of full data reserved for testing, only used if CV splits = 1
   val_size: 0.2       # Fraction of train data used for validation
   cv_splits: 3        # Number of cross-validation folds (1 = no CV)
   seed: 42            # Random seed for reproducibility
