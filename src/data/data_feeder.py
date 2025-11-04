@@ -1,143 +1,260 @@
+# src/data/data_feeder.py
 """
-data_feeder.py
-=================
-Creates TALENT-ready Train / Validation / Test folds with cross-validation.
+DataFeeder — unified data preparation and split manager for TALENT.
 
-Logic mirrors the original TabPFNCredit repository:
-- First removes a test set (outer hold-out)
-- Then applies KFold cross-validation on the remaining data
-- Within each training fold, a further val_size fraction is reserved for validation
+This version integrates directly with src.data.preprocessing.preprocess_dataset()
+and outputs data in the format that TALENT's Method.fit() and Method.predict()
+expect: three dictionaries (N, C, y), each containing 'train', 'val', and 'test' keys.
 
-Outputs per fold:
-    N_train, C_train, y_train
-    N_val,   C_val,   y_val
-    N_test,  C_test,  y_test
+-------------------------------------------------------------------------------
+INPUTS
+-------------------------------------------------------------------------------
+You only need to provide:
+    - task: "pd" (classification) or "lgd" (regression)
+    - dataset: dataset name (e.g. "0014.hmeq")
+    - test_size: fraction of data reserved for testing (only used when CV_splits =1)
+    - val_size: fraction of remaining training data (without test set) reserved for validation 
+    - cv_splits: number of cross-validation folds (1 = single split)
+    - seed: random seed (for reproducibility)
+    - row_limit: (optional) limit number of rows for debugging
+    - sampling: (optional, float ∈ (0,1)) desired minority-class proportion (PD only)
+
+-------------------------------------------------------------------------------
+OUTPUTS
+-------------------------------------------------------------------------------
+Returns a dictionary:
+    {
+        fold_id: ((N, C, y), info)
+    }
+
+Each (N, C, y) is a dict in TALENT's expected format:
+
+    N = {'train': X_num_train, 'val': X_num_val, 'test': X_num_test} or None
+    C = {'train': X_cat_train, 'val': X_cat_val, 'test': X_cat_test} or None
+    y = {'train': y_train, 'val': y_val, 'test': y_test}
 """
 
 from __future__ import annotations
-from pathlib import Path
-from typing import Dict, Any, List
 import numpy as np
-from sklearn.model_selection import KFold, train_test_split
-import json
-import logging
-
-logger = logging.getLogger(__name__)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-PROC_DIR = PROJECT_ROOT / "data" / "processed"
+from typing import Dict, Optional, Tuple
+from sklearn.model_selection import train_test_split, StratifiedKFold, KFold
+from src.data.preprocessing import preprocess_dataset
 
 
 class DataFeeder:
-    def __init__(self, task: str, dataset: str, split_config: Dict[str, Any]):
-        """
-        Parameters
-        ----------
-        task : str
-            'pd' or 'lgd'
-        dataset : str
-            Dataset name (e.g., '0001.gmsc')
-        split_config : dict
-            Must contain:
-                test_size, val_size, cv_splits, seed, row_limit
-        """
+    """
+    TALENT-compatible data loader and splitter.
+    Handles:
+        - loading or preprocessing datasets,
+        - optional row limiting,
+        - optional imbalance resampling (PD only),
+        - single or multi-fold splitting (train/val/test),
+        - and returns data formatted for TALENT.
+    """
+
+    def __init__(
+        self,
+        task: str,
+        dataset: str,
+        test_size: float,
+        val_size: float,
+        cv_splits: int,
+        seed: int,
+        row_limit: Optional[int] = None,
+        sampling: Optional[float] = None,
+    ):
+        assert task in {"pd", "lgd"}, "task must be 'pd' or 'lgd'"
         self.task = task
         self.dataset = dataset
-        self.config = split_config
-        self.dataset_dir = PROC_DIR / task / dataset
+        self.test_size = test_size
+        self.val_size = val_size
+        self.cv_splits = cv_splits
+        self.seed = seed
+        self.row_limit = row_limit
+        self.sampling = sampling
+        self.task_type = "classification" if task == "pd" else "regression"
 
-        if not self.dataset_dir.exists():
-            raise FileNotFoundError(f"Processed dataset not found: {self.dataset_dir}")
-
-        self.N, self.C, self.y, self.info = self._load_arrays()
-        self._apply_row_limit()
-
-    # --------------------------------------------------------
-    def _load_arrays(self):
-        """Load TALENT-format arrays."""
-        N = self._try_load("N.npy")
-        C = self._try_load("C.npy")
-        y = np.load(self.dataset_dir / "y.npy")
-        with open(self.dataset_dir / "info.json") as f:
-            info = json.load(f)
-        return N, C, y, info
-
-    def _try_load(self, name):
-        path = self.dataset_dir / name
-        return np.load(path) if path.exists() else None
-
-    # --------------------------------------------------------
-    def _apply_row_limit(self):
-        """Subsample before splitting if requested."""
-        limit = self.config.get("row_limit")
-        seed = self.config.get("seed", 42)
-        n = len(self.y)
-        if limit is not None and limit < n:
-            rng = np.random.default_rng(seed)
-            idx = rng.choice(n, limit, replace=False)
-            self.N = self.N[idx] if self.N is not None else None
-            self.C = self.C[idx] if self.C is not None else None
-            self.y = self.y[idx]
-            logger.info(f"⚙️ Row limit applied: {limit}/{n} samples kept")
-
-    # --------------------------------------------------------
-    def make_splits(self) -> List[Dict[str, Any]]:
+    # ----------------------------------------------------------
+    # Optional sampling for class imbalance (binary PD only)
+    # ----------------------------------------------------------
+    def _apply_sampling(
+        self,
+        X_num: Optional[np.ndarray],
+        y: np.ndarray,
+        X_cat: Optional[np.ndarray] = None,
+    ) -> Tuple[Optional[np.ndarray], np.ndarray, Optional[np.ndarray]]:
         """
-        Construct train/val/test folds identical to the original CV logic.
+        Resample majority/minority classes to reach a desired minority proportion.
+        Only used for PD (classification) tasks.
         """
-        test_size = self.config.get("test_size", 0.2)
-        val_size = self.config.get("val_size", 0.2)
-        cv_splits = self.config.get("cv_splits", 3)
-        seed = self.config.get("seed", 42)
+        if self.task != "pd" or self.sampling is None:
+            return X_num, y, X_cat
 
-        n_samples = len(self.y)
-        all_idx = np.arange(n_samples)
+        unique, counts = np.unique(y, return_counts=True)
+        if len(unique) != 2:
+            return X_num, y, X_cat  # only binary supported
 
-        # --- Outer test split
-        trainval_idx, test_idx = train_test_split(
-            all_idx, test_size=test_size, random_state=seed, shuffle=True
+        minority, majority = unique[np.argmin(counts)], unique[np.argmax(counts)]
+        idx_min, idx_maj = np.where(y == minority)[0], np.where(y == majority)[0]
+        n_min, n_maj = len(idx_min), len(idx_maj)
+        target_ratio = self.sampling
+        current_ratio = n_min / (n_min + n_maj)
+        rng = np.random.default_rng(self.seed)
+
+        # undersample the larger class
+        if current_ratio < target_ratio:
+            desired_maj = int((1 - target_ratio) / target_ratio * n_min)
+            idx_maj_new = rng.choice(idx_maj, size=desired_maj, replace=False)
+            idx_min_new = idx_min
+        elif current_ratio > target_ratio:
+            desired_min = int(target_ratio / (1 - target_ratio) * n_maj)
+            idx_min_new = rng.choice(idx_min, size=desired_min, replace=False)
+            idx_maj_new = idx_maj
+        else:
+            idx_min_new, idx_maj_new = idx_min, idx_maj
+
+        new_idx = np.concatenate([idx_min_new, idx_maj_new])
+        rng.shuffle(new_idx)
+
+        def safe_index(X):
+            return X[new_idx] if X is not None else None
+
+        return safe_index(X_num), y[new_idx], safe_index(X_cat)
+
+    # ----------------------------------------------------------
+    # Main entry point
+    # ----------------------------------------------------------
+    def prepare(self) -> Dict[int, Tuple[Tuple[dict, dict, dict], Dict]]:
+        """
+        Load/preprocess dataset, optionally sample, and generate TALENT-ready splits.
+
+        Returns
+        -------
+        folds : dict
+            Mapping fold_id → ((N, C, y), info)
+        """
+        # 1️⃣ Load or preprocess dataset
+        N, C, y, info = preprocess_dataset(self.task, self.dataset)
+
+        # 2️⃣ Optionally limit number of rows (useful for debugging)
+        if self.row_limit is not None:
+            N = N[: self.row_limit] if N is not None else None
+            C = C[: self.row_limit] if C is not None else None
+            y = y[: self.row_limit]
+
+        stratify = self.task == "pd"
+        folds: Dict[int, Tuple[Tuple[dict, dict, dict], Dict]] = {}
+
+        # 3️⃣ Decide split strategy
+        if self.cv_splits == 1:
+            # --- single train/val/test split ---
+            idx_all = np.arange(len(y))
+            idx_train_full, idx_test = train_test_split(
+                idx_all,
+                test_size=self.test_size,
+                random_state=self.seed,
+                stratify=y if stratify else None,
+            )
+
+            # extract data subsets
+            Xn_train_full = N[idx_train_full] if N is not None else None
+            Xc_train_full = C[idx_train_full] if C is not None else None
+            y_train_full = y[idx_train_full]
+
+            Xn_test = N[idx_test] if N is not None else None
+            Xc_test = C[idx_test] if C is not None else None
+            y_test = y[idx_test]
+
+            # optional resampling
+            Xn_train_full, y_train_full, Xc_train_full = self._apply_sampling(
+                Xn_train_full, y_train_full, Xc_train_full
+            )
+
+            # validation split
+            idx_train, idx_val = train_test_split(
+                np.arange(len(y_train_full)),
+                test_size=self.val_size,
+                random_state=self.seed,
+                stratify=y_train_full if stratify else None,
+            )
+
+            Xn_train = Xn_train_full[idx_train] if Xn_train_full is not None else None
+            Xn_val = Xn_train_full[idx_val] if Xn_train_full is not None else None
+            y_train = y_train_full[idx_train]
+            y_val = y_train_full[idx_val]
+
+            if Xc_train_full is not None:
+                Xc_train = Xc_train_full[idx_train]
+                Xc_val = Xc_train_full[idx_val]
+            else:
+                Xc_train = Xc_val = None
+
+            # TALENT dicts
+            N_dict = {"train": Xn_train, "val": Xn_val, "test": Xn_test} if N is not None else None
+            C_dict = {"train": Xc_train, "val": Xc_val, "test": Xc_test} if C is not None else None
+            y_dict = {"train": y_train, "val": y_val, "test": y_test}
+
+            info_fold = {
+                "task_type": self.task_type,
+                "n_num_features": N.shape[1] if N is not None else 0,
+                "n_cat_features": C.shape[1] if C is not None else 0,
+            }
+
+            folds[1] = ((N_dict, C_dict, y_dict), info_fold)
+            return folds
+
+        # 4️⃣ Cross-validation (KFold/StratifiedKFold)
+        splitter = (
+            StratifiedKFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
+            if stratify
+            else KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
         )
 
-        folds: List[Dict[str, Any]] = []
+        for fold_id, (train_idx, test_idx) in enumerate(splitter.split(N, y), 1):
+            # extract per-fold subsets
+            Xn_train_full = N[train_idx] if N is not None else None
+            Xc_train_full = C[train_idx] if C is not None else None
+            y_train_full = y[train_idx]
 
-        if cv_splits <= 1:
-            # Single train/val/test split
-            train_idx, val_idx = train_test_split(
-                trainval_idx, test_size=val_size, random_state=seed
+            Xn_test = N[test_idx] if N is not None else None
+            Xc_test = C[test_idx] if C is not None else None
+            y_test = y[test_idx]
+
+            # resampling on training portion
+            Xn_train_full, y_train_full, Xc_train_full = self._apply_sampling(
+                Xn_train_full, y_train_full, Xc_train_full
             )
-            folds.append(self._build_fold(train_idx, val_idx, test_idx))
-        else:
-            # KFold on training data (excluding test set)
-            kf = KFold(n_splits=cv_splits, shuffle=True, random_state=seed)
-            for fold_id, (train_idx_rel, holdout_idx_rel) in enumerate(kf.split(trainval_idx)):
-                # Map relative indices back to full array indices
-                train_idx_abs = trainval_idx[train_idx_rel]
-                holdout_idx_abs = trainval_idx[holdout_idx_rel]
 
-                # Split training portion further into train / val
-                train_idx_abs, val_idx_abs = train_test_split(
-                    train_idx_abs, test_size=val_size, random_state=seed
-                )
+            # validation split inside fold
+            idx_train, idx_val = train_test_split(
+                np.arange(len(y_train_full)),
+                test_size=self.val_size,
+                random_state=self.seed,
+                stratify=y_train_full if stratify else None,
+            )
 
-                folds.append(self._build_fold(train_idx_abs, val_idx_abs, holdout_idx_abs))
-                logger.info(f"🌀 Fold {fold_id+1}/{cv_splits}: "
-                            f"{len(train_idx_abs)} train, {len(val_idx_abs)} val, {len(holdout_idx_abs)} test")
+            Xn_train = Xn_train_full[idx_train] if Xn_train_full is not None else None
+            Xn_val = Xn_train_full[idx_val] if Xn_train_full is not None else None
+            y_train = y_train_full[idx_train]
+            y_val = y_train_full[idx_val]
 
-        logger.info(f"✅ Generated {len(folds)} folds for {self.dataset} ({self.task})")
+            if Xc_train_full is not None:
+                Xc_train = Xc_train_full[idx_train]
+                Xc_val = Xc_train_full[idx_val]
+            else:
+                Xc_train = Xc_val = None
+
+            # build TALENT dicts for this fold
+            N_dict = {"train": Xn_train, "val": Xn_val, "test": Xn_test} if N is not None else None
+            C_dict = {"train": Xc_train, "val": Xc_val, "test": Xc_test} if C is not None else None
+            y_dict = {"train": y_train, "val": y_val, "test": y_test}
+
+            info_fold = {
+                "task_type": self.task_type,
+                "n_num_features": N.shape[1] if N is not None else 0,
+                "n_cat_features": C.shape[1] if C is not None else 0,
+            }
+
+            folds[fold_id] = ((N_dict, C_dict, y_dict), info_fold)
+
         return folds
-
-    # --------------------------------------------------------
-    def _build_fold(self, train_idx, val_idx, test_idx) -> Dict[str, Any]:
-        """Extract arrays for one fold."""
-        def sub(a, idx): return a[idx] if a is not None else None
-
-        return {
-            "N_train": sub(self.N, train_idx),
-            "C_train": sub(self.C, train_idx),
-            "y_train": sub(self.y, train_idx),
-            "N_val":   sub(self.N, val_idx),
-            "C_val":   sub(self.C, val_idx),
-            "y_val":   sub(self.y, val_idx),
-            "N_test":  sub(self.N, test_idx),
-            "C_test":  sub(self.C, test_idx),
-            "y_test":  sub(self.y, test_idx),
-        }

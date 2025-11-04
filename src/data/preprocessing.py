@@ -75,12 +75,6 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # Delegate dataset-specific cleaning
     df, target_col, cat_cols, num_cols = preprocess_dataset_specific(task, dataset, RAW_DIR)
 
-    # --- Collect dataset-level diagnostics (no dropping) ---
-    n_rows_with_missing = int(df.isna().any(axis=1).sum())
-    nunique = df.nunique(dropna=True)
-    n_const_cols = int((nunique <= 1).sum())
-    const_cols = nunique[nunique <= 1].index.tolist()
-
     # ----------------------------------------------------------
     # Extract target and features
     # ----------------------------------------------------------
@@ -110,10 +104,6 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
         "n_cat_features": C.shape[1] if C is not None else 0,
         "numerical_cols": num_cols,
         "categorical_cols": cat_cols,
-        # --- Added diagnostics ---
-        "n_rows_with_missing_values": n_rows_with_missing,
-        "n_constant_columns": n_const_cols,
-        "constant_columns": const_cols,
     }
 
     # ----------------------------------------------------------
