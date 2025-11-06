@@ -1,12 +1,11 @@
 # ============================================================
 # CONFIG_METHOD.yaml
 # ============================================================
-# This configuration file controls which models are included in
-# the experiments for both PD (classification) and LGD (regression) tasks.
-#
-# - Set each method to `true` to include it in the benchmark.
-# - Set to `false` to exclude it.
-# - Methods are grouped as: classical, deep tabular, and foundation models.
+# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks. 
+# - Set each method to true to include it in the benchmark. 
+# - Set to false to exclude it. 
+# - Methods are grouped as: classical, deep tabular, and foundation models. 
+# This configuration file uses TALENT's canonical model names.
 # ============================================================
 
 methods:
@@ -18,23 +17,23 @@ methods:
     # -----------------------------
     # Classical Machine Learning
     # -----------------------------
-    cb: false           # CatBoost
-    knn: false          # K-Nearest Neighbors
-    lgbm: false         # LightGBM
-    logreg: false       # Logistic Regression
-    nb: false           # Naive Bayes
-    rf: false           # Random Forest
-    svm: false          # Support Vector Machine
-    xgb: false          # Extreme Gradient Boosting
-    ncm: false          # Nearest Class Mean
-    dummy: false        # Dummy baseline classifier
+    catboost: false        # CatBoost
+    knn: false             # K-Nearest Neighbors
+    lightgbm: false        # LightGBM
+    LogReg: false          # Logistic Regression
+    NaiveBayes: false      # Naive Bayes
+    RandomForest: false    # Random Forest
+    svm: false             # Support Vector Machine
+    xgboost: false         # Extreme Gradient Boosting
+    NCM: false             # Nearest Class Mean
+    dummy: false           # Dummy baseline classifier
 
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: false           # Multilayer Perceptron
-    tabnet: false        # TabNet
-    tabpfn: true         # TabPFN foundation model
+    mlp: false             # Multilayer Perceptron
+    tabnet: false          # TabNet
+    tabpfn: true           # TabPFN v1 (classification)
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -43,16 +42,16 @@ methods:
     # -----------------------------
     # Classical Machine Learning
     # -----------------------------
-    cb: false            # CatBoost
-    knn: false           # K-Nearest Neighbors
-    lgbm: false          # LightGBM
-    lr: false            # Linear Regression
-    rf: false            # Random Forest
-    xgb: false           # Extreme Gradient Boosting
+    catboost: false         # CatBoost
+    knn: false              # K-Nearest Neighbors
+    lightgbm: false         # LightGBM
+    LinearRegression: false # Linear Regression
+    RandomForest: false     # Random Forest
+    xgboost: false          # Extreme Gradient Boosting
 
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: false            # Multilayer Perceptron
-    tabnet: false         # TabNet
-    tabpfn: false         # TabPFN foundation model
+    mlp: false              # Multilayer Perceptron
+    tabnet: false           # TabNet
+    PFN-v2: false           # TabPFN v2 (supports regression)

@@ -1,0 +1,13 @@
+{
+    "xrfm": {
+        "model": {
+            "bandwidth": 10,
+            "reg": 1e-3,
+            "exponent": 1.0,
+            "p_interp": 0.0,
+            "kernel_type": "l2",
+            "diag": false
+        },
+        "fit": {}
+    }
+}
