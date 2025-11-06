@@ -32,6 +32,11 @@ Each (N, C, y) is a dict in TALENT's expected format:
     N = {'train': X_num_train, 'val': X_num_val, 'test': X_num_test} or None
     C = {'train': X_cat_train, 'val': X_cat_val, 'test': X_cat_test} or None
     y = {'train': y_train, 'val': y_val, 'test': y_test}
+And each info = {
+    'task_type': 'binclass' or 'regression',
+    'n_num_features': int,
+    'n_cat_features': int
+    }
 """
 
 from __future__ import annotations
@@ -72,7 +77,7 @@ class DataFeeder:
         self.seed = seed
         self.row_limit = row_limit
         self.sampling = sampling
-        self.task_type = "classification" if task == "pd" else "regression"
+        self.task_type = "binclass" if task == "pd" else "regression"
 
     # ----------------------------------------------------------
     # Optional sampling for class imbalance (binary PD only)

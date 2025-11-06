@@ -1,9 +1,18 @@
 # src/methods/method_runner.py
 from __future__ import annotations
 from typing import Dict, Any, Optional
-
+import os
+import sys
+import time
+import inspect
+import shutil
+import contextlib
+from io import StringIO
+from pathlib import Path
+import tempfile
 import numpy as np
 
+# TALENT core utilities
 from TALENT.model.utils import (
     get_deep_args,
     get_classical_args,
@@ -11,164 +20,174 @@ from TALENT.model.utils import (
     set_seeds,
 )
 
+# Local data loader
 from src.data.data_feeder import DataFeeder
 
 
-# Which methods are "deep" in TALENT (so we should build deep args and honor epochs/batch, etc.)
-_DEEP_METHODS = {"mlp", "tabnet", "tabpfn"}
+# ======================================================================================
+#                               INTERNAL UTILITIES
+# ======================================================================================
 
-# Allowed methods per task (as per your CONFIG_METHOD.yaml)
-_ALLOWED_PD = {
-    "cb", "knn", "lgbm", "logreg", "nb", "rf", "svm", "xgb", "ncm", "dummy",
-    "mlp", "tabnet", "tabpfn"
-}
-_ALLOWED_LGD = {
-    "cb", "knn", "lgbm", "lr", "rf", "xgb",
-    "mlp", "tabnet", "tabpfn"
-}
+@contextlib.contextmanager
+def _silence(enabled: bool = True):
+    """Suppress stdout/stderr when enabled=True."""
+    if not enabled:
+        yield
+        return
+    with contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
+        yield
 
 
-def _build_args_for_talent(
-    *,
-    method: str,
-    seed: int,
-    # preprocessing policies from CONFIG_EXPERIMENT.yaml
-    categorical_encoding: str,
-    numerical_encoding: str,
-    normalization: str,
-    num_nan_policy: str,
-    cat_nan_policy: str,
-    # training knobs from CONFIG_EXPERIMENT.yaml
-    max_epochs: int,
-    batch_size: int,
-    tune: bool,
-    n_trials: int,
-    early_stopping: bool,
-    early_stopping_patience: int,
-    evaluate_option: str = "best",
-):
+def _fake_cli_args(method: str, dataset: str, task: str, seed: int, is_deep: bool, silence: bool):
     """
-    Construct TALENT's args Namespace exactly as its entry points expect.
-    Deep models -> get_deep_args; classical models -> get_classical_args.
-    We set only fields that TALENT's methods actually read.
+    Build TALENT's argparse.Namespace by mimicking a CLI call.
+    This is the only reliable way to make TALENT respect dataset/method names.
     """
-    # 1) Choose args builder
-    if method in _DEEP_METHODS:
-        args_pack = get_deep_args()     # usually returns (args, default_para, opt_space)
-    else:
-        args_pack = get_classical_args()
-
-    # Handle both (args, ...) and args-only returns defensively
-    args = args_pack[0] if isinstance(args_pack, (tuple, list)) and len(args_pack) >= 1 else args_pack
-
-    # 2) Core identifiers
-    args.seed = seed
-    args.model_type = method
-    args.evaluate_option = evaluate_option
-
-    # 3) Preprocessing / encoding policies
-    # (TALENT reads these in Method.data_format()/preprocessors)
-    args.cat_policy = categorical_encoding             # "ordinal" | "onehot" | "embedding" | "indices" | "none"
-    args.num_policy = numerical_encoding               # "quantile" | "standard" | "power" | "discretize" | "Q_bins" | "none"
-    args.normalization = normalization                 # "standard" | "minmax" | "robust" | "log" | "none"
-    args.num_nan_policy = num_nan_policy               # "mean" | "median" | "zero" | "none"
-    args.cat_nan_policy = cat_nan_policy               # "most_frequent" | "constant" | "none"
-
-    # 4) Training knobs (deep methods will use them; classical methods safely ignore)
-    args.max_epochs = int(max_epochs)
-    args.batch_size = int(batch_size)
-    args.tune = bool(tune)
-    args.n_trials = int(n_trials)
-    args.early_stopping = bool(early_stopping)
-    args.early_stopping_patience = int(early_stopping_patience)
+    orig_argv = sys.argv
+    sys.argv = [
+        "train.py",
+        "--model_type", method,
+        "--dataset", dataset,
+        "--task", task,
+        "--seed", str(seed),
+        "--tune", "False",
+    ]
+    try:
+        with _silence(True):
+            args = get_classical_args()
+    except SystemExit:
+        sys.argv = ["train.py", "--model_type", "xgboost", "--dataset", "dummy"]
+        args = get_classical_args()
 
     return args
 
 
+def _maybe_inject_configs(args, model_config: Optional[dict], fit_config: Optional[dict], verbose: bool):
+    """Attach model/fit configs and enforce silent training."""
+    cfg = getattr(args, "config", {}) or {}
+    if model_config:
+        cfg["model"] = dict(model_config)
+    fit_cfg = dict(fit_config or {})
+    if not verbose:
+        fit_cfg.setdefault("verbose", False)
+    cfg["fit"] = fit_cfg
+    args.config = cfg
+
+
+def _sanitize_sklearn_model_kwargs(estimator_ctor, params: dict) -> dict:
+    """Remove invalid kwargs for sklearn constructors."""
+    if not params or estimator_ctor is None:
+        return params
+    try:
+        allowed = set(inspect.signature(estimator_ctor).parameters.keys())
+        return {k: v for k, v in params.items() if k in allowed}
+    except Exception:
+        return params
+
+
+def _maybe_sanitize_for_classical(args, method: str):
+    """Filter out invalid sklearn params for classical models."""
+    cfg = getattr(args, "config", None)
+    if not isinstance(cfg, dict) or "model" not in cfg:
+        return
+    params = cfg["model"]
+    est_ctor = None
+    try:
+        if method == "RandomForest":
+            from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+            est_ctor = RandomForestRegressor.__init__ if getattr(args, "is_regression", False) else RandomForestClassifier.__init__
+        elif method == "knn":
+            from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+            est_ctor = KNeighborsRegressor.__init__ if getattr(args, "is_regression", False) else KNeighborsClassifier.__init__
+        elif method == "svm":
+            from sklearn.svm import SVC, SVR
+            est_ctor = SVR.__init__ if getattr(args, "is_regression", False) else SVC.__init__
+        elif method == "LogReg":
+            from sklearn.linear_model import LogisticRegression
+            est_ctor = LogisticRegression.__init__
+        elif method == "LinearRegression":
+            from sklearn.linear_model import LinearRegression
+            est_ctor = LinearRegression.__init__
+    except Exception:
+        pass
+    cfg["model"] = _sanitize_sklearn_model_kwargs(est_ctor, params)
+
+
+_DEEP_MODELS = {
+    "mlp", "tabnet", "tabpfn", "PFN-v2",
+    "resnet", "node", "ftt", "tabptm", "tabr",
+    "saint", "tabtransformer", "grownet", "autoint",
+}
+
+
+# ======================================================================================
+#                               MAIN RUN FUNCTION
+# ======================================================================================
+
 def run_talent_method(
     *,
-    # ---------------------------
-    # DataFeeder inputs
-    # ---------------------------
-    task: str,                     # "pd" or "lgd"
-    dataset: str,                  # e.g., "0014.hmeq" or "0001.heloc"
+    task: str,
+    dataset: str,
     test_size: float,
     val_size: float,
     cv_splits: int,
     seed: int,
     row_limit: Optional[int] = None,
-    sampling: Optional[float] = None,   # PD only (desired minority proportion)
-
-    # ---------------------------
-    # Method + experiment configs
-    # ---------------------------
-    method: str,                   # one of the allowed methods for the given task
-    # Preprocessing settings (from CONFIG_EXPERIMENT.yaml)
+    sampling: Optional[float] = None,
+    method: str,
     categorical_encoding: str,
     numerical_encoding: str,
     normalization: str,
     num_nan_policy: str,
     cat_nan_policy: str,
-    # Training & optimization (from CONFIG_EXPERIMENT.yaml)
-    max_epochs: int,
-    batch_size: int,
-    tune: bool,
-    n_trials: int,
-    early_stopping: bool,
-    early_stopping_patience: int,
-    # Optional TALENT evaluation tag
+    max_epochs: int = 100,
+    batch_size: int = 1024,
+    tune: bool = False,
+    n_trials: int = 50,
+    early_stopping: bool = True,
+    early_stopping_patience: int = 10,
     evaluate_option: str = "best",
+    model_config: Optional[dict] = None,
+    fit_config: Optional[dict] = None,
+    verbose: bool = False,
 ) -> Dict[int, Dict[str, Any]]:
     """
-    Train and evaluate a single TALENT method across all folds for (task, dataset).
-
-    Returns
-    -------
-    results_by_fold : dict
-        fold_id -> {
-            "y_true": np.ndarray,
-            "y_pred": np.ndarray,
-            "metrics": dict,            # TALENT's val_results (on test split)
-            "primary_metric": str,      # TALENT's metric_name
-            "val_loss": float | None,   # loss reported by method.predict
-            "train_time": float,        # seconds returned by method.fit
-            "info": dict,               # fold info (task_type, n_num_features, n_cat_features)
-            "method": str,
-            "dataset": str,
-            "task": str,
-        }
+    Run one TALENT model (no saving, no printing, no leftovers).
+    Returns per-fold dict of results.
     """
-    # 0) Validate method availability for the requested task
-    if task == "pd":
-        if method not in _ALLOWED_PD:
-            raise ValueError(f"Method '{method}' is not allowed for PD. Allowed: {sorted(_ALLOWED_PD)}")
-        is_regression = False
-    elif task == "lgd":
-        if method not in _ALLOWED_LGD:
-            raise ValueError(f"Method '{method}' is not allowed for LGD. Allowed: {sorted(_ALLOWED_LGD)}")
-        is_regression = True
-    else:
-        raise ValueError("task must be 'pd' or 'lgd'")
 
-    # 1) Build args exactly as TALENT expects
-    args = _build_args_for_talent(
-        method=method,
-        seed=seed,
-        categorical_encoding=categorical_encoding,
-        numerical_encoding=numerical_encoding,
-        normalization=normalization,
-        num_nan_policy=num_nan_policy,
-        cat_nan_policy=cat_nan_policy,
-        max_epochs=max_epochs,
-        batch_size=batch_size,
-        tune=tune,
-        n_trials=n_trials,
-        early_stopping=early_stopping,
-        early_stopping_patience=early_stopping_patience,
-        evaluate_option=evaluate_option,
-    )
+    is_regression = (task == "lgd")
+    is_deep = method in _DEEP_MODELS
 
-    # 2) Prepare folds with your DataFeeder (already returns TALENT format)
+    # --- Create fake args via CLI mimic
+    args = _fake_cli_args(method, dataset, task, seed, is_deep, silence=not verbose)
+
+    # --- Inject preprocessing and training options
+    args.is_regression = is_regression
+    args.cat_policy = categorical_encoding
+    args.num_policy = numerical_encoding
+    args.normalization = normalization
+    args.num_nan_policy = num_nan_policy
+    args.cat_nan_policy = cat_nan_policy
+    args.max_epochs = max_epochs
+    args.batch_size = batch_size
+    args.tune = tune
+    args.n_trials = n_trials
+    args.early_stopping = early_stopping
+    args.early_stopping_patience = early_stopping_patience
+    args.evaluate_option = evaluate_option
+
+    # --- Redirect saving paths to a temporary dir
+    tmp_dir = Path(tempfile.mkdtemp(prefix=f"{dataset}-{method}-"))
+    args.model_path = str(tmp_dir)
+    args.save_path = str(tmp_dir)
+
+    # --- Merge configs and sanitize
+    _maybe_inject_configs(args, model_config, fit_config, verbose)
+    if not is_deep:
+        _maybe_sanitize_for_classical(args, method)
+
+    # --- Prepare data folds
     feeder = DataFeeder(
         task=task,
         dataset=dataset,
@@ -179,60 +198,53 @@ def run_talent_method(
         row_limit=row_limit,
         sampling=sampling,
     )
-    folds = feeder.prepare()  # fold_id -> ((N, C, y), info)
+    folds = feeder.prepare()
 
-    # 3) Reproducibility across folds
-    set_seeds(args.seed)
-
-    # 4) Instantiate TALENT method class once per fold (fresh model each fold)
+    set_seeds(seed)
     MethodClass = get_method(args.model_type)
 
-    results_by_fold: Dict[int, Dict[str, Any]] = {}
+    results: Dict[int, Dict[str, Any]] = {}
 
-    for fold_id, ((N, C, y), info) in folds.items():
-        # Recreate method for each fold (fresh weights / params)
-        method_impl = MethodClass(args, is_regression=is_regression)
+    try:
+        for fold_id, ((N, C, y), info) in folds.items():
+            with _silence(not verbose):
+                model = MethodClass(args, is_regression=is_regression)
+                t0 = time.time()
+                train_time = model.fit((N, C, y), info)
+                if train_time is None:
+                    train_time = time.time() - t0
+                out = model.predict((N, C, y), info, model_name=args.evaluate_option)
 
-        # Fit on train/val; TALENT's Method.fit returns training time in seconds
-        train_time = method_impl.fit((N, C, y), info)
-
-        # Predict/evaluate on test; TALENT usually returns a 4-tuple:
-        # (val_loss, val_results, metric_name, predictions)
-        pred_out = method_impl.predict((N, C, y), info, model_name=args.evaluate_option)
-
-        # Be slightly defensive: some classical methods might return fewer items
-        if isinstance(pred_out, tuple):
-            if len(pred_out) >= 4:
-                val_loss, val_results, metric_name, y_pred = pred_out[:4]
-            elif len(pred_out) == 3:
-                val_loss, val_results, y_pred = pred_out
-                metric_name = None
-            elif len(pred_out) == 2:
-                val_results, y_pred = pred_out
-                val_loss, metric_name = None, None
+            val_loss, metrics, metric_name, y_pred = None, None, None, None
+            if isinstance(out, tuple):
+                if len(out) >= 4:
+                    val_loss, metrics, metric_name, y_pred = out[:4]
+                elif len(out) == 3:
+                    metrics, metric_name, y_pred = out
+                elif len(out) == 2:
+                    metrics, y_pred = out
+                elif len(out) == 1:
+                    y_pred = out[0]
             else:
-                y_pred = pred_out[0]
-                val_loss, val_results, metric_name = None, None, None
-        else:
-            y_pred = pred_out
-            val_loss, val_results, metric_name = None, None, None
+                y_pred = out
 
-        # Ground truth (from the same (N, C, y) dict the model sees)
-        y_true = y["test"]
+            results[fold_id] = {
+                "y_true": y["test"],
+                "y_pred": np.asarray(y_pred),
+                "metrics": metrics if isinstance(metrics, (dict, list, tuple)) else {},
+                "primary_metric": metric_name,
+                "val_loss": float(val_loss) if val_loss is not None else None,
+                "train_time": float(train_time),
+                "info": info,
+                "method": method,
+                "dataset": dataset,
+                "task": task,
+            }
 
-        # For PD we assume binary classification only (per project scope)
-        # TALENT already computes all standard metrics inside val_results.
-        results_by_fold[fold_id] = {
-            "y_true": y_true,
-            "y_pred": y_pred if isinstance(y_pred, np.ndarray) else np.asarray(y_pred),
-            "metrics": val_results if isinstance(val_results, dict) else {},
-            "primary_metric": metric_name,
-            "val_loss": None if val_loss is None else float(val_loss),
-            "train_time": float(train_time) if train_time is not None else float("nan"),
-            "info": info,
-            "method": method,
-            "dataset": dataset,
-            "task": task,
-        }
+    finally:
+        # --- Clean up: delete both temp dir and any stray results_model folder
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        for maybe in (Path.cwd() / "results_model", Path(__file__).resolve().parents[2] / "results_model"):
+            shutil.rmtree(maybe, ignore_errors=True)
 
-    return results_by_fold
+    return results
