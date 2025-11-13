@@ -1,0 +1,10 @@
+{
+    "fit": {
+        "n_bins": 247
+    },
+    "model": {
+        "n_neighbors": 71,
+        "p": 3,
+        "weights": "uniform"
+    }
+}

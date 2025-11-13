@@ -1,0 +1,10 @@
+{
+    "fit": {
+        "n_bins": 68
+    },
+    "model": {
+        "n_neighbors": 23,
+        "p": 1,
+        "weights": "distance"
+    }
+}
