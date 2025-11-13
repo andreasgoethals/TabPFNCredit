@@ -20,9 +20,9 @@
 split:
   test_size: 0.2      # Fraction of full data reserved for testing, only used if CV splits = 1
   val_size: 0.2       # Fraction of train data used for validation
-  cv_splits: 3        # Number of cross-validation folds (1 = no CV)
+  cv_splits: 5        # Number of cross-validation folds (1 = no CV)
   seed: 42            # Random seed for reproducibility
-  row_limit: 1000     # Max number of rows to load from each dataset (None = all rows)
+  row_limit: null     # Max number of rows to load from each dataset (null = all rows)
 #                       This is the total number of rows before any test/train or cv split.
 
 # ------------------------------------------------------------
@@ -59,7 +59,7 @@ dataset_pd:
 # ------------------------------------------------------------
 dataset_lgd:
   # These datasets correspond to LGD regression tasks.
-  0001.heloc: false
+  0001.heloc: true
   0002.loss2: false
   0003.axa: false
   0004.base_model: false

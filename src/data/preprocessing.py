@@ -15,7 +15,7 @@ Outputs (unsplit):
     y: np.ndarray          -> target
     info: dict             -> metadata
 
-No config reading, CV, or train/val/test splitting here — handled later.
+No CV or train/val/test splitting here — handled later.
 """
 
 from __future__ import annotations
@@ -26,12 +26,12 @@ from typing import Tuple, Optional
 import numpy as np
 import pandas as pd
 from src.data.dataset_preprocessing import preprocess_dataset_specific
+from src.utils.config_reader import load_config
 
 logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
 PROC_DIR = PROJECT_ROOT / "data" / "processed"
 
 
@@ -73,7 +73,8 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     logger.info(f"🧪 Preprocessing {dataset} ({task}) from raw files...")
 
     # Delegate dataset-specific cleaning
-    df, target_col, cat_cols, num_cols = preprocess_dataset_specific(task, dataset, RAW_DIR)
+    # raw_dir=None lets preprocess_dataset_specific load paths from config
+    df, target_col, cat_cols, num_cols = preprocess_dataset_specific(task, dataset, raw_dir=None)
 
     # ----------------------------------------------------------
     # Extract target and features
@@ -124,7 +125,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
 def preprocess_dataset(task: str, dataset: str):
     """
     Entry point: preprocess or load dataset and return unsplit TALENT Level-0 arrays.
-    No config reading, cross-validation, or splitting here.
+    No cross-validation or splitting here.
     """
     if task not in {"pd", "lgd"}:
         raise ValueError("Task must be 'pd' or 'lgd'.")

@@ -1,74 +1,15 @@
 # ============================================================
 # CONFIG_EXPERIMENT.yaml
 # ============================================================
-# This configuration file defines experiment-level behaviour:
-#   - whether to introduce imbalance
-#   - how to encode categorical and numerical variables
-#   - how to handle missing values
-#   - how to normalize features
-#   - how to train and tune models
-#
-# All options listed below are directly compatible with TALENT’s
-# preprocessing and training APIs.
+# This configuration file defines training and optimization settings
+# that apply to all methods in the benchmark.
 # ============================================================
-
-# ------------------------------------------------------------
-# Preprocessing settings
-# ------------------------------------------------------------
-
-# --- Categorical encoding policy ---
-# Determines how categorical variables are represented.
-# Options supported by TALENT:
-#   - "onehot"        → one-hot encoding
-#   - "ordinal"       → integer encoding by category index
-#   - "embedding"     → learned embeddings (for deep models)
-#   - "indices"       → integer indices directly fed to the model
-#   - "none"          → do not encode (model handles categories natively)
-categorical_encoding: "ordinal"
-
-# --- Numerical encoding policy ---
-# Defines how numerical features are preprocessed before being fed to the model.
-# Options supported by TALENT:
-#   - "standard"      → z-score standardization
-#   - "quantile"      → quantile transformation to uniform or normal distribution
-#   - "power"         → power transformation (Box–Cox or Yeo–Johnson)
-#   - "discretize"    → discretization into equal-width bins
-#   - "Q_bins"        → quantile binning (TALENT’s custom option)
-#   - "none"          → no numerical encoding applied
-numerical_encoding: "quantile"
-
-# --- Normalization ---
-# Applies scaling to numeric features after encoding.
-# Options supported by TALENT:
-#   - "standard"      → (x - mean) / std
-#   - "minmax"        → scale to [0, 1]
-#   - "robust"        → scale using median and IQR (robust to outliers)
-#   - "log"           → log transformation (for skewed features)
-#   - "none"          → no normalization
-normalization: "standard"
-
-# --- Handling missing values ---
-# TALENT handles missing data separately for numeric and categorical features.
-#
-# For numeric variables:
-#   - "mean"          → replace NaN with mean value
-#   - "median"        → replace NaN with median value
-#   - "zero"          → replace NaN with 0
-#   - "none"          → do not impute (keep as NaN)
-#
-# For categorical variables:
-#   - "most_frequent" → replace NaN with mode
-#   - "constant"      → replace NaN with a constant placeholder
-#   - "none"          → no imputation
-num_nan_policy: "mean"
-cat_nan_policy: "most_frequent"
 
 # ------------------------------------------------------------
 # Training and optimization settings
 # ------------------------------------------------------------
-max_epochs: 100        # Maximum number of epochs for deep models
-batch_size: 128        # Batch size for training (ignored by classical models)
-tune: true             # Whether to perform hyperparameter tuning
-n_trials: 50           # Number of tuning trials when tune = true
-early_stopping: true   # Whether to use early stopping during training
-early_stopping_patience: 10 # Patience epochs for early stopping
+max_epochs: 200              # Maximum number of epochs for deep models
+batch_size: 128              # Batch size for training (ignored by classical models)
+n_trials: 200                # Number of hyperparameter tuning trials
+early_stopping: false        # Whether to use early stopping during training
+early_stopping_patience: 10  # Patience epochs for early stopping

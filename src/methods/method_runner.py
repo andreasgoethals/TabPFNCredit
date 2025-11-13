@@ -1,5 +1,5 @@
 """
-TALENT-compatible method runner for TabPFNCredit benchmarking.
+TALENT-compatible method runner for TabPFNCredit benchmarking 
 
 This module provides a unified interface for running both classical and deep learning
 methods through TALENT's API, properly handling argument parsing, configuration,
@@ -13,13 +13,15 @@ Key features:
 - Proper cleanup of temporary directories
 - Persistent config storage for HPO reuse
 - Organized config storage by task type (pd/lgd)
+- Handles CUDA tensor to numpy conversion
+- Extracts probabilities from logits for classification tasks
 
 Architecture notes:
 - TALENT was designed as CLI scripts, not a library, so we manipulate sys.argv
 - Each method has strict preprocessing requirements that must be satisfied
 - HPO configs are saved as {method}-tuned.json in persistent config directory
-- Configs are stored in project's 'config_hpo' folder organized by task type
-- DataFeeder returns fold IDs starting at 1 (not 0), so we handle this correctly
+- Configs are stored in project's 'config_hpo' folder organized by task type (pd/lgd)
+- Deep learning methods return logits; classical methods return probabilities
 """
 
 from __future__ import annotations
@@ -38,6 +40,14 @@ import copy
 import json
 import os
 
+# Try to import torch for tensor detection
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+    torch = None  # type: ignore
+
 # TALENT core utilities
 from TALENT.model.utils import (
     get_deep_args,
@@ -52,8 +62,9 @@ from src.data.data_feeder import DataFeeder
 
 
 # ======================================================================================
-#                               CONFIGURATION
+#                          CONFIGURATION - METHOD CATEGORIES
 # ======================================================================================
+
 # Deep learning methods - EXACT NAMES AS TALENT EXPECTS THEM
 DEEP_METHODS = {
     "mlp", "tabnet", "tabpfn", "PFN-v2",
@@ -79,6 +90,189 @@ NO_HPO_METHODS = {
     'NaiveBayes', 'LinearRegression'
 }
 
+# Deep learning methods that return logits (require softmax/sigmoid)
+LOGIT_METHODS = {
+    'mlp', 'resnet', 'node', 'snn', 'danets', 'tabcaps', 'dcn2',
+    'switchtab', 'dnnr', 'tangos', 'protogate', 'hyperfast',
+    'bishop', 'realmlp', 'mlp_plr', 'excelformer', 'grande',
+    'amformer', 'trompt', 'tabm', 't2gformer', 'tabautopnpnet'
+}
+
+# Methods that return probabilities directly
+PROBABILITY_METHODS = {
+    'xgboost', 'catboost', 'lightgbm', 'RandomForest', 'LogReg',
+    'knn', 'svm', 'NaiveBayes', 'NCM', 'dummy',
+    'tabpfn', 'PFN-v2', 'tabnet', 'ftt', 'tabptm', 'tabr',
+    'saint', 'tabtransformer', 'grownet', 'autoint', 'ptarl',
+    'modernNCA', 'tabicl'
+}
+
+
+# ======================================================================================
+#                          TENSOR TO NUMPY CONVERSION
+# ======================================================================================
+
+def _ensure_numpy_array(arr) -> np.ndarray:
+    """
+    Convert array-like object to NumPy array, handling PyTorch CUDA tensors.
+    
+    Addresses "can't convert cuda:0 device type tensor to numpy" error by
+    moving GPU tensors to CPU before conversion.
+    
+    Args:
+        arr: Array-like object (numpy array, torch tensor, list, etc.)
+        
+    Returns:
+        NumPy array on CPU memory
+    """
+    # Handle PyTorch tensors (CPU or CUDA)
+    if _HAS_TORCH and isinstance(arr, torch.Tensor):
+        return arr.detach().cpu().numpy()
+    
+    # Handle NumPy arrays (pass through)
+    if isinstance(arr, np.ndarray):
+        return arr
+    
+    # Handle nested structures (lists of tensors)
+    if isinstance(arr, (list, tuple)):
+        if len(arr) > 0 and _HAS_TORCH and isinstance(arr[0], torch.Tensor):
+            return np.array([x.detach().cpu().numpy() for x in arr])
+        return np.asarray(arr)
+    
+    # Fallback
+    try:
+        return np.asarray(arr)
+    except Exception as e:
+        raise TypeError(
+            f"Cannot convert {type(arr).__name__} to NumPy array. "
+            f"Expected: numpy.ndarray, torch.Tensor, list, or tuple. "
+            f"Error: {e}"
+        )
+
+
+# ======================================================================================
+#                    PROBABILITY EXTRACTION FROM LOGITS/PREDICTIONS
+# ======================================================================================
+
+def _extract_class_probabilities(
+    predictions: np.ndarray,
+    method: str,
+    is_regression: bool
+) -> Optional[np.ndarray]:
+    """
+    Extract class probabilities from model predictions.
+    
+    Deep learning methods typically return logits (unbounded values).
+    Classical methods typically return probabilities (0-1 range).
+    
+    For binary classification:
+    - If predictions are 2D with 2 columns: extract probability of positive class (column 1)
+    - If predictions are 1D: interpret as probability of positive class
+    
+    Args:
+        predictions: Model predictions (may be logits or probabilities)
+        method: Method name to determine if logits or probabilities expected
+        is_regression: Whether this is a regression task
+        
+    Returns:
+        1D array of probabilities for positive class (classification only)
+        None for regression tasks
+    """
+    if is_regression:
+        return None
+    
+    returns_logits = method in LOGIT_METHODS
+    
+    # Handle 2D predictions: (n_samples, n_classes)
+    if len(predictions.shape) == 2 and predictions.shape[1] >= 2:
+        if returns_logits:
+            # Apply softmax: p_i = exp(logit_i) / sum(exp(logit_j))
+            exp_logits = np.exp(predictions - np.max(predictions, axis=1, keepdims=True))
+            probabilities = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+        else:
+            probabilities = predictions
+        
+        return probabilities[:, 1]
+    
+    # Handle 1D predictions: (n_samples,) or (n_samples, 1)
+    elif len(predictions.shape) == 1 or (len(predictions.shape) == 2 and predictions.shape[1] == 1):
+        if len(predictions.shape) == 2:
+            predictions = predictions.ravel()
+        
+        if returns_logits:
+            # Apply sigmoid: p = 1 / (1 + exp(-logit))
+            probabilities = 1.0 / (1.0 + np.exp(-predictions))
+        else:
+            # Check if values are in [0,1] range
+            if np.all((predictions >= 0) & (predictions <= 1)):
+                probabilities = predictions
+            else:
+                # Values outside [0,1] - treat as logits
+                probabilities = 1.0 / (1.0 + np.exp(-predictions))
+        
+        return probabilities
+    
+    else:
+        warnings.warn(
+            f"Unexpected prediction shape {predictions.shape} for method {method}. "
+            f"Cannot extract class probabilities."
+        )
+        return None
+
+
+# ======================================================================================
+#                          MONKEY PATCHING FOR SILENCE
+# ======================================================================================
+
+def _noop_pprint(x):
+    """No-op replacement for pprint."""
+    pass
+
+def _patch_talent_pprint(enable_silence: bool = True):
+    """
+    Monkey-patch TALENT's pprint function to suppress output.
+    
+    TALENT calls pprint(vars(args)) in get_deep_args() and get_classical_args(),
+    which prints the entire argument namespace during initialization.
+    
+    Args:
+        enable_silence: If True, replace pprint with no-op. If False, restore original.
+    """
+    try:
+        import TALENT.model.utils as utils
+        if enable_silence:
+            if not hasattr(_patch_talent_pprint, '_original_pprint'):
+                _patch_talent_pprint._original_pprint = utils.pprint
+            utils.pprint = _noop_pprint
+        else:
+            if hasattr(_patch_talent_pprint, '_original_pprint'):
+                utils.pprint = _patch_talent_pprint._original_pprint
+    except Exception:
+        pass
+
+
+def _fix_windows_compatibility():
+    """
+    Fix Windows compatibility issues for methods that use os.sysconf.
+    
+    PFN-v2 and other methods use os.sysconf which is Unix-only.
+    Mock it with reasonable default values.
+    """
+    if not hasattr(os, 'sysconf'):
+        def _mock_sysconf(name):
+            if isinstance(name, str):
+                if 'PAGE_SIZE' in name:
+                    return 4096
+                elif 'NPROCESSORS' in name:
+                    return os.cpu_count() or 4
+            return 0
+        os.sysconf = _mock_sysconf
+        os.sysconf_names = {'SC_PAGE_SIZE': 30, 'SC_NPROCESSORS_ONLN': 84}
+
+
+# Apply fixes on module import
+_fix_windows_compatibility()
+
 
 # ======================================================================================
 #                          PROJECT ROOT DETECTION
@@ -88,9 +282,8 @@ def _find_project_root() -> Path:
     """
     Find the project root directory dynamically.
     
-    Searches upward from the current file location until it finds a directory
-    containing markers that indicate the project root (like 'src' folder,
-    'setup.py', 'pyproject.toml', etc.).
+    Searches upward from the current file location for directories containing
+    standard project markers (src folder, setup.py, etc.).
     
     Returns:
         Path to project root directory
@@ -98,25 +291,21 @@ def _find_project_root() -> Path:
     Raises:
         RuntimeError: If project root cannot be found
     """
-    # Start from this file's directory
     current = Path(__file__).resolve().parent
     
-    # Root markers to look for
     root_markers = {
-        'src',           # Source folder
-        'setup.py',      # Setup file
-        'pyproject.toml',# Modern Python project config
-        'README.md',     # README
-        '.git',          # Git repository
+        'src',
+        'setup.py',
+        'pyproject.toml',
+        'README.md',
+        '.git',
     }
     
     # Search upward (max 10 levels)
     for _ in range(10):
-        # Check if any marker exists in current directory
         if any((current / marker).exists() for marker in root_markers):
             return current
         
-        # Move up one level
         parent = current.parent
         if parent == current:  # Reached filesystem root
             break
@@ -126,7 +315,7 @@ def _find_project_root() -> Path:
     return Path.cwd()
 
 
-# Cache the project root to avoid repeated searches
+# Cache the project root
 _PROJECT_ROOT = _find_project_root()
 
 
@@ -151,9 +340,6 @@ def _silence(enabled: bool = True):
     """
     Context manager to suppress stdout/stderr and warnings.
     
-    Used to reduce noise from TALENT's internal logging, especially during
-    argument parsing and model initialization.
-    
     Args:
         enabled: If True, suppress output. If False, leave output as is.
     """
@@ -177,9 +363,9 @@ def _silence(enabled: bool = True):
 @contextlib.contextmanager
 def _suppress_all_output(enabled: bool = True):
     """
-    Completely suppress ALL output including print statements, progress bars, and warnings.
+    Completely suppress all output including print statements, progress bars, and warnings.
     
-    More aggressive than _silence(). Redirects to devnull to catch everything.
+    More aggressive than _silence(). Redirects to devnull.
     Used during model training and HPO when verbose=False.
     
     Args:
@@ -214,35 +400,27 @@ def _inject_configs(
     """
     Inject user-provided model and fit configurations into args.
     
-    This allows users to override default hyperparameters without running full HPO.
-    For example, specifying a specific learning rate or number of estimators.
-    
-    The injected configs are merged with TALENT's default configs, with user
-    values taking precedence.
+    Allows users to override default hyperparameters without running full HPO.
     
     Args:
         args: Argument namespace from TALENT (modified in-place)
-        model_config: Model-specific hyperparameters (e.g., hidden sizes, dropout)
-        fit_config: Training configuration (e.g., learning rate, weight decay)
+        model_config: Model-specific hyperparameters
+        fit_config: Training configuration
         verbose: Whether to suppress verbose output during training
     """
-    # Initialize config dict if needed
     if not hasattr(args, 'config') or args.config is None:
         args.config = {}
     
-    # Inject model config
     if model_config:
         if 'model' not in args.config:
             args.config['model'] = {}
         args.config['model'].update(model_config)
     
-    # Inject fit config
     if fit_config:
         if 'fit' not in args.config:
             args.config['fit'] = {}
         args.config['fit'].update(fit_config)
     
-    # Ensure verbose setting for fit
     if 'fit' not in args.config:
         args.config['fit'] = {}
     if not verbose:
@@ -253,8 +431,7 @@ def _sanitize_sklearn_params(estimator_class, params: dict) -> dict:
     """
     Remove parameters that are not valid for sklearn estimator.
     
-    This prevents errors when users provide extra parameters that sklearn doesn't recognize.
-    We inspect the estimator's __init__ signature and filter out invalid parameters.
+    Inspects the estimator's __init__ signature and filters out invalid parameters.
     
     Args:
         estimator_class: Sklearn estimator class
@@ -267,14 +444,11 @@ def _sanitize_sklearn_params(estimator_class, params: dict) -> dict:
         return params
     
     try:
-        # Get valid parameters from __init__ signature
         sig = inspect.signature(estimator_class.__init__)
         valid_params = set(sig.parameters.keys()) - {'self'}
         
-        # Filter params
         filtered = {k: v for k, v in params.items() if k in valid_params}
         
-        # Warn about dropped params
         dropped = set(params.keys()) - set(filtered.keys())
         if dropped:
             warnings.warn(
@@ -292,11 +466,8 @@ def _sanitize_classical_params(args: Any, method: str) -> None:
     """
     Sanitize model parameters for classical (sklearn-based) methods.
     
-    Different sklearn models accept different parameters. This function ensures
-    only valid parameters are passed to each specific model.
-    
-    For example, RandomForest accepts 'n_estimators' but not 'learning_rate',
-    while XGBoost accepts both.
+    Different sklearn models accept different parameters. Ensures only valid
+    parameters are passed to each specific model.
     
     Modifies args.config['model'] in-place.
     
@@ -313,7 +484,6 @@ def _sanitize_classical_params(args: Any, method: str) -> None:
     params = args.config['model']
     is_regression = getattr(args, 'is_regression', False)
     
-    # Map method to sklearn estimator class
     estimator_class = None
     
     try:
@@ -341,12 +511,11 @@ def _sanitize_classical_params(args: Any, method: str) -> None:
             from sklearn.naive_bayes import GaussianNB
             estimator_class = GaussianNB
         
-        # Sanitize if we found the class
         if estimator_class is not None:
             args.config['model'] = _sanitize_sklearn_params(estimator_class, params)
             
     except ImportError:
-        pass  # sklearn not available or module import failed
+        pass
 
 
 def _cleanup_temp_directories(tmp_dir: Path, clean: bool = True) -> None:
@@ -354,16 +523,14 @@ def _cleanup_temp_directories(tmp_dir: Path, clean: bool = True) -> None:
     Clean up temporary directories and any stray results folders.
     
     TALENT sometimes creates output directories in the current working directory.
-    This function ensures everything is cleaned up properly.
     
     Args:
         tmp_dir: Temporary directory to remove
-        clean: If True, remove directories. If False, leave as-is (useful for debugging).
+        clean: If True, remove directories. If False, leave as-is for debugging.
     """
     if not clean:
         return
     
-    # Remove temp directory
     if tmp_dir.exists():
         shutil.rmtree(tmp_dir, ignore_errors=True)
     
@@ -388,25 +555,18 @@ def _cleanup_checkpoints_from_config_dir(config_dir: Path) -> None:
     TALENT saves both configs AND checkpoints/logs to args.save_path.
     We only want to keep the JSON config files.
     
-    Files removed:
-    - *.pth: PyTorch model checkpoints
-    - *.pkl: Pickle model files
-    - *.npy: NumPy arrays (e.g., cluster centers)
-    - trlog: Training log files
-    
     Args:
         config_dir: Directory to clean
     """
     if not config_dir.exists():
         return
     
-    # Patterns for files to remove
     unwanted_patterns = [
-        '*.pth',       # PyTorch model files
-        '*.pkl',       # Pickle model files  
-        '*.npy',       # NumPy array files
-        '*-*.pth',     # Files like "best-val-42.pth"
-        '*-*.pkl',     # Files like "model-42.pkl"
+        '*.pth',
+        '*.pkl',
+        '*.npy',
+        '*-*.pth',
+        '*-*.pkl',
     ]
     
     for pattern in unwanted_patterns:
@@ -414,9 +574,9 @@ def _cleanup_checkpoints_from_config_dir(config_dir: Path) -> None:
             try:
                 file.unlink()
             except Exception:
-                pass  # Ignore errors during cleanup
+                pass
     
-    # Also remove 'trlog' files (no extension)
+    # Remove 'trlog' files
     for file in config_dir.rglob('*'):
         if file.is_file() and file.name == 'trlog':
             try:
@@ -437,7 +597,6 @@ def _parse_prediction_output(output: Any) -> Tuple[Optional[float], Any, Optiona
     
     Returns:
         Tuple of (val_loss, metrics, metric_names, predictions)
-        where metric_names is always a list of strings
     """
     val_loss = None
     metrics = None
@@ -464,6 +623,13 @@ def _parse_prediction_output(output: Any) -> Tuple[Optional[float], Any, Optiona
     elif not isinstance(metric_names, list):
         metric_names = list(metric_names)
     
+    # Ensure val_loss is Python float
+    if val_loss is not None:
+        if _HAS_TORCH and isinstance(val_loss, torch.Tensor):
+            val_loss = float(val_loss.detach().cpu().item())
+        else:
+            val_loss = float(val_loss)
+    
     return val_loss, metrics, metric_names, predictions
 
 
@@ -472,18 +638,7 @@ _MISSING_SENTINELS = {None, "", "nothing", "Nothing", "NONE", "None"}
 
 
 def _is_missing(x) -> bool:
-    """
-    Check if a value represents "missing" or "not specified".
-    
-    Used to determine whether a user explicitly provided a preprocessing option
-    or if we should use defaults.
-    
-    Args:
-        x: Value to check
-        
-    Returns:
-        True if value is considered missing
-    """
+    """Check if a value represents "missing" or "not specified"."""
     try:
         return x in _MISSING_SENTINELS
     except TypeError:
@@ -493,12 +648,10 @@ def _is_missing(x) -> bool:
 def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, bool]) -> None:
     """
     Apply preprocessing policy defaults and method-specific requirements.
-    Uses EXACT method names as TALENT expects them - no case conversion!
+    Uses EXACT method names as TALENT expects them.
     """
     
-    # =============================================================================
-    # STEP 1: Fill project defaults for missing values
-    # =============================================================================
+    # Fill project defaults for missing values
     if _is_missing(getattr(args, 'cat_policy', None)):
         args.cat_policy = 'ordinal'
     if _is_missing(getattr(args, 'num_policy', None)):       
@@ -510,13 +663,9 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
     if _is_missing(getattr(args, 'cat_nan_policy', None)):   
         args.cat_nan_policy = 'new'
 
-    # =============================================================================
-    # STEP 2: Apply method-specific preprocessing requirements - EXACT NAMES
-    # =============================================================================
-    
-    # Method groups with specific requirements - EXACT NAMES
+    # Method groups with specific requirements
     requires_indices = {
-        'amformer', 'autoint', 'bishop', 'dcn2', 'ftt', 'grande', 'grownet',
+        'amformer', 'autoint', 'bishop', 'catboost', 'dcn2', 'ftt', 'grande', 'grownet',
         'hyperfast', 'ptarl', 'realmlp', 'saint', 'snn',
         't2gformer', 'tabm', 'tabtransformer', 'trompt'
     }
@@ -530,7 +679,7 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
         'hyperfast', 'modernNCA', 'tabicl', 'tabptm', 'tabr'
     }
 
-    # TabPFN and PFN-v2 - EXACT NAMES
+    # TabPFN and PFN-v2
     if method in {'tabpfn', 'PFN-v2'}:
         if user_specified.get('cat_policy', False):
             if args.cat_policy != 'indices':
@@ -550,7 +699,7 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
         else:
             args.num_policy = 'none'
 
-    # TabPTM - EXACT NAME
+    # TabPTM
     elif method == 'tabptm':
         if user_specified.get('cat_policy', False):
             if args.cat_policy != 'ohe':
@@ -617,6 +766,40 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
         else:
             args.num_policy = 'none'
 
+
+# ======================================================================================
+#                            CATBOOST-SPECIFIC FIXES
+# ======================================================================================
+
+def _fix_catboost_config(args, is_regression: bool) -> None:
+    """
+    Fix CatBoost configuration to ensure compatibility.
+    
+    CatBoost only accepts ONE of ['verbose', 'logging_level', 'verbose_eval', 'silent'].
+    
+    Args:
+        args: Argument namespace (modified in-place)
+        is_regression: Whether this is a regression task
+    """
+    if not hasattr(args, 'config') or args.config is None:
+        args.config = {}
+    
+    if 'fit' not in args.config:
+        args.config['fit'] = {}
+    
+    if 'model' not in args.config:
+        args.config['model'] = {}
+    
+    # Use logging_level and remove all others
+    args.config['fit']['logging_level'] = 'Silent'
+    
+    for key in ['verbose', 'verbose_eval', 'silent']:
+        args.config['fit'].pop(key, None)
+    
+    if 'early_stopping_rounds' not in args.config['model']:
+        args.config['model']['early_stopping_rounds'] = 50
+
+
 # ======================================================================================
 #                               MAIN RUN FUNCTION
 # ======================================================================================
@@ -660,6 +843,8 @@ def run_talent_method(
     - Optional hyperparameter optimization (HPO) on first fold, reusing config for others
     - Persistent config storage for future reuse across runs
     - Proper cleanup of temporary directories
+    - Handles CUDA tensor to numpy conversion
+    - Extracts probabilities from logits for classification tasks
     
     HPO Configuration Behavior:
     ┌─────────────┬──────────────────────────────────────────────────────────┐
@@ -673,16 +858,16 @@ def run_talent_method(
     └─────────────┴──────────────────────────────────────────────────────────┘
     
     Config Storage:
-    - Configs are stored at: {project_root}/config_hpo/{task}/{dataset}/{method}-tuned.json
+    - Configs stored at: {project_root}/config_hpo/{task}/{dataset}/{method}-tuned.json
     - Task is 'pd' for classification or 'lgd' for regression
-    - Each dataset has its own folder for organization
+    - Each dataset has its own folder
     - Configs persist across runs for reproducibility
     - tune=False always ignores saved configs
     
     Architecture notes:
     - CV is implemented outside TALENT (in DataFeeder), so we manually handle fold iteration
-    - DataFeeder returns fold IDs starting at 1 (not 0), so we detect the first fold dynamically
-    - When tune=True, HPO runs only on the first fold and saves config
+    - DataFeeder returns fold IDs starting at 1, so we detect first fold dynamically
+    - When tune=True, HPO runs only on first fold and saves config
     - Subsequent folds automatically load and reuse the optimized config (ONLY when tune=True)
     
     Args:
@@ -692,14 +877,14 @@ def run_talent_method(
         val_size: Validation set fraction (0.0 to 1.0)
         cv_splits: Number of cross-validation folds
         seed: Random seed for reproducibility
-        row_limit: Optional limit on dataset rows (useful for quick testing)
-        sampling: Optional sampling fraction (downsampling for large datasets)
-        method: TALENT method name (must be canonical name, e.g., 'xgboost' not 'XGBoost')
-        categorical_encoding: Categorical encoding policy (None = use method default)
-        numerical_encoding: Numerical encoding policy (None = use method default)
-        normalization: Normalization method (None = use method default)
-        num_nan_policy: Numerical NaN handling (None = use method default)
-        cat_nan_policy: Categorical NaN handling (None = use method default; 'new' is required by TALENT)
+        row_limit: Optional limit on dataset rows
+        sampling: Optional sampling fraction
+        method: TALENT method name (canonical name, e.g., 'xgboost' not 'XGBoost')
+        categorical_encoding: Categorical encoding policy
+        numerical_encoding: Numerical encoding policy
+        normalization: Normalization method
+        num_nan_policy: Numerical NaN handling
+        cat_nan_policy: Categorical NaN handling
         max_epoch: Maximum training epochs (deep methods only)
         batch_size: Batch size (deep methods only)
         tune: Whether to perform hyperparameter optimization on first fold
@@ -707,32 +892,32 @@ def run_talent_method(
         early_stopping: Whether to use early stopping (deep methods only)
         early_stopping_patience: Patience for early stopping
         evaluate_option: Which model to use for evaluation ('best-val', 'last')
-        model_config: Custom model hyperparameters (overrides defaults, not HPO)
-        fit_config: Custom fit configuration (overrides defaults, not HPO)
-        config_dir: Custom directory for storing HPO configs (default: {project_root}/config_hpo)
-        verbose: Whether to print detailed progress information
+        model_config: Custom model hyperparameters
+        fit_config: Custom fit configuration
+        config_dir: Custom directory for storing HPO configs
+        verbose: Whether to print detailed progress
         clean_temp_dir: Whether to clean up temporary directories after run
         
     Returns:
         Dictionary mapping fold_id to results dict containing:
             - y_true: Ground truth labels/values (np.array)
-            - y_pred: Model predictions (np.array) 
-            - metrics: Performance metrics (list or dict)
-            - metric_names: List of metric names (list[str])
-            - primary_metric: Name of primary metric (str)
-            - val_loss: Validation loss (float or None)
-            - train_time: Training time in seconds (float)
-            - info: Dataset information (dict)
+            - y_pred: Model predictions (np.array)
+            - y_prob: Class probabilities (np.array) - classification only
+            - metrics: Performance metrics
+            - metric_names: List of metric names
+            - primary_metric: Name of primary metric
+            - val_loss: Validation loss
+            - train_time: Training time in seconds
+            - info: Dataset information
             - method, dataset, task, fold_id: Metadata
-            - used_hpo: Whether HPO was used for this fold (bool)
+            - used_hpo: Whether HPO was used for this fold
             
     Raises:
         ValueError: If method requirements conflict with user-specified options
         RuntimeError: If training or prediction fails
         
     Example:
-        >>> # Run with HPO - optimized config saved for this dataset+method
-        >>> results_hpo = run_talent_method(
+        >>> results = run_talent_method(
         ...     task='pd',
         ...     dataset='0014.hmeq',
         ...     test_size=0.2,
@@ -740,343 +925,291 @@ def run_talent_method(
         ...     cv_splits=5,
         ...     seed=42,
         ...     method='xgboost',
-        ...     tune=True,  # Fold 1 runs HPO, fold 2-5 reuse config
+        ...     tune=True,
         ...     n_trials=100,
         ... )
-        >>> 
-        >>> # Run without HPO - always uses defaults (ignores saved config)
-        >>> results_default = run_talent_method(
-        ...     task='pd',
-        ...     dataset='0014.hmeq',
-        ...     test_size=0.2,
-        ...     val_size=0.2,
-        ...     cv_splits=5,
-        ...     seed=42,
-        ...     method='xgboost',
-        ...     tune=False,  # Uses TALENT defaults, ignores saved config
-        ... )
+        >>> y_prob = results[1]['y_prob']  # Probability of positive class
     """
     
-    # Determine task type and method category
-    is_regression = (task.lower() == "lgd")
-    is_deep = method in DEEP_METHODS
-    
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"Running {method} ({'deep' if is_deep else 'classical'}) on {dataset} ({task.upper()})")
-        print(f"{'='*70}")
-    
-    # -------------------------------------------------------------------------
-    # Track which preprocessing options user explicitly provided
-    # -------------------------------------------------------------------------
-    user_specified = {
-        'cat_policy': not _is_missing(categorical_encoding),
-        'num_policy': not _is_missing(numerical_encoding),
-        'normalization': not _is_missing(normalization),
-        'num_nan_policy': not _is_missing(num_nan_policy),
-        'cat_nan_policy': not _is_missing(cat_nan_policy),
-    }
-    
-    # -------------------------------------------------------------------------
-    # Prepare data with cross-validation folds
-    # -------------------------------------------------------------------------
-    if verbose:
-        print(f"\nPreparing data with {cv_splits} CV splits...")
-    
-    feeder = DataFeeder(
-        task=task,
-        dataset=dataset,
-        test_size=test_size,
-        val_size=val_size,
-        cv_splits=cv_splits,
-        seed=seed,
-        row_limit=row_limit,
-        sampling=sampling,
-    )
-    folds = feeder.prepare()
-    
-    # CRITICAL: Determine the first fold ID dynamically
-    first_fold_id = min(folds.keys())
-    
-    if verbose:
-        print(f"Fold IDs: {sorted(folds.keys())}")
-        print(f"First fold ID: {first_fold_id}")
-    
-    # -------------------------------------------------------------------------
-    # Initialize results storage
-    # -------------------------------------------------------------------------
-    results: Dict[int, Dict[str, Any]] = {}
-    
-    # -------------------------------------------------------------------------
-    # Setup directories: Organized by task (pd/lgd), then dataset, then method files
-    # 
-    # Structure: {project_root}/config_hpo/{task}/{dataset}/{method}-tuned.json
-    # Example:   ~/TabPFNCredit/config_hpo/pd/0014.hmeq/xgboost-tuned.json
-    #                                                     /lightgbm-tuned.json
-    #                                                     /catboost-tuned.json
-    #            ~/TabPFNCredit/config_hpo/lgd/0001.heloc/xgboost-tuned.json
-    # -------------------------------------------------------------------------
-    if config_dir is None:
-        # Default: Use project's config_hpo directory, organized by task then dataset
-        base_config_dir = get_default_config_dir()
-        dataset_config_dir = base_config_dir / task.lower() / dataset
-    else:
-        dataset_config_dir = Path(config_dir) / task.lower() / dataset
-    
-    # Create the dataset config directory
-    dataset_config_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Create temp directory for model checkpoints (will be cleaned up)
-    checkpoint_tmp_dir = Path(tempfile.mkdtemp(prefix=f"talent_ckpt_{dataset}_{method}_"))
-    
-    if verbose:
-        print(f"\nDirectory setup:")
-        print(f"  Config directory (persistent): {dataset_config_dir}")
-        print(f"  Checkpoint directory (temp):   {checkpoint_tmp_dir}")
-        
-        # Show HPO behavior
-        if tune:
-            print(f"\n[HPO] Mode: ENABLED")
-            print(f"[HPO] Fold 1: Will run HPO and save config")
-            print(f"[HPO] Fold 2+: Will load config from fold 1")
-        else:
-            print(f"\n[HPO] Mode: DISABLED")
-            print(f"[HPO] All folds: Will use TALENT's default hyperparameters")
+    _patch_talent_pprint(enable_silence=not verbose)
     
     try:
-        # Process each fold
-        for fold_id, ((N, C, y), info) in folds.items():
-            if verbose:
-                print(f"\n{'='*70}")
-                print(f"Fold {fold_id}/{len(folds)}")
-                print(f"{'='*70}")
+        is_regression = (task.lower() == "lgd")
+        is_deep = method in DEEP_METHODS
+        
+        if verbose:
+            print(f"\n{'='*70}")
+            print(f"Running {method} ({'deep' if is_deep else 'classical'}) on {dataset} ({task.upper()})")
+            print(f"{'='*70}")
+        
+        # Track which preprocessing options user explicitly provided
+        user_specified = {
+            'cat_policy': not _is_missing(categorical_encoding),
+            'num_policy': not _is_missing(numerical_encoding),
+            'normalization': not _is_missing(normalization),
+            'num_nan_policy': not _is_missing(num_nan_policy),
+            'cat_nan_policy': not _is_missing(cat_nan_policy),
+        }
+        
+        # Prepare data with cross-validation folds
+        if verbose:
+            print(f"\nPreparing data with {cv_splits} CV splits...")
+        
+        feeder = DataFeeder(
+            task=task,
+            dataset=dataset,
+            test_size=test_size,
+            val_size=val_size,
+            cv_splits=cv_splits,
+            seed=seed,
+            row_limit=row_limit,
+            sampling=sampling,
+        )
+        folds = feeder.prepare()
+        
+        first_fold_id = min(folds.keys())
+        
+        if verbose:
+            print(f"Fold IDs: {sorted(folds.keys())}")
+            print(f"First fold ID: {first_fold_id}")
+        
+        results: Dict[int, Dict[str, Any]] = {}
+        
+        # Setup directories
+        if config_dir is None:
+            base_config_dir = get_default_config_dir()
+            dataset_config_dir = base_config_dir / task.lower() / dataset
+        else:
+            dataset_config_dir = Path(config_dir) / task.lower() / dataset
+        
+        dataset_config_dir.mkdir(parents=True, exist_ok=True)
+        
+        checkpoint_tmp_dir = Path(tempfile.mkdtemp(prefix=f"talent_ckpt_{dataset}_{method}_"))
+        
+        if verbose:
+            print(f"\nDirectory setup:")
+            print(f"  Config directory (persistent): {dataset_config_dir}")
+            print(f"  Checkpoint directory (temp):   {checkpoint_tmp_dir}")
             
-            # ---------------------------------------------------------------------
-            # Get base arguments from TALENT
-            # CRITICAL: Always silence to prevent pprint(vars(args)) output
-            # ---------------------------------------------------------------------
-            orig_argv = sys.argv.copy()
-            
-            try:
-                sys.argv = [
-                    "train.py",
-                    "--model_type", method,
-                    "--dataset", dataset,
-                    "--dataset_path", "./data",
-                    "--model_path", str(checkpoint_tmp_dir),
-                ]
-                
-                # CRITICAL: Always silence get_*_args() because it calls pprint()
-                with _suppress_all_output(True):
-                    if is_deep:
-                        args, default_para, opt_space = get_deep_args()
-                    else:
-                        args, default_para, opt_space = get_classical_args()
-            finally:
-                sys.argv = orig_argv
-            
-            # ---------------------------------------------------------------------
-            # Override TALENT's computed paths
-            # ---------------------------------------------------------------------
-            args.save_path = str(dataset_config_dir)  # Configs: {project}/config_hpo/{task}/{dataset}/
-            args.model_path = str(checkpoint_tmp_dir)  # Checkpoints: /tmp/.../
-            
-            # ---------------------------------------------------------------------
-            # Set random seed
-            # ---------------------------------------------------------------------
-            args.seed = seed
-            set_seeds(seed)
-            
-            # ---------------------------------------------------------------------
-            # Set preprocessing options
-            # ---------------------------------------------------------------------
-            args.is_regression = is_regression
-            args.normalization = normalization
-            args.num_nan_policy = num_nan_policy
-            args.cat_nan_policy = cat_nan_policy
-            args.cat_policy = categorical_encoding
-            args.num_policy = numerical_encoding
-            _apply_preprocessing_policies(args, method, user_specified)
-            
-            if verbose and fold_id == first_fold_id:
-                print(f"\nPreprocessing configuration:")
-                print(f"  - cat_policy: {args.cat_policy}")
-                print(f"  - num_policy: {args.num_policy}")
-                print(f"  - normalization: {args.normalization}")
-                print(f"  - num_nan_policy: {args.num_nan_policy}")
-                print(f"  - cat_nan_policy: {args.cat_nan_policy}")
-
-            # ---------------------------------------------------------------------
-            # Set HPO flags
-            # ---------------------------------------------------------------------
-            args.tune = tune  # Will only be used if we call tune_hyper_parameters()
-            args.retune = False  # Never retune
-            args.n_trials = n_trials
-            args.evaluate_option = evaluate_option
-            
-            # ---------------------------------------------------------------------
-            # Set method-specific parameters
-            # ---------------------------------------------------------------------
-            if is_deep:
-                args.max_epoch = max_epoch
-                args.batch_size = batch_size
-                args.early_stopping = early_stopping
-                args.early_stopping_patience = early_stopping_patience
-                
-                if not hasattr(args, 'config') or args.config is None:
-                    args.config = {}
-                if 'training' not in args.config:
-                    args.config['training'] = {}
-                args.config['training']['max_epoch'] = max_epoch
-            
-            # Inject custom configs
-            if model_config or fit_config:
-                _inject_configs(args, model_config, fit_config, verbose)
-            
-            # Set n_bins
-            if not is_deep:
-                if not hasattr(args, 'config') or args.config is None:
-                    args.config = {}
-                if 'fit' not in args.config:
-                    args.config['fit'] = {}
-                args.config['fit']['n_bins'] = getattr(args, 'n_bins', 2)
-                _sanitize_classical_params(args, method)
-            else:
-                if 'training' not in args.config:
-                    args.config['training'] = {}
-                args.config['training']['n_bins'] = getattr(args, 'n_bins', 2)
-            
-            # ===================================================================
-            # CRITICAL HPO LOGIC
-            # 
-            # tune=True:  Call tune_hyper_parameters() for ALL folds
-            #             - Fold 1: Runs HPO, saves config
-            #             - Fold 2+: Loads saved config
-            #
-            # tune=False: NEVER call tune_hyper_parameters()
-            #             - All folds: Use default config from get_*_args()
-            #             - Defaults are from: .venv/.../TALENT/configs/default/
-            # ===================================================================
             if tune:
-                tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
+                print(f"\n[HPO] Mode: ENABLED")
+                print(f"[HPO] Fold 1: Will run HPO and save config")
+                print(f"[HPO] Fold 2+: Will load config from fold 1")
+            else:
+                print(f"\n[HPO] Mode: DISABLED")
+                print(f"[HPO] All folds: Will use TALENT's default hyperparameters")
+        
+        try:
+            # Process each fold
+            for fold_id, ((N, C, y), info) in folds.items():
+                if verbose:
+                    print(f"\n{'='*70}")
+                    print(f"Fold {fold_id}/{len(folds)}")
+                    print(f"{'='*70}")
                 
-                if fold_id == first_fold_id:
-                    # First fold with tune=True
-                    if tuned_config_path.exists() and not args.retune:
-                        if verbose:
-                            print(f"\n[HPO] Existing config found: {tuned_config_path.name}")
-                            print(f"[HPO] Will load saved config (use retune=True to re-optimize)")
-                    else:
-                        if verbose:
-                            print(f"\n[HPO] Running hyperparameter optimization...")
-                            print(f"[HPO] Trials: {n_trials}")
-                            print(f"[HPO] Will save to: {tuned_config_path}")
-                else:
-                    # Subsequent folds with tune=True
-                    if verbose:
-                        print(f"\n[HPO] Loading config from fold {first_fold_id}...")
+                # Get base arguments from TALENT
+                orig_argv = sys.argv.copy()
                 
                 try:
-                    train_val_data = (N, C, y)
+                    sys.argv = [
+                        "train.py",
+                        "--model_type", method,
+                        "--dataset", dataset,
+                        "--dataset_path", "./data",
+                        "--model_path", str(checkpoint_tmp_dir),
+                    ]
                     
-                    # Call TALENT's HPO function
-                    # It handles both running HPO and loading existing configs
-                    # Use aggressive suppression to prevent Optuna progress bars
                     with _suppress_all_output(not verbose):
-                        args = tune_hyper_parameters(args, opt_space, train_val_data, info)
-                    
-                    # Verify
-                    if fold_id == first_fold_id:
-                        if tuned_config_path.exists():
-                            if verbose:
-                                print(f"[HPO] ✓ Config ready: {tuned_config_path.name}")
+                        if is_deep:
+                            args, default_para, opt_space = get_deep_args()
                         else:
-                            raise RuntimeError(f"HPO failed to save config to {tuned_config_path}")
+                            args, default_para, opt_space = get_classical_args()
+                finally:
+                    sys.argv = orig_argv
+                
+                # Override TALENT's computed paths
+                args.save_path = str(dataset_config_dir)
+                args.model_path = str(checkpoint_tmp_dir)
+                
+                # Set random seed
+                args.seed = seed
+                set_seeds(seed)
+                
+                # Set preprocessing options
+                args.is_regression = is_regression
+                args.normalization = normalization
+                args.num_nan_policy = num_nan_policy
+                args.cat_nan_policy = cat_nan_policy
+                args.cat_policy = categorical_encoding
+                args.num_policy = numerical_encoding
+                _apply_preprocessing_policies(args, method, user_specified)
+                
+                if verbose and fold_id == first_fold_id:
+                    print(f"\nPreprocessing configuration:")
+                    print(f"  - cat_policy: {args.cat_policy}")
+                    print(f"  - num_policy: {args.num_policy}")
+                    print(f"  - normalization: {args.normalization}")
+                    print(f"  - num_nan_policy: {args.num_nan_policy}")
+                    print(f"  - cat_nan_policy: {args.cat_nan_policy}")
+
+                # Set HPO flags
+                args.tune = tune
+                args.retune = False
+                args.n_trials = n_trials
+                args.evaluate_option = evaluate_option
+                
+                # Set method-specific parameters
+                if is_deep:
+                    args.max_epoch = max_epoch
+                    args.batch_size = batch_size
+                    args.early_stopping = early_stopping
+                    args.early_stopping_patience = early_stopping_patience
+                    
+                    if not hasattr(args, 'config') or args.config is None:
+                        args.config = {}
+                    if 'training' not in args.config:
+                        args.config['training'] = {}
+                    args.config['training']['max_epoch'] = max_epoch
+                
+                # Inject custom configs
+                if model_config or fit_config:
+                    _inject_configs(args, model_config, fit_config, verbose)
+                
+                # Set n_bins
+                if not is_deep:
+                    if not hasattr(args, 'config') or args.config is None:
+                        args.config = {}
+                    if 'fit' not in args.config:
+                        args.config['fit'] = {}
+                    args.config['fit']['n_bins'] = getattr(args, 'n_bins', 2)
+                    _sanitize_classical_params(args, method)
+                else:
+                    if 'training' not in args.config:
+                        args.config['training'] = {}
+                    args.config['training']['n_bins'] = getattr(args, 'n_bins', 2)
+                
+                # Apply method-specific fixes
+                if method == 'catboost':
+                    _fix_catboost_config(args, is_regression)
+                
+                # HPO logic
+                if tune:
+                    tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
+                    
+                    if fold_id == first_fold_id:
+                        if tuned_config_path.exists() and not args.retune:
+                            if verbose:
+                                print(f"\n[HPO] Existing config found: {tuned_config_path.name}")
+                                print(f"[HPO] Will load saved config (use retune=True to re-optimize)")
+                        else:
+                            if verbose:
+                                print(f"\n[HPO] Running hyperparameter optimization...")
+                                print(f"[HPO] Trials: {n_trials}")
+                                print(f"[HPO] Will save to: {tuned_config_path}")
                     else:
                         if verbose:
-                            print(f"[HPO] ✓ Config loaded successfully")
-                            
+                            print(f"\n[HPO] Loading config from fold {first_fold_id}...")
+                    
+                    try:
+                        train_val_data = (N, C, y)
+                        
+                        with _suppress_all_output(not verbose):
+                            args = tune_hyper_parameters(args, opt_space, train_val_data, info)
+                        
+                        if fold_id == first_fold_id:
+                            if tuned_config_path.exists():
+                                if verbose:
+                                    print(f"[HPO] ✓ Config ready: {tuned_config_path.name}")
+                            else:
+                                raise RuntimeError(f"HPO failed to save config to {tuned_config_path}")
+                        else:
+                            if verbose:
+                                print(f"[HPO] ✓ Config loaded successfully")
+                                
+                    except Exception as e:
+                        if verbose:
+                            print(f"[HPO] ✗ Error: {e}")
+                        raise
+                
+                else:
+                    if verbose and fold_id == first_fold_id:
+                        print(f"\n[DEFAULT] Using TALENT's default hyperparameters")
+                        print(f"[DEFAULT] Location: .venv/.../TALENT/configs/default/{method}.json")
+                        print(f"[DEFAULT] Saved configs in config_hpo/ are ignored when tune=False")
+                
+                # Train model
+                try:
+                    with _suppress_all_output(not verbose):
+                        MethodClass = get_method(args.model_type)
+                        model = MethodClass(args, is_regression=is_regression)
+                        
+                        t0 = time.time()
+                        train_time = model.fit((N, C, y), info, train=True)
+                        if train_time is None:
+                            train_time = time.time() - t0
+                        
+                        output = model.predict((N, C, y), info, model_name=args.evaluate_option)
+                    
+                    # Parse output
+                    val_loss, metrics, metric_names, predictions = _parse_prediction_output(output)
+                    
+                    # Convert to numpy arrays
+                    y_true_np = _ensure_numpy_array(y["test"])
+                    y_pred_np = _ensure_numpy_array(predictions)
+                    
+                    # Extract class probabilities for classification
+                    y_prob_np = _extract_class_probabilities(y_pred_np, method, is_regression)
+                    
+                    # Store results
+                    results[fold_id] = {
+                        "y_true": y_true_np,
+                        "y_pred": y_pred_np,
+                        "y_prob": y_prob_np,
+                        "metrics": metrics if isinstance(metrics, (dict, list, tuple)) else {},
+                        "metric_names": metric_names,
+                        "primary_metric": metric_names[0] if metric_names else None,
+                        "val_loss": float(val_loss) if val_loss is not None else None,
+                        "train_time": float(train_time),
+                        "info": info,
+                        "method": method,
+                        "dataset": dataset,
+                        "task": task,
+                        "fold_id": fold_id,
+                        "used_hpo": fold_id == first_fold_id and tune,
+                    }
+                    
+                    if verbose and metrics:
+                        print(f"\nFold {fold_id} results:")
+                        if isinstance(metrics, (list, tuple)):
+                            for name, res in zip(metric_names, metrics):
+                                if name:
+                                    print(f"  {name}: {res:.4f}")
+                        else:
+                            print(f"  {metrics}")
+            
                 except Exception as e:
                     if verbose:
-                        print(f"[HPO] ✗ Error: {e}")
+                        print(f"\nError during training: {e}")
                     raise
-            
-            else:
-                # tune=False: Use defaults, never load saved configs
-                if verbose and fold_id == first_fold_id:
-                    print(f"\n[DEFAULT] Using TALENT's default hyperparameters")
-                    print(f"[DEFAULT] Location: .venv/.../TALENT/configs/default/{method}.json")
-                    print(f"[DEFAULT] Saved configs in config_hpo/ are ignored when tune=False")
-            
-            # ---------------------------------------------------------------------
-            # Train model with aggressive output suppression
-            # ---------------------------------------------------------------------
-            try:
-                with _suppress_all_output(not verbose):
-                    MethodClass = get_method(args.model_type)
-                    model = MethodClass(args, is_regression=is_regression)
-                    
-                    t0 = time.time()
-                    train_time = model.fit((N, C, y), info, train=True)
-                    if train_time is None:
-                        train_time = time.time() - t0
-                    
-                    output = model.predict((N, C, y), info, model_name=args.evaluate_option)
-                
-                # Parse output
-                val_loss, metrics, metric_names, predictions = _parse_prediction_output(output)
-                
-                # Store results
-                results[fold_id] = {
-                    "y_true": np.asarray(y["test"]),
-                    "y_pred": np.asarray(predictions),
-                    "metrics": metrics if isinstance(metrics, (dict, list, tuple)) else {},
-                    "metric_names": metric_names,
-                    "primary_metric": metric_names[0] if metric_names else None,
-                    "val_loss": float(val_loss) if val_loss is not None else None,
-                    "train_time": float(train_time),
-                    "info": info,
-                    "method": method,
-                    "dataset": dataset,
-                    "task": task,
-                    "fold_id": fold_id,
-                    "used_hpo": fold_id == first_fold_id and tune,
-                }
-                
-                if verbose and metrics:
-                    print(f"\nFold {fold_id} results:")
-                    if isinstance(metrics, (list, tuple)):
-                        for name, res in zip(metric_names, metrics):
-                            if name:
-                                print(f"  {name}: {res:.4f}")
-                    else:
-                        print(f"  {metrics}")
         
-            except Exception as e:
-                if verbose:
-                    print(f"\nError during training: {e}")
-                raise
+        finally:
+            _cleanup_temp_directories(checkpoint_tmp_dir, clean=clean_temp_dir)
+            _cleanup_checkpoints_from_config_dir(dataset_config_dir)
+        
+        if verbose:
+            print(f"\n{'='*70}")
+            print(f"Completed {len(results)} folds for {method}")
+            if tune:
+                tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
+                print(f"\n[HPO] Config saved: {tuned_config_path}")
+                print(f"[HPO] This config is ONLY used when tune=True")
+                print(f"[HPO] When tune=False, defaults are always used")
+            print(f"{'='*70}\n")
+        
+        return results
     
     finally:
-        # Clean up checkpoints from temp directory
-        _cleanup_temp_directories(checkpoint_tmp_dir, clean=clean_temp_dir)
-        
-        # CRITICAL: Remove checkpoint files and training logs from config directory
-        # TALENT saves both configs AND checkpoints to args.save_path
-        # We only want to keep the JSON files
-        _cleanup_checkpoints_from_config_dir(dataset_config_dir)
-    
-    if verbose:
-        print(f"\n{'='*70}")
-        print(f"Completed {len(results)} folds for {method}")
-        if tune:
-            tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
-            print(f"\n[HPO] Config saved: {tuned_config_path}")
-            print(f"[HPO] This config is ONLY used when tune=True")
-            print(f"[HPO] When tune=False, defaults are always used")
-        print(f"{'='*70}\n")
-    
-    return results
+        _patch_talent_pprint(enable_silence=False)
 
 
 # ======================================================================================
@@ -1089,11 +1222,6 @@ def get_available_methods() -> Dict[str, list]:
     
     Returns:
         Dictionary with 'classical' and 'deep' lists of method names
-        
-    Example:
-        >>> methods = get_available_methods()
-        >>> print(f"Classical: {methods['classical']}")
-        >>> print(f"Deep: {methods['deep']}")
     """
     return {
         "classical": sorted(CLASSICAL_METHODS),
@@ -1113,10 +1241,6 @@ def validate_method(method: str) -> Tuple[str, bool]:
         
     Raises:
         ValueError: If method is not in TALENT's supported methods
-        
-    Example:
-        >>> method, is_deep = validate_method("xgboost")
-        >>> print(f"{method} is {'deep' if is_deep else 'classical'}")
     """
     if method in DEEP_METHODS:
         return method, True
@@ -1140,10 +1264,6 @@ def supports_hpo(method: str) -> bool:
         method: TALENT method name
         
     Returns:
-        True if method has meaningful HPO space, False otherwise
-        
-    Example:
-        >>> if not supports_hpo('tabpfn'):
-        ...     print("TabPFN is pre-trained, no HPO needed")
+        True if method has meaningful HPO space
     """
     return method not in NO_HPO_METHODS
