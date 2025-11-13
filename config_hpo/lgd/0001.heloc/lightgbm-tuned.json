@@ -1,0 +1,15 @@
+{
+    "fit": {
+        "n_bins": 65
+    },
+    "model": {
+        "colsample_bytree": 0.782115955291066,
+        "learning_rate": 0.18125760827930149,
+        "max_depth": 8,
+        "min_child_samples": 3,
+        "min_child_weight": 5.576566854725996e-05,
+        "num_leaves": 80,
+        "reg_lambda": 0.010384549772322269,
+        "subsample": 0.7615728696389743
+    }
+}

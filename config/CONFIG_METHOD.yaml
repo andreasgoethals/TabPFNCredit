@@ -4,7 +4,6 @@
 # This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks. 
 # - Set each method to true to include it in the benchmark. 
 # - Set to false to exclude it. 
-# - Methods are grouped as: classical, deep tabular, and foundation models. 
 # This configuration file uses TALENT's canonical model names.
 # ============================================================
 
@@ -17,23 +16,54 @@ methods:
     # -----------------------------
     # Classical Machine Learning
     # -----------------------------
-    catboost: false        # CatBoost
-    knn: false             # K-Nearest Neighbors
-    lightgbm: false        # LightGBM
-    LogReg: false          # Logistic Regression
-    NaiveBayes: false      # Naive Bayes
-    RandomForest: false    # Random Forest
-    svm: false             # Support Vector Machine
-    xgboost: false         # Extreme Gradient Boosting
-    NCM: false             # Nearest Class Mean
-    dummy: false           # Dummy baseline classifier
+    catboost: true        # CatBoost
+    knn: true             # K-Nearest Neighbors
+    lightgbm: true        # LightGBM
+    LogReg: true          # Logistic Regression
+    NaiveBayes: true      # Naive Bayes
+    RandomForest: true    # Random Forest
+    svm: true             # Support Vector Machine
+    xgboost: true         # Extreme Gradient Boosting
+    NCM: true             # Nearest Class Mean
+    dummy: true           # Dummy baseline classifier
 
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: false             # Multilayer Perceptron
-    tabnet: false          # TabNet
+    mlp: true             # Multilayer Perceptron
+    tabnet: true          # TabNet
     tabpfn: true           # TabPFN v1 (classification)
+    resnet: false          # ResNet
+    ftt: false             # Feature Tokenizer Transformer
+    node: false            # Neural Oblivious Decision Ensembles
+    saint: false           # SAINT (Self-Attention and Intersample Attention Transformer)
+    tabtransformer: false  # TabTransformer
+    autoint: false         # AutoInt
+    danets: false          # DANets
+    snn: false             # Self-Normalizing Neural Networks
+    dcn2: false            # Deep & Cross Network v2
+    tabcaps: false         # TabCaps
+    tangos: false          # TANGOS
+    ptarl: false           # PTARL
+    switchtab: false       # SwitchTab
+    dnnr: false            # DNNR
+    modernNCA: false       # ModernNCA
+    hyperfast: false       # HyperFast
+    bishop: false          # BISHOP
+    realmlp: false         # RealMLP
+    protogate: false       # ProtoGate
+    mlp_plr: false         # MLP-PLR
+    excelformer: false     # ExcelFormer
+    grande: false          # GRANDE
+    amformer: false        # AMFormer
+    tabptm: false          # TabPTM
+    trompt: false          # TROMPT
+    tabm: false            # TabM
+    t2gformer: false       # T2G-Former
+    tabautopnpnet: false   # TabAuto-PNPNet
+    tabicl: false          # TabICL
+    grownet: false         # GrowNet
+    tabr: false            # TabR
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -42,16 +72,48 @@ methods:
     # -----------------------------
     # Classical Machine Learning
     # -----------------------------
-    catboost: false         # CatBoost
-    knn: false              # K-Nearest Neighbors
-    lightgbm: false         # LightGBM
-    LinearRegression: false # Linear Regression
-    RandomForest: false     # Random Forest
-    xgboost: false          # Extreme Gradient Boosting
+    catboost: true         # CatBoost
+    knn: true              # K-Nearest Neighbors
+    lightgbm: true         # LightGBM
+    LinearRegression: true # Linear Regression
+    RandomForest: true     # Random Forest
+    xgboost: true          # Extreme Gradient Boosting
+    svm: true              # Support Vector Machine
 
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: false              # Multilayer Perceptron
-    tabnet: false           # TabNet
-    PFN-v2: false           # TabPFN v2 (supports regression)
+    mlp: true              # Multilayer Perceptron
+    tabnet: true           # TabNet
+    PFN-v2: true           # TabPFN v2 (supports regression)
+    resnet: false           # ResNet
+    ftt: false              # Feature Tokenizer Transformer
+    node: false             # Neural Oblivious Decision Ensembles
+    saint: false            # SAINT
+    tabtransformer: false   # TabTransformer
+    autoint: false          # AutoInt
+    danets: false           # DANets
+    snn: false              # Self-Normalizing Neural Networks
+    dcn2: false             # Deep & Cross Network v2
+    tabcaps: false          # TabCaps
+    tangos: false           # TANGOS
+    ptarl: false            # PTARL
+    switchtab: false        # SwitchTab
+    dnnr: false             # DNNR
+    modernNCA: false        # ModernNCA
+    hyperfast: false        # HyperFast
+    bishop: false           # BISHOP
+    realmlp: false          # RealMLP
+    protogate: false        # ProtoGate
+    mlp_plr: false          # MLP-PLR
+    excelformer: false      # ExcelFormer
+    grande: false           # GRANDE
+    amformer: false         # AMFormer
+    tabptm: false           # TabPTM
+    trompt: false           # TROMPT
+    tabm: false             # TabM
+    t2gformer: false        # T2G-Former
+    tabautopnpnet: false    # TabAuto-PNPNet
+    tabicl: false           # TabICL
+    grownet: false          # GrowNet
+    tabr: false             # TabR
