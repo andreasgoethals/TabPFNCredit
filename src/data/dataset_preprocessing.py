@@ -6,7 +6,7 @@ Each supported dataset is loaded and cleaned into a standardized
 format (df, target_col, categorical_cols, numerical_cols).
 
 This module:
-- Loads raw CSVs from the task directory (/pd or /lgd).
+- Loads raw CSVs from the task directory (/pd or /lgd) as specified in CONFIG_DATA.yaml.
 - Applies dataset-specific cleaning and value transformations.
 - Identifies target, categorical, and numerical features.
 
@@ -21,13 +21,58 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+# Import centralized config loader
+from ..utils.config_reader import load_config
+
 logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)
 
 
-def preprocess_dataset_specific(task: str, dataset: str, raw_dir: Path):
+def _get_data_directory(task: str, config: dict = None) -> Path:
+    """
+    Get the data directory for a specific task from config.
+    
+    Parameters
+    ----------
+    task : str
+        'pd' or 'lgd'
+    config : dict, optional
+        Configuration dictionary. If None, loads from config_reader.
+        
+    Returns
+    -------
+    Path
+        Path to the data directory for the specified task.
+    """
+    if config is None:
+        config = load_config()  # Use centralized loader
+    
+    if 'paths' not in config:
+        raise ValueError("Config file missing 'paths' section")
+    
+    if task == 'pd':
+        if 'pd_dir' not in config['paths']:
+            raise ValueError("Config file missing 'paths.pd_dir'")
+        return Path(config['paths']['pd_dir'])
+    elif task == 'lgd':
+        if 'lgd_dir' not in config['paths']:
+            raise ValueError("Config file missing 'paths.lgd_dir'")
+        return Path(config['paths']['lgd_dir'])
+    else:
+        raise ValueError(f"Invalid task '{task}'. Must be 'pd' or 'lgd'.")
+
+
+
+def preprocess_dataset_specific(
+    task: str, 
+    dataset: str, 
+    raw_dir: Path = None,
+    config: dict = None
+):
     """
     Load and preprocess a specific dataset by name and task (pd or lgd).
+    
+    Paths are loaded from CONFIG_DATA.yaml unless raw_dir is explicitly provided.
 
     Parameters
     ----------
@@ -35,8 +80,11 @@ def preprocess_dataset_specific(task: str, dataset: str, raw_dir: Path):
         'pd' or 'lgd'
     dataset : str
         e.g. '0014.hmeq', '0004.lendingclub', '0001.heloc'
-    raw_dir : Path
+    raw_dir : Path, optional
         Root directory containing /pd and /lgd folders.
+        If None, reads from CONFIG_DATA.yaml.
+    config : dict, optional
+        Configuration dictionary. If None, loads from CONFIG_DATA.yaml.
 
     Returns
     -------
@@ -49,11 +97,23 @@ def preprocess_dataset_specific(task: str, dataset: str, raw_dir: Path):
     numerical_cols : list[str]
         List of numerical feature names.
     """
-
-    dataset_path = raw_dir / task / f"{dataset}.csv"
+    
+    # If raw_dir not provided, get it from config
+    if raw_dir is None:
+        if config is None:
+            config = load_config()
+        
+        # Get the task-specific directory from config
+        task_dir = _get_data_directory(task, config)
+        dataset_path = task_dir / f"{dataset}.csv"
+    else:
+        # Use provided raw_dir (backward compatibility)
+        dataset_path = raw_dir / task / f"{dataset}.csv"
+    
     if not dataset_path.exists():
         raise FileNotFoundError(f"Expected dataset file not found: {dataset_path}")
-    df = pd.read_csv(dataset_path,low_memory=False)
+    
+    df = pd.read_csv(dataset_path, low_memory=False)
 
     logger.info(f"Loaded raw dataset {dataset_path.name} ({task}), shape = {df.shape}")
 
@@ -205,7 +265,7 @@ def preprocess_dataset_specific(task: str, dataset: str, raw_dir: Path):
             cat_cols = [c for c in explicit_cat if c in df.columns and c != target_col]
             num_cols = [c for c in explicit_num if c in df.columns and c != target_col]
 
-            # Add any remaining numeric columns that aren’t in explicit lists (safety net)
+            # Add any remaining numeric columns that aren't in explicit lists (safety net)
             remaining_num = (df.select_dtypes(include=["number"]).columns.drop([target_col] + num_cols, errors="ignore").tolist())
             num_cols = num_cols + remaining_num
 
