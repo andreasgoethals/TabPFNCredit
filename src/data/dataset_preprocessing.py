@@ -28,36 +28,32 @@ logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)
 
 
+
 def _get_data_directory(task: str, config: dict = None) -> Path:
     """
     Get the data directory for a specific task from config.
     
-    Parameters
-    ----------
-    task : str
-        'pd' or 'lgd'
-    config : dict, optional
-        Configuration dictionary. If None, loads from config_reader.
-        
-    Returns
-    -------
-    Path
-        Path to the data directory for the specified task.
+    Returns absolute path by resolving relative to project root.
     """
     if config is None:
-        config = load_config()  # Use centralized loader
+        config = load_config()
     
     if 'paths' not in config:
         raise ValueError("Config file missing 'paths' section")
     
+    # Get project root (where config folder is)
+    project_root = Path(__file__).resolve().parent.parent.parent
+    
     if task == 'pd':
         if 'pd_dir' not in config['paths']:
             raise ValueError("Config file missing 'paths.pd_dir'")
-        return Path(config['paths']['pd_dir'])
+        # Convert to absolute path
+        return project_root / config['paths']['pd_dir']
     elif task == 'lgd':
         if 'lgd_dir' not in config['paths']:
             raise ValueError("Config file missing 'paths.lgd_dir'")
-        return Path(config['paths']['lgd_dir'])
+        # Convert to absolute path
+        return project_root / config['paths']['lgd_dir']
     else:
         raise ValueError(f"Invalid task '{task}'. Must be 'pd' or 'lgd'.")
 

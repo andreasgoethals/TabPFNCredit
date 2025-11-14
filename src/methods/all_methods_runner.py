@@ -1,6 +1,14 @@
-# src/methods/dataset_runner.py
+# src/methods/all_methods_runner.py
 """
 Run all enabled methods on a single dataset.
+
+This module provides a unified interface for running multiple TALENT methods
+on a dataset. Methods are configured in CONFIG_METHOD.yaml - only enabled 
+methods will be executed.
+
+Intelligent HPO handling: If tune=True is requested but a method doesn't 
+benefit from hyperparameter optimization (e.g., TabPFN, dummy classifiers),
+the method automatically runs with default parameters instead.
 """
 
 from __future__ import annotations
@@ -8,7 +16,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 
 from src.utils.config_reader import load_config
-from src.methods.method_runner import run_talent_method
+from src.methods.method_runner import run_talent_method, supports_hpo
 
 
 def run_dataset(
@@ -29,7 +37,7 @@ def run_dataset(
     max_epoch: int = 200,
     batch_size: int = 1024,
     tune: bool = False,
-    n_trials: int = 50,
+    n_trials: int = 100,
     early_stopping: bool = True,
     early_stopping_patience: int = 10,
     evaluate_option: str = "best-val",
@@ -41,6 +49,10 @@ def run_dataset(
 ) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
     Run all enabled methods on a single dataset.
+    
+    Automatically handles methods that don't support HPO: if tune=True is requested
+    for a method like TabPFN (pre-trained) or dummy (too simple), the method runs 
+    with default parameters instead to avoid errors.
     
     Args:
         task: Task type ('pd' for classification, 'lgd' for regression)
@@ -58,7 +70,7 @@ def run_dataset(
         cat_nan_policy: Categorical NaN handling
         max_epoch: Maximum training epochs
         batch_size: Batch size
-        tune: Whether to perform HPO
+        tune: Whether to perform HPO (auto-disabled for incompatible methods)
         n_trials: Number of HPO trials
         early_stopping: Whether to use early stopping
         early_stopping_patience: Patience for early stopping
@@ -70,16 +82,25 @@ def run_dataset(
         clean_temp_dir: Whether to clean up temporary directories
         
     Returns:
-        Dictionary: {method_name: results_dict, ...}
+        Dictionary mapping method names to their results:
+        {method_name: {fold_id: {y_true, y_pred, y_prob, metrics, ...}, ...}, ...}
     """
     
+    # Load configuration to get enabled methods
     config = load_config()
-    
     enabled_methods = list(config['methods'][task.lower()].keys())
     
+    # Initialize results dictionary
     results = {}
     
+    # Run each enabled method
     for method in enabled_methods:
+        # Determine if HPO should be used for this specific method
+        # Methods like TabPFN (pre-trained) or dummy (too simple) don't benefit from HPO
+        # and will cause assertion errors in TALENT if tune=True is passed
+        method_tune = tune and supports_hpo(method)
+        
+        # Run the method with appropriate HPO setting
         method_results = run_talent_method(
             task=task,
             dataset=dataset,
@@ -97,7 +118,7 @@ def run_dataset(
             cat_nan_policy=cat_nan_policy,
             max_epoch=max_epoch,
             batch_size=batch_size,
-            tune=tune,
+            tune=method_tune,  # Automatically set based on method capabilities
             n_trials=n_trials,
             early_stopping=early_stopping,
             early_stopping_patience=early_stopping_patience,
@@ -109,6 +130,7 @@ def run_dataset(
             clean_temp_dir=clean_temp_dir,
         )
         
+        # Store results for this method
         results[method] = method_results
     
     return results
