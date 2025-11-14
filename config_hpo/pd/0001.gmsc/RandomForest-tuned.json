@@ -1,0 +1,10 @@
+{
+    "fit": {
+        "n_bins": 155
+    },
+    "model": {
+        "max_depth": 12,
+        "min_samples_leaf": 8,
+        "min_samples_split": 6
+    }
+}

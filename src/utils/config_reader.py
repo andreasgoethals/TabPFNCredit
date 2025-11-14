@@ -1,12 +1,20 @@
-# config_reader.py
+# src/utils/config_reader.py
 import yaml
 from pathlib import Path
 from typing import Dict, Any
 
 
-def load_config(config_dir: str = "config") -> Dict[str, Any]:
+def load_config(config_dir: str = None) -> Dict[str, Any]:
     """Load all configuration files and return as a unified dictionary."""
-    config_dir = Path(config_dir)
+    
+    if config_dir is None:
+        # Find project root (where config folder is located)
+        current = Path(__file__).resolve()
+        # Go up from src/utils/ to project root
+        project_root = current.parent.parent.parent
+        config_dir = project_root / "config"  # Config files are in config/ folder
+    else:
+        config_dir = Path(config_dir)
     
     # Load individual configs
     with open(config_dir / "CONFIG_DATA.yaml") as f:

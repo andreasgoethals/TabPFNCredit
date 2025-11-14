@@ -1,0 +1,19 @@
+{
+    "fit": {
+        "n_bins": 107,
+        "verbose": false
+    },
+    "model": {
+        "alpha": 0,
+        "colsample_bylevel": 0.916309922773969,
+        "colsample_bytree": 0.8890783754749252,
+        "gamma": 0.9808117097306164,
+        "gpu_id": "0",
+        "lambda": 1.5231555549417795e-07,
+        "learning_rate": 0.015834527427829734,
+        "max_depth": 4,
+        "min_child_weight": 19085.16511726201,
+        "subsample": 0.7609241608750359,
+        "tree_method": "gpu_hist"
+    }
+}

@@ -1,0 +1,34 @@
+{
+    "init_params": {
+        "cat_dims": [],
+        "cat_emb_dim": [],
+        "cat_idxs": [],
+        "clip_value": 1,
+        "device_name": "auto",
+        "epsilon": 1e-15,
+        "gamma": 1.0871292997015407,
+        "grouped_features": [],
+        "input_dim": 9,
+        "lambda_sparse": 0.001,
+        "mask_type": "sparsemax",
+        "momentum": 0.3493047378162595,
+        "n_a": 8,
+        "n_d": 8,
+        "n_indep_decoder": 1,
+        "n_independent": 5,
+        "n_shared": 4,
+        "n_shared_decoder": 1,
+        "n_steps": 3,
+        "optimizer_params": {
+            "lr": 0.0016393245237809827
+        },
+        "output_dim": 1,
+        "scheduler_fn": null,
+        "scheduler_params": {},
+        "seed": 42,
+        "verbose": 1
+    },
+    "class_attrs": {
+        "preds_mapper": null
+    }
+}

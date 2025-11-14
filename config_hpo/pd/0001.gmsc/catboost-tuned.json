@@ -1,0 +1,13 @@
+{
+    "fit": {
+        "logging_level": "Silent",
+        "n_bins": 107
+    },
+    "model": {
+        "bagging_temperature": 0.11827442586893322,
+        "depth": 8,
+        "l2_leaf_reg": 1.3910837820057878,
+        "leaf_estimation_iterations": 10,
+        "learning_rate": 0.0040666950653938435
+    }
+}
