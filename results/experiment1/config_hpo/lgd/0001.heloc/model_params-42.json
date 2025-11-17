@@ -6,32 +6,29 @@
         "clip_value": 1,
         "device_name": "auto",
         "epsilon": 1e-15,
-        "gamma": 1.7151893663724196,
+        "gamma": 1.253291602539782,
         "grouped_features": [],
-        "input_dim": 10,
+        "input_dim": 9,
         "lambda_sparse": 0.001,
         "mask_type": "sparsemax",
-        "momentum": 0.2618987040959959,
+        "momentum": 0.05304630505407901,
         "n_a": 8,
         "n_d": 8,
         "n_indep_decoder": 1,
-        "n_independent": 3,
-        "n_shared": 3,
+        "n_independent": 2,
+        "n_shared": 1,
         "n_shared_decoder": 1,
-        "n_steps": 7,
+        "n_steps": 6,
         "optimizer_params": {
-            "lr": 0.005939321535345923
+            "lr": 0.0068779749291885866
         },
-        "output_dim": 2,
+        "output_dim": 1,
         "scheduler_fn": null,
         "scheduler_params": {},
         "seed": 42,
         "verbose": 1
     },
     "class_attrs": {
-        "preds_mapper": {
-            "0": 0,
-            "1": 1
-        }
+        "preds_mapper": null
     }
 }

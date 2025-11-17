@@ -59,7 +59,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # 1. Load cached version if available
     # ----------------------------------------------------------
     if (dataset_dir / "y.npy").exists():
-        logger.info(f"📂 Using cached dataset: {dataset_dir}")
+        logger.info(f" Using cached dataset: {dataset_dir}")
         N = np.load(dataset_dir / "N.npy") if (dataset_dir / "N.npy").exists() else None
         C = np.load(dataset_dir / "C.npy") if (dataset_dir / "C.npy").exists() else None
         y = np.load(dataset_dir / "y.npy")
@@ -70,7 +70,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # ----------------------------------------------------------
     # 2. Preprocess from raw
     # ----------------------------------------------------------
-    logger.info(f"🧪 Preprocessing {dataset} ({task}) from raw files...")
+    logger.info(f" Preprocessing {dataset} ({task}) from raw files...")
 
     # Delegate dataset-specific cleaning
     # raw_dir=None lets preprocess_dataset_specific load paths from config
@@ -118,7 +118,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     with open(dataset_dir / "info.json", "w") as f:
         json.dump(info, f, indent=4)
 
-    logger.info(f"✅ Processed dataset cached at: {dataset_dir}")
+    logger.info(f"Processed dataset cached at: {dataset_dir} in TALENT format.")
     return N, C, y, info
 
 
@@ -131,5 +131,5 @@ def preprocess_dataset(task: str, dataset: str):
         raise ValueError("Task must be 'pd' or 'lgd'.")
 
     N, C, y, info = _load_or_preprocess(task, dataset)
-    logger.info(f"Returning raw TALENT-ready arrays for {dataset} ({task})")
+
     return N, C, y, info

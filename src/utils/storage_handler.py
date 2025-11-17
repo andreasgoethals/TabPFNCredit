@@ -1,15 +1,12 @@
 # src/utils/storage_handler.py
 """
-Generic storage handler for experiment results.
-
-Handles saving/loading results with automatic archiving of previous runs.
-Agnostic to the actual structure of results - just saves whatever is passed.
+Simple storage handler for experiment results.
+Save and load results only - no archiving logic.
 """
 
 from __future__ import annotations
 import pickle
 import json
-import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, Optional
@@ -20,10 +17,8 @@ logger = logging.getLogger(__name__)
 
 class StorageHandler:
     """
-    Generic storage handler for experimental results.
-    
-    Organizes results by experiment name, with one file per dataset.
-    Automatically archives previous results when re-running experiments.
+    Simple storage handler for experimental results.
+    Saves/loads results - archiving is handled separately by storage_archiver.py
     """
     
     def __init__(self, experiment_name: str, base_dir: str = "results"):
@@ -41,52 +36,18 @@ class StorageHandler:
         self.base_dir = repo_root / base_dir
         
         self.experiment_dir = self.base_dir / experiment_name
-        self.archive_dir = self.experiment_dir / "archive"
         
-        # Create directories
+        # Create experiment directory
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
         
-    def _archive_existing_results(self) -> None:
-        """
-        Archive all existing results in the experiment folder.
-        
-        Moves existing results to archive/{timestamp}/ before saving new results.
-        Only archives actual result files (.pkl), not metadata or archive folder.
-        """
-        # Find existing result files
-        existing_files = list(self.experiment_dir.glob("*.pkl"))
-        existing_metadata = list(self.experiment_dir.glob("*.json"))
-        
-        if not existing_files and not existing_metadata:
-            return  # Nothing to archive
-        
-        # Create archive directory if needed
-        self.archive_dir.mkdir(exist_ok=True)
-        
-        # Create timestamped subfolder
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        archive_subdir = self.archive_dir / timestamp
-        archive_subdir.mkdir(exist_ok=True)
-        
-        # Move all existing files
-        for file in existing_files + existing_metadata:
-            shutil.move(str(file), str(archive_subdir / file.name))
-        
-        logger.info(f"Archived {len(existing_files)} result files to {archive_subdir}")
-    
     def save_experiment_metadata(self, metadata: Dict[str, Any]) -> None:
         """
         Save experiment-level metadata (config, timestamp, versions, etc.).
         
-        Archives existing metadata if present.
-        
         Args:
             metadata: Dictionary with any experiment metadata
         """
-        # Archive existing results before saving new metadata
         metadata_path = self.experiment_dir / "experiment_metadata.json"
-        if metadata_path.exists():
-            self._archive_existing_results()
         
         # Add automatic metadata
         full_metadata = {
@@ -105,30 +66,25 @@ class StorageHandler:
         dataset: str, 
         results: Any,
         metadata: Optional[Dict[str, Any]] = None,
-        overwrite: bool = False
+        overwrite: bool = True
     ) -> None:
         """
         Save results for a single dataset.
-        
-        Archives existing results for this dataset before saving new ones.
         
         Args:
             dataset: Dataset name (used as filename)
             results: Any object (dict, list, etc.) - will be pickled
             metadata: Optional metadata specific to this dataset
-            overwrite: If True, archives old results. If False, raises error if exists.
+            overwrite: If True, overwrites existing. If False, raises error if exists.
         """
         results_path = self.experiment_dir / f"{dataset}.pkl"
         
         # Check if results already exist
-        if results_path.exists():
-            if not overwrite:
-                raise FileExistsError(
-                    f"Results for {dataset} already exist. "
-                    f"Set overwrite=True to archive old results."
-                )
-            # Archive the existing file
-            self._archive_single_dataset(dataset)
+        if results_path.exists() and not overwrite:
+            raise FileExistsError(
+                f"Results for {dataset} already exist. "
+                f"Set overwrite=True to replace them."
+            )
         
         # Save results as pickle
         with open(results_path, 'wb') as f:
@@ -141,33 +97,6 @@ class StorageHandler:
             metadata_path = self.experiment_dir / f"{dataset}_metadata.json"
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2, default=str)
-            logger.info(f"Saved metadata for {dataset} to {metadata_path}")
-    
-    def _archive_single_dataset(self, dataset: str) -> None:
-        """
-        Archive results for a specific dataset.
-        
-        Args:
-            dataset: Dataset name
-        """
-        results_path = self.experiment_dir / f"{dataset}.pkl"
-        metadata_path = self.experiment_dir / f"{dataset}_metadata.json"
-        
-        if not results_path.exists():
-            return
-        
-        # Create archive structure
-        self.archive_dir.mkdir(exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        archive_subdir = self.archive_dir / timestamp
-        archive_subdir.mkdir(exist_ok=True)
-        
-        # Move files
-        shutil.move(str(results_path), str(archive_subdir / results_path.name))
-        if metadata_path.exists():
-            shutil.move(str(metadata_path), str(archive_subdir / metadata_path.name))
-        
-        logger.info(f"Archived {dataset} results to {archive_subdir}")
     
     def load_dataset_results(self, dataset: str) -> Any:
         """
@@ -239,25 +168,12 @@ class StorageHandler:
             completed.append(dataset_name)
         return sorted(completed)
     
-    def get_archived_runs(self) -> list[str]:
-        """
-        Get list of archived experiment runs.
-        
-        Returns:
-            List of archive timestamps
-        """
-        if not self.archive_dir.exists():
-            return []
-        
-        archives = [d.name for d in self.archive_dir.iterdir() if d.is_dir()]
-        return sorted(archives, reverse=True)  # Most recent first
-    
     def get_experiment_path(self) -> Path:
         """Get path to experiment directory."""
         return self.experiment_dir
 
 
-# Convenience functions for simple usage
+# Convenience functions
 def save_results(
     experiment_name: str,
     dataset: str,
@@ -266,17 +182,7 @@ def save_results(
     base_dir: str = "results",
     overwrite: bool = True
 ) -> None:
-    """
-    Convenience function to save dataset results.
-    
-    Args:
-        experiment_name: Name of experiment
-        dataset: Dataset name
-        results: Results to save (any structure)
-        metadata: Optional metadata
-        base_dir: Base results directory
-        overwrite: Whether to archive and overwrite existing results
-    """
+    """Convenience function to save dataset results."""
     handler = StorageHandler(experiment_name, base_dir)
     handler.save_dataset_results(dataset, results, metadata, overwrite=overwrite)
 
@@ -286,16 +192,6 @@ def load_results(
     dataset: str,
     base_dir: str = "results"
 ) -> Any:
-    """
-    Convenience function to load dataset results.
-    
-    Args:
-        experiment_name: Name of experiment
-        dataset: Dataset name
-        base_dir: Base results directory
-        
-    Returns:
-        Loaded results (any structure)
-    """
+    """Convenience function to load dataset results."""
     handler = StorageHandler(experiment_name, base_dir)
     return handler.load_dataset_results(dataset)

@@ -14,9 +14,13 @@ the method automatically runs with default parameters instead.
 from __future__ import annotations
 from typing import Dict, Any, Optional
 from pathlib import Path
+import logging
 
 from src.utils.config_reader import load_config
 from src.methods.method_runner import run_talent_method, supports_hpo
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 def run_dataset(
@@ -43,7 +47,7 @@ def run_dataset(
     evaluate_option: str = "best-val",
     model_config: Optional[dict] = None,
     fit_config: Optional[dict] = None,
-    config_dir: Optional[Path] = None,
+    config_base_dir: Optional[Path] = None,
     verbose: bool = False,
     clean_temp_dir: bool = True,
 ) -> Dict[str, Dict[int, Dict[str, Any]]]:
@@ -77,7 +81,7 @@ def run_dataset(
         evaluate_option: Which model to use for evaluation
         model_config: Custom model hyperparameters
         fit_config: Custom fit configuration
-        config_dir: Custom directory for storing HPO configs
+        config_base_dir: Base directory where config_hpo folder will be created (default: project root)
         verbose: Whether to print detailed progress
         clean_temp_dir: Whether to clean up temporary directories
         
@@ -89,6 +93,9 @@ def run_dataset(
     # Load configuration to get enabled methods
     config = load_config()
     enabled_methods = list(config['methods'][task.lower()].keys())
+    
+    # Log start
+    logger.info(f"Running all methods on {dataset} ({len(enabled_methods)} methods)")
     
     # Initialize results dictionary
     results = {}
@@ -125,12 +132,15 @@ def run_dataset(
             evaluate_option=evaluate_option,
             model_config=model_config,
             fit_config=fit_config,
-            config_dir=config_dir,
+            config_base_dir=config_base_dir,
             verbose=verbose,
             clean_temp_dir=clean_temp_dir,
         )
         
         # Store results for this method
         results[method] = method_results
+    
+    # Log completion
+    logger.info(f"Completed all methods on {dataset}")
     
     return results

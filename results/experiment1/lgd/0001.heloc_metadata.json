@@ -1,0 +1,19 @@
+{
+  "task": "lgd",
+  "dataset": "0001.heloc",
+  "timestamp": "2025-11-17T14:06:28.188134",
+  "n_methods_no_hpo": 10,
+  "n_methods_hpo": 10,
+  "methods": [
+    "catboost",
+    "knn",
+    "lightgbm",
+    "LinearRegression",
+    "RandomForest",
+    "xgboost",
+    "svm",
+    "mlp",
+    "tabnet",
+    "PFN-v2"
+  ]
+}

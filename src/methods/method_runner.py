@@ -11,10 +11,11 @@ Key features:
 - HPO (hyperparameter optimization) support with config persistence across folds
 - Method-specific preprocessing policy enforcement
 - Proper cleanup of temporary directories
-- Persistent config storage for HPO reuse
+- Persistent config storage for accessing the HPO results later 
 - Organized config storage by task type (pd/lgd)
 - Handles CUDA tensor to numpy conversion
 - Extracts probabilities from logits for classification tasks
+- Automatic row limit capping for TabPFN (10k) and PFN-v2 (50k)
 
 Architecture notes:
 - TALENT was designed as CLI scripts, not a library, so we manipulate sys.argv
@@ -22,6 +23,7 @@ Architecture notes:
 - HPO configs are saved as {method}-tuned.json in persistent config directory
 - Configs are stored in project's 'config_hpo' folder organized by task type (pd/lgd)
 - Deep learning methods return logits; classical methods return probabilities
+- TabPFN and PFN-v2 have inherent dataset size limitations
 """
 
 from __future__ import annotations
@@ -32,13 +34,16 @@ import inspect
 import shutil
 import contextlib
 import warnings
+import logging
 from io import StringIO
 from pathlib import Path
 import tempfile
 import numpy as np
-import copy
-import json
 import os
+
+# Suppress LightGBM warnings
+warnings.filterwarnings('ignore', message='No further splits with positive gain')
+warnings.filterwarnings('ignore', message='categorical_column')
 
 # Try to import torch for tensor detection
 try:
@@ -59,6 +64,26 @@ from TALENT.model.utils import (
 
 # Local data loader
 from src.data.data_feeder import DataFeeder
+
+# Setup logger
+logger = logging.getLogger(__name__)
+
+
+# ======================================================================================
+#                          HIGHLIGHTED LOGGING
+# ======================================================================================
+
+class LogColors:
+    """ANSI color codes for terminal output"""
+    BOLD = '\033[1m'
+    GREEN = '\033[92m'
+    RESET = '\033[0m'
+
+
+def log_highlight(logger_obj, message: str):
+    """Log a message in BOLD GREEN UPPERCASE for maximum visibility"""
+    highlighted = f"{LogColors.BOLD}{LogColors.GREEN}{message.upper()}{LogColors.RESET}"
+    logger_obj.info(highlighted)
 
 
 # ======================================================================================
@@ -105,6 +130,12 @@ PROBABILITY_METHODS = {
     'tabpfn', 'PFN-v2', 'tabnet', 'ftt', 'tabptm', 'tabr',
     'saint', 'tabtransformer', 'grownet', 'autoint', 'ptarl',
     'modernNCA', 'tabicl'
+}
+
+# Methods with dataset size limitations (row limits)
+METHOD_ROW_LIMITS = {
+    'tabpfn': 10_000,   # TabPFN limited to 10k rows
+    'PFN-v2': 50_000,   # PFN-v2 limited to 50k rows
 }
 
 
@@ -425,6 +456,11 @@ def _inject_configs(
         args.config['fit'] = {}
     if not verbose:
         args.config['fit']['verbose'] = False
+    
+    # Suppress LightGBM verbosity specifically
+    if 'model' in args.config:
+        if 'verbosity' not in args.config['model']:
+            args.config['model']['verbosity'] = -1
 
 
 def _sanitize_sklearn_params(estimator_class, params: dict) -> dict:
@@ -767,6 +803,49 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
             args.num_policy = 'none'
 
 
+def _apply_method_row_limit(method: str, row_limit: Optional[int]) -> Optional[int]:
+    """
+    Apply method-specific row limits for methods with inherent dataset size constraints.
+    
+    Some methods have architectural limitations on the number of rows they can process:
+    - TabPFN: Maximum 10,000 rows (in-context learning limitation)
+    - PFN-v2: Maximum 50,000 rows (larger context window than TabPFN)
+    
+    If user specifies a row_limit larger than the method's maximum, it will be capped.
+    If user specifies a row_limit smaller than the maximum, it will be preserved.
+    If user doesn't specify row_limit (None), the method maximum will be applied.
+    
+    Args:
+        method: TALENT method name
+        row_limit: User-specified row limit (or None for no limit)
+        
+    Returns:
+        Capped row limit respecting both user preference and method constraints
+        
+    Example:
+        >>> _apply_method_row_limit('tabpfn', None)
+        10000  # TabPFN max applied
+        
+        >>> _apply_method_row_limit('tabpfn', 5000)
+        5000   # User's smaller limit preserved
+        
+        >>> _apply_method_row_limit('tabpfn', 20000)
+        10000  # Capped to TabPFN max
+        
+        >>> _apply_method_row_limit('xgboost', None)
+        None   # No limit for XGBoost
+    """
+    if method not in METHOD_ROW_LIMITS:
+        return row_limit
+    
+    method_max = METHOD_ROW_LIMITS[method]
+    
+    if row_limit is None:
+        return method_max
+    else:
+        return min(row_limit, method_max)
+
+
 # ======================================================================================
 #                            CATBOOST-SPECIFIC FIXES
 # ======================================================================================
@@ -828,7 +907,7 @@ def run_talent_method(
     evaluate_option: str = "best-val",
     model_config: Optional[dict] = None,
     fit_config: Optional[dict] = None,
-    config_dir: Optional[Path] = None,
+    config_base_dir: Optional[Path] = None,
     verbose: bool = False,
     clean_temp_dir: bool = True,
 ) -> Dict[int, Dict[str, Any]]:
@@ -845,6 +924,7 @@ def run_talent_method(
     - Proper cleanup of temporary directories
     - Handles CUDA tensor to numpy conversion
     - Extracts probabilities from logits for classification tasks
+    - Automatic row limit enforcement for TabPFN (10k) and PFN-v2 (50k)
     
     HPO Configuration Behavior:
     ┌─────────────┬──────────────────────────────────────────────────────────┐
@@ -858,11 +938,17 @@ def run_talent_method(
     └─────────────┴──────────────────────────────────────────────────────────┘
     
     Config Storage:
-    - Configs stored at: {project_root}/config_hpo/{task}/{dataset}/{method}-tuned.json
+    - Configs stored at: {config_base_dir}/config_hpo/{task}/{dataset}/{method}-tuned.json
     - Task is 'pd' for classification or 'lgd' for regression
     - Each dataset has its own folder
     - Configs persist across runs for reproducibility
     - tune=False always ignores saved configs
+    
+    Row Limit Enforcement:
+    - TabPFN: Automatically capped at 10,000 rows (in-context learning limit)
+    - PFN-v2: Automatically capped at 50,000 rows (larger context window)
+    - User can specify smaller limits, but not larger
+    - Other methods: No automatic row limit
     
     Architecture notes:
     - CV is implemented outside TALENT (in DataFeeder), so we manually handle fold iteration
@@ -877,7 +963,7 @@ def run_talent_method(
         val_size: Validation set fraction (0.0 to 1.0)
         cv_splits: Number of cross-validation folds
         seed: Random seed for reproducibility
-        row_limit: Optional limit on dataset rows
+        row_limit: Optional limit on dataset rows (auto-capped for TabPFN/PFN-v2)
         sampling: Optional sampling fraction
         method: TALENT method name (canonical name, e.g., 'xgboost' not 'XGBoost')
         categorical_encoding: Categorical encoding policy
@@ -894,7 +980,7 @@ def run_talent_method(
         evaluate_option: Which model to use for evaluation ('best-val', 'last')
         model_config: Custom model hyperparameters
         fit_config: Custom fit configuration
-        config_dir: Custom directory for storing HPO configs
+        config_base_dir: Base directory where config_hpo folder will be created (default: project root)
         verbose: Whether to print detailed progress
         clean_temp_dir: Whether to clean up temporary directories after run
         
@@ -931,16 +1017,29 @@ def run_talent_method(
         >>> y_prob = results[1]['y_prob']  # Probability of positive class
     """
     
+    # Log method start
+    log_highlight(logger, f"Starting {method} on {dataset}")
+    
     _patch_talent_pprint(enable_silence=not verbose)
     
     try:
         is_regression = (task.lower() == "lgd")
         is_deep = method in DEEP_METHODS
         
+        # Apply method-specific row limits (TabPFN: 10k, PFN-v2: 50k)
+        original_row_limit = row_limit
+        row_limit = _apply_method_row_limit(method, row_limit)
+        
         if verbose:
             print(f"\n{'='*70}")
             print(f"Running {method} ({'deep' if is_deep else 'classical'}) on {dataset} ({task.upper()})")
             print(f"{'='*70}")
+            
+            if row_limit != original_row_limit:
+                if original_row_limit is None:
+                    print(f"\nRow limit: {row_limit:,} (method maximum for {method})")
+                else:
+                    print(f"\nRow limit: {row_limit:,} (capped from {original_row_limit:,} due to {method} constraint)")
         
         # Track which preprocessing options user explicitly provided
         user_specified = {
@@ -976,12 +1075,15 @@ def run_talent_method(
         results: Dict[int, Dict[str, Any]] = {}
         
         # Setup directories
-        if config_dir is None:
-            base_config_dir = get_default_config_dir()
-            dataset_config_dir = base_config_dir / task.lower() / dataset
+        if config_base_dir is None:
+            # Default: use project root
+            base_config_dir = _PROJECT_ROOT / "config_hpo"
         else:
-            dataset_config_dir = Path(config_dir) / task.lower() / dataset
+            # User-specified: create config_hpo in specified location
+            base_config_dir = Path(config_base_dir) / "config_hpo"
         
+        # Create dataset-specific config directory
+        dataset_config_dir = base_config_dir / task.lower() / dataset
         dataset_config_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint_tmp_dir = Path(tempfile.mkdtemp(prefix=f"talent_ckpt_{dataset}_{method}_"))
@@ -1119,16 +1221,16 @@ def run_talent_method(
                         if fold_id == first_fold_id:
                             if tuned_config_path.exists():
                                 if verbose:
-                                    print(f"[HPO] ✓ Config ready: {tuned_config_path.name}")
+                                    print(f"[HPO] Config ready: {tuned_config_path.name}")
                             else:
                                 raise RuntimeError(f"HPO failed to save config to {tuned_config_path}")
                         else:
                             if verbose:
-                                print(f"[HPO] ✓ Config loaded successfully")
+                                print(f"[HPO] Config loaded successfully")
                                 
                     except Exception as e:
                         if verbose:
-                            print(f"[HPO] ✗ Error: {e}")
+                            print(f"[HPO] Error: {e}")
                         raise
                 
                 else:
@@ -1205,6 +1307,9 @@ def run_talent_method(
                 print(f"[HPO] This config is ONLY used when tune=True")
                 print(f"[HPO] When tune=False, defaults are always used")
             print(f"{'='*70}\n")
+        
+        # Log method completion
+        log_highlight(logger, f"Finished {method} on {dataset}")
         
         return results
     

@@ -14,8 +14,12 @@ results shared between both configurations to avoid redundant computation.
 from __future__ import annotations
 from typing import Dict, Any, Optional
 from pathlib import Path
+import logging
 
 from src.methods.all_methods_runner import run_dataset
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 def run_hpo_comparison(
@@ -41,7 +45,7 @@ def run_hpo_comparison(
     evaluate_option: str = "best-val",
     model_config: Optional[dict] = None,
     fit_config: Optional[dict] = None,
-    config_dir: Optional[Path] = None,
+    config_base_dir: Optional[Path] = None,
     verbose: bool = False,
     clean_temp_dir: bool = True,
 ) -> Dict[str, Dict[str, Dict[int, Dict[str, Any]]]]:
@@ -79,7 +83,7 @@ def run_hpo_comparison(
         evaluate_option: Which model to evaluate ('best-val' or 'last')
         model_config: Custom model hyperparameters
         fit_config: Custom fit configuration
-        config_dir: Custom directory for storing HPO configs
+        config_base_dir: Base directory where config_hpo folder will be created (default: project root)
         verbose: Whether to print detailed progress information
         clean_temp_dir: Whether to clean up temporary directories after run
         
@@ -113,6 +117,9 @@ def run_hpo_comparison(
         >>> assert results['NO_HPO']['tabpfn'] == results['HPO']['tabpfn']
     """
     
+    # Log start
+    logger.info(f"Starting HPO comparison for {dataset}")
+    
     # Common parameters shared across both HPO and NO_HPO runs
     common_params = {
         'task': task,
@@ -136,7 +143,7 @@ def run_hpo_comparison(
         'evaluate_option': evaluate_option,
         'model_config': model_config,
         'fit_config': fit_config,
-        'config_dir': config_dir,
+        'config_base_dir': config_base_dir,
         'verbose': verbose,
         'clean_temp_dir': clean_temp_dir,
     }
@@ -171,5 +178,8 @@ def run_hpo_comparison(
         print(f"HPO comparison complete for {dataset}")
         print(f"Methods evaluated: {list(no_hpo_results.keys())}")
         print(f"{'='*80}\n")
+    
+    # Log completion
+    logger.info(f"Completed HPO comparison for {dataset}")
     
     return results

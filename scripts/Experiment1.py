@@ -5,21 +5,56 @@ Experiment 1: HPO Benchmark across all enabled datasets.
 This experiment runs all enabled methods on all enabled datasets,
 comparing performance with and without hyperparameter optimization.
 
-Results are saved per dataset in: results/experiment1/
-File naming: {task}_{dataset}.pkl (e.g., pd_0001.gmsc.pkl, lgd_0001.heloc.pkl)
+Results structure:
+- results/experiment1/pd/         <- PD results
+    - metadata.json
+    - dataset1.pkl
+    - dataset2.pkl
+- results/experiment1/lgd/        <- LGD results
+    - metadata.json
+    - dataset1.pkl
+    - dataset2.pkl
+- results/experiment1/config_hpo/ <- HPO configs
+- results/experiment1/experiment1.log
+
+If an experiment1 folder already exists with actual results, it will be 
+automatically archived with a timestamp before starting the new run.
 """
 
 import sys
 from pathlib import Path
 from datetime import datetime
+from typing import Dict, Any
+import logging
 
 # Setup paths
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Goes to TabPFNCredit/
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
+from src.utils.storage_archiver import StorageArchiver
 from src.methods.HPO_runner import run_hpo_comparison
+
+
+def _has_results(experiment_path: Path) -> bool:
+    """
+    Check if experiment folder has actual results (not just empty directories).
+    
+    Args:
+        experiment_path: Path to experiment folder
+        
+    Returns:
+        True if folder has .pkl files or metadata.json files
+    """
+    if not experiment_path.exists():
+        return False
+    
+    # Check for any .pkl files or metadata.json files
+    has_pkl = any(experiment_path.rglob("*.pkl"))
+    has_metadata = any(experiment_path.rglob("metadata.json"))
+    
+    return has_pkl or has_metadata
 
 
 def run_experiment1(
@@ -36,19 +71,53 @@ def run_experiment1(
         verbose: Whether to print detailed progress
     """
     
-    print("="*80)
-    print("EXPERIMENT 1: HPO Benchmark")
-    print("="*80)
+    # Initialize storage handler (but don't create archiver yet to avoid creating archive dir)
+    storage = StorageHandler(experiment_name)
+    experiment_path = storage.get_experiment_path()
+    
+    # Archive existing experiment if it exists AND has actual results
+    if _has_results(experiment_path):
+        print(f"Found existing experiment with results: {experiment_path}")
+        print("Archiving old results before starting new run...")
+        archiver = StorageArchiver()  # Only create archiver if we need it
+        archive_path = archiver.archive_experiment(experiment_name)
+        print(f"✓ Archived to: {archive_path}\n")
+    
+    # Ensure fresh experiment directory exists
+    experiment_path.mkdir(parents=True, exist_ok=True)
+    
+    # Configure logging to save inside experiment directory
+    log_file = experiment_path / f"{experiment_name}.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ],
+        force=True  # Force reconfiguration if logging was already configured
+    )
+    logger = logging.getLogger(__name__)
+    
+    logger.info("="*80)
+    logger.info("EXPERIMENT 1: HPO Benchmark")
+    logger.info("="*80)
     
     # Load configuration
-    print("Loading configuration...")
+    logger.info("Loading configuration...")
     config = load_config()
     
-    # Initialize storage handler
-    storage = StorageHandler(experiment_name)
-    print(f"Results will be saved to: {storage.get_experiment_path()}")
+    logger.info(f"Results will be saved to: {experiment_path}")
+    logger.info(f"  PD results: {experiment_path / 'pd'}")
+    logger.info(f"  LGD results: {experiment_path / 'lgd'}")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"HPO configs will be saved to: {experiment_path / 'config_hpo'}")
     
-    # Save experiment metadata
+    # Create task-specific directories
+    (experiment_path / "pd").mkdir(exist_ok=True)
+    (experiment_path / "lgd").mkdir(exist_ok=True)
+    
+    # Save experiment metadata in root
     experiment_metadata = {
         "description": "HPO comparison across all enabled datasets",
         "config": config,
@@ -61,8 +130,8 @@ def run_experiment1(
     lgd_datasets = list(config['datasets']['lgd'].keys())
     
     total_datasets = len(pd_datasets) + len(lgd_datasets)
-    print(f"Found {len(pd_datasets)} PD datasets and {len(lgd_datasets)} LGD datasets")
-    print(f"Total datasets to process: {total_datasets}")
+    logger.info(f"Found {len(pd_datasets)} PD datasets and {len(lgd_datasets)} LGD datasets")
+    logger.info(f"Total datasets to process: {total_datasets}")
     
     # Track results
     completed_datasets = []
@@ -81,6 +150,7 @@ def run_experiment1(
         'n_trials': config['tuning']['n_trials'],
         'early_stopping': config['training']['early_stopping'],
         'early_stopping_patience': config['training']['early_stopping_patience'],
+        'config_base_dir': experiment_path,  # HPO configs saved inside experiment folder
         'verbose': verbose,
     }
     
@@ -90,28 +160,28 @@ def run_experiment1(
     # Process PD datasets
     for dataset in pd_datasets:
         dataset_counter += 1
-        dataset_filename = f"pd_{dataset}"
+        dataset_filename = f"pd/{dataset}"  # Save to pd/ subfolder
         
-        print("\n" + "="*80)
-        print(f"Dataset {dataset_counter}/{total_datasets}: {dataset} (PD)")
-        print("="*80)
+        logger.info("\n" + "="*80)
+        logger.info(f"Dataset {dataset_counter}/{total_datasets}: {dataset} (PD)")
+        logger.info("="*80)
         
         # Check if already completed
         if skip_completed and storage.is_completed(dataset_filename):
-            print(f"✓ Already completed, skipping...")
+            logger.info(f"✓ Already completed, skipping...")
             skipped_datasets.append(dataset_filename)
             continue
         
         try:
             # Run HPO comparison
-            print(f"Running HPO comparison...")
+            logger.info(f"Running HPO comparison...")
             results = run_hpo_comparison(
                 task='pd',
                 dataset=dataset,
                 **common_params
             )
             
-            # Save results
+            # Save results in pd/ subfolder
             dataset_metadata = {
                 "task": "pd",
                 "dataset": dataset,
@@ -122,44 +192,44 @@ def run_experiment1(
             }
             
             storage.save_dataset_results(
-                dataset=dataset_filename,
+                dataset=dataset_filename,  # Will save to pd/dataset.pkl
                 results=results,
                 metadata=dataset_metadata,
                 overwrite=True
             )
             
             completed_datasets.append(dataset_filename)
-            print(f"✓ Completed and saved: {dataset_filename}")
+            logger.info(f"✓ Completed and saved: {dataset_filename}")
             
         except Exception as e:
-            print(f"✗ Failed: {dataset} - {str(e)}")
+            logger.error(f"✗ Failed: {dataset} - {str(e)}", exc_info=True)
             failed_datasets.append((dataset_filename, str(e)))
     
     # Process LGD datasets
     for dataset in lgd_datasets:
         dataset_counter += 1
-        dataset_filename = f"lgd_{dataset}"
+        dataset_filename = f"lgd/{dataset}"  # Save to lgd/ subfolder
         
-        print("\n" + "="*80)
-        print(f"Dataset {dataset_counter}/{total_datasets}: {dataset} (LGD)")
-        print("="*80)
+        logger.info("\n" + "="*80)
+        logger.info(f"Dataset {dataset_counter}/{total_datasets}: {dataset} (LGD)")
+        logger.info("="*80)
         
         # Check if already completed
         if skip_completed and storage.is_completed(dataset_filename):
-            print(f"✓ Already completed, skipping...")
+            logger.info(f"✓ Already completed, skipping...")
             skipped_datasets.append(dataset_filename)
             continue
         
         try:
             # Run HPO comparison
-            print(f"Running HPO comparison...")
+            logger.info(f"Running HPO comparison...")
             results = run_hpo_comparison(
                 task='lgd',
                 dataset=dataset,
                 **common_params
             )
             
-            # Save results
+            # Save results in lgd/ subfolder
             dataset_metadata = {
                 "task": "lgd",
                 "dataset": dataset,
@@ -170,45 +240,47 @@ def run_experiment1(
             }
             
             storage.save_dataset_results(
-                dataset=dataset_filename,
+                dataset=dataset_filename,  # Will save to lgd/dataset.pkl
                 results=results,
                 metadata=dataset_metadata,
                 overwrite=True
             )
             
             completed_datasets.append(dataset_filename)
-            print(f"✓ Completed and saved: {dataset_filename}")
+            logger.info(f"✓ Completed and saved: {dataset_filename}")
             
         except Exception as e:
-            print(f"✗ Failed: {dataset} - {str(e)}")
+            logger.error(f"✗ Failed: {dataset} - {str(e)}", exc_info=True)
             failed_datasets.append((dataset_filename, str(e)))
     
     # Final summary
-    print("\n" + "="*80)
-    print("EXPERIMENT 1 COMPLETE")
-    print("="*80)
-    print(f"Total datasets: {total_datasets}")
-    print(f"Completed: {len(completed_datasets)}")
-    print(f"Skipped: {len(skipped_datasets)}")
-    print(f"Failed: {len(failed_datasets)}")
+    logger.info("\n" + "="*80)
+    logger.info("EXPERIMENT 1 COMPLETE")
+    logger.info("="*80)
+    logger.info(f"Total datasets: {total_datasets}")
+    logger.info(f"Completed: {len(completed_datasets)}")
+    logger.info(f"Skipped: {len(skipped_datasets)}")
+    logger.info(f"Failed: {len(failed_datasets)}")
     
     if completed_datasets:
-        print(f"\nCompleted datasets:")
+        logger.info(f"\nCompleted datasets:")
         for ds in completed_datasets:
-            print(f"  ✓ {ds}")
+            logger.info(f"  ✓ {ds}")
     
     if skipped_datasets:
-        print(f"\nSkipped datasets:")
+        logger.info(f"\nSkipped datasets:")
         for ds in skipped_datasets:
-            print(f"  - {ds}")
+            logger.info(f"  - {ds}")
     
     if failed_datasets:
-        print(f"\nFailed datasets:")
+        logger.info(f"\nFailed datasets:")
         for ds, error in failed_datasets:
-            print(f"  ✗ {ds}: {error}")
+            logger.info(f"  ✗ {ds}: {error}")
     
-    print(f"\nResults saved to: {storage.get_experiment_path()}")
-    print("="*80)
+    logger.info(f"\nResults saved to: {experiment_path}")
+    logger.info(f"HPO configs saved to: {experiment_path / 'config_hpo'}")
+    logger.info(f"Log file: {log_file}")
+    logger.info("="*80)
 
 
 if __name__ == "__main__":

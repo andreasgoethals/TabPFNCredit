@@ -41,9 +41,13 @@ And each info = {
 
 from __future__ import annotations
 import numpy as np
+import logging
 from typing import Dict, Optional, Tuple
 from sklearn.model_selection import train_test_split, StratifiedKFold, KFold
 from src.data.preprocessing import preprocess_dataset
+
+# Setup logger
+logger = logging.getLogger(__name__)
 
 
 class DataFeeder:
@@ -51,8 +55,8 @@ class DataFeeder:
     TALENT-compatible data loader and splitter.
     Handles:
         - loading or preprocessing datasets,
+        - optional imbalance resampling (PD only) - applied to entire dataset first,
         - optional row limiting,
-        - optional imbalance resampling (PD only),
         - single or multi-fold splitting (train/val/test),
         - and returns data formatted for TALENT.
     """
@@ -91,6 +95,8 @@ class DataFeeder:
         """
         Resample majority/minority classes to reach a desired minority proportion.
         Only used for PD (classification) tasks.
+        Applied to the entire dataset BEFORE splitting to ensure consistent
+        class distributions across all folds.
         """
         if self.task != "pd" or self.sampling is None:
             return X_num, y, X_cat
@@ -133,15 +139,27 @@ class DataFeeder:
         """
         Load/preprocess dataset, optionally sample, and generate TALENT-ready splits.
 
+        Processing order:
+        1. Load/preprocess dataset
+        2. Apply resampling to entire dataset (if requested)
+        3. Apply row limit (if requested)
+        4. Split into folds (stratified CV preserves resampled distribution)
+
         Returns
         -------
         folds : dict
             Mapping fold_id → ((N, C, y), info)
         """
+        # Log data preparation start
+        logger.info(f"Preparing data: {self.dataset} ({self.task.upper()})")
+        
         # 1️⃣ Load or preprocess dataset
         N, C, y, info = preprocess_dataset(self.task, self.dataset)
 
-        # 2️⃣ Optionally limit number of rows (useful for debugging)
+        # 2️⃣ Apply resampling FIRST to entire dataset (ensures consistent distribution across folds)
+        N, y, C = self._apply_sampling(N, y, C)
+
+        # 3️⃣ THEN optionally limit number of rows (applied to already-resampled data)
         if self.row_limit is not None:
             N = N[: self.row_limit] if N is not None else None
             C = C[: self.row_limit] if C is not None else None
@@ -150,7 +168,7 @@ class DataFeeder:
         stratify = self.task == "pd"
         folds: Dict[int, Tuple[Tuple[dict, dict, dict], Dict]] = {}
 
-        # 3️⃣ Decide split strategy
+        # 4️⃣ Decide split strategy
         if self.cv_splits == 1:
             # --- single train/val/test split ---
             idx_all = np.arange(len(y))
@@ -169,11 +187,6 @@ class DataFeeder:
             Xn_test = N[idx_test] if N is not None else None
             Xc_test = C[idx_test] if C is not None else None
             y_test = y[idx_test]
-
-            # optional resampling
-            Xn_train_full, y_train_full, Xc_train_full = self._apply_sampling(
-                Xn_train_full, y_train_full, Xc_train_full
-            )
 
             # validation split
             idx_train, idx_val = train_test_split(
@@ -206,9 +219,14 @@ class DataFeeder:
             }
 
             folds[1] = ((N_dict, C_dict, y_dict), info_fold)
+            
+            # Log completion
+            logger.info(f"Data prepared: {self.dataset}")
+            
             return folds
 
-        # 4️⃣ Cross-validation (KFold/StratifiedKFold)
+        # 5️⃣ Cross-validation (KFold/StratifiedKFold)
+        # Stratified CV will naturally preserve the resampled class distribution
         splitter = (
             StratifiedKFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
             if stratify
@@ -224,11 +242,6 @@ class DataFeeder:
             Xn_test = N[test_idx] if N is not None else None
             Xc_test = C[test_idx] if C is not None else None
             y_test = y[test_idx]
-
-            # resampling on training portion
-            Xn_train_full, y_train_full, Xc_train_full = self._apply_sampling(
-                Xn_train_full, y_train_full, Xc_train_full
-            )
 
             # validation split inside fold
             idx_train, idx_val = train_test_split(
@@ -261,5 +274,8 @@ class DataFeeder:
             }
 
             folds[fold_id] = ((N_dict, C_dict, y_dict), info_fold)
+
+        # Log completion
+        logger.info(f"Data prepared: {self.dataset}")
 
         return folds
