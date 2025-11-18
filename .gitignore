@@ -1,46 +1,53 @@
-# ---- Data ----
-# Keep folder structure but ignore contents
-data/raw/*
-data/processed/*
-!data/.gitkeep          # Keeps empty data folders tracked
-!data/raw/.gitkeep
-!data/processed/.gitkeep
+# ============================================================================
+# TabPFNCredit .gitignore
+# ============================================================================
 
-# ---- Configs & Checkpoints ----
-checkpoints/
-*.ckpt
-*.pth
-*.pt
-*.h5
-*.model
+# ---- Data (keep structure only) ----
+data/*
+!data/.gitkeep
 
-# ---- Python Cache ----
+# ---- Images (keep folder only) ----
+images/*
+!images/.gitkeep
+
+# ---- Results (ignore completely) ----
+results/
+
+# ---- Generated configs ----
+config_hpo/
+
+# ---- Python ----
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+.Python
 
-# ---- Environment / OS Files ----
+# ---- Virtual Environments ----
 .env
-.venv
-*.log
-*.tmp
+.venv/
+venv/
+env/
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- IDEs ----
+.vscode/
+.idea/
+*.sublime-*
+
+# ---- OS Files ----
 .DS_Store
 Thumbs.db
 
-# ---- Editor Settings ----
-.idea/
-.vscode/
-*.sublime-project
-*.sublime-workspace
+# ---- Logs & Temp Files ----
+*.log
+*.tmp
+*.bak
 
-# ---- Build / Distribution ----
-build/
-dist/
-*.egg-info/
-*.egg
-.eggs/
-
-# ---- Streamlit ----
-.streamlit/
-
+# ---- Model Files ----
+*.pth
+*.ckpt
+*.pkl

@@ -13,7 +13,7 @@ notebook>=7.0
 # ============================================
 # Torch + TALENT (installed from GitHub)
 # ============================================
-torch==2.0.1          # required by TALENT (use CPU wheel on macOS if needed)
+torch==2.0.1          # required by TALENT
 TALENT @ git+https://github.com/LAMDA-Tabular/TALENT.git@main
 
 # ============================================

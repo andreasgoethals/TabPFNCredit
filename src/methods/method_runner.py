@@ -41,9 +41,10 @@ import tempfile
 import numpy as np
 import os
 
-# Suppress LightGBM warnings
+# Suppress LightGBM warnings globally
 warnings.filterwarnings('ignore', message='No further splits with positive gain')
 warnings.filterwarnings('ignore', message='categorical_column')
+os.environ['LIGHTGBM_VERBOSITY'] = '-1'
 
 # Try to import torch for tensor detection
 try:
@@ -67,24 +68,6 @@ from src.data.data_feeder import DataFeeder
 
 # Setup logger
 logger = logging.getLogger(__name__)
-
-
-# ======================================================================================
-#                          HIGHLIGHTED LOGGING
-# ======================================================================================
-
-class LogColors:
-    """ANSI color codes for terminal output"""
-    BOLD = '\033[1m'
-    GREEN = '\033[92m'
-    RESET = '\033[0m'
-
-
-def log_highlight(logger_obj, message: str):
-    """Log a message in BOLD GREEN UPPERCASE for maximum visibility"""
-    highlighted = f"{LogColors.BOLD}{LogColors.GREEN}{message.upper()}{LogColors.RESET}"
-    logger_obj.info(highlighted)
-
 
 # ======================================================================================
 #                          CONFIGURATION - METHOD CATEGORIES
@@ -456,11 +439,6 @@ def _inject_configs(
         args.config['fit'] = {}
     if not verbose:
         args.config['fit']['verbose'] = False
-    
-    # Suppress LightGBM verbosity specifically
-    if 'model' in args.config:
-        if 'verbosity' not in args.config['model']:
-            args.config['model']['verbosity'] = -1
 
 
 def _sanitize_sklearn_params(estimator_class, params: dict) -> dict:
@@ -847,7 +825,7 @@ def _apply_method_row_limit(method: str, row_limit: Optional[int]) -> Optional[i
 
 
 # ======================================================================================
-#                            CATBOOST-SPECIFIC FIXES
+#                            METHOD-SPECIFIC FIXES
 # ======================================================================================
 
 def _fix_catboost_config(args, is_regression: bool) -> None:
@@ -877,6 +855,31 @@ def _fix_catboost_config(args, is_regression: bool) -> None:
     
     if 'early_stopping_rounds' not in args.config['model']:
         args.config['model']['early_stopping_rounds'] = 50
+
+
+def _fix_lightgbm_config(args) -> None:
+    """
+    Suppress ALL LightGBM verbosity completely.
+    
+    LightGBM verbosity is controlled through MODEL parameters only,
+    not fit parameters.
+    
+    Args:
+        args: Argument namespace (modified in-place)
+    """
+    if not hasattr(args, 'config') or args.config is None:
+        args.config = {}
+    
+    if 'model' not in args.config:
+        args.config['model'] = {}
+    
+    # Suppress all verbosity parameters (MODEL parameters only)
+    args.config['model']['verbosity'] = -1
+    args.config['model']['verbose'] = -1
+    args.config['model']['silent'] = True
+    
+    # Environment variable for extra safety
+    os.environ['LIGHTGBM_VERBOSITY'] = '-1'
 
 
 # ======================================================================================
@@ -1017,8 +1020,8 @@ def run_talent_method(
         >>> y_prob = results[1]['y_prob']  # Probability of positive class
     """
     
-    # Log method start
-    log_highlight(logger, f"Starting {method} on {dataset}")
+    # Log method start 
+    logger.info(f"Starting {method} on {dataset}")
     
     _patch_talent_pprint(enable_silence=not verbose)
     
@@ -1194,6 +1197,10 @@ def run_talent_method(
                 if method == 'catboost':
                     _fix_catboost_config(args, is_regression)
                 
+                # Suppress LightGBM verbosity completely
+                if method == 'lightgbm':
+                    _fix_lightgbm_config(args)
+                
                 # HPO logic
                 if tune:
                     tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
@@ -1308,8 +1315,8 @@ def run_talent_method(
                 print(f"[HPO] When tune=False, defaults are always used")
             print(f"{'='*70}\n")
         
-        # Log method completion
-        log_highlight(logger, f"Finished {method} on {dataset}")
+        # Log method completion 
+        logger.info(f"Finished {method} on {dataset}")
         
         return results
     

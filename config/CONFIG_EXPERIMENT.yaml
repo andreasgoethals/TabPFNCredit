@@ -8,8 +8,8 @@
 # ------------------------------------------------------------
 # Training and optimization settings
 # ------------------------------------------------------------
-max_epochs: 10              # Maximum number of epochs for deep models
+max_epochs: 200              # Maximum number of epochs for deep models
 batch_size: 128              # Batch size for training (ignored by classical models)
-n_trials: 10                # Number of hyperparameter tuning trials
-early_stopping: false        # Whether to use early stopping during training
-early_stopping_patience: 10  # Patience epochs for early stopping
+n_trials: 50                # Number of hyperparameter tuning trials
+early_stopping: true        # Whether to use early stopping during training
+early_stopping_patience: 25  # Patience epochs for early stopping
