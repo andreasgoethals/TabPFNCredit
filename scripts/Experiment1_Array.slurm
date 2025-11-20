@@ -25,7 +25,6 @@ source activate TabPFNCredit
 
 # Navigate to project
 cd $VSC_DATA/TabPFNCredit
-mkdir -p results/experiment1/logs
 
 # Log start
 echo "=== Array task $SLURM_ARRAY_TASK_ID started at $(date) ==="

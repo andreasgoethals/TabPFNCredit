@@ -24,7 +24,6 @@ source activate TabPFNCredit
 
 # Navigate to project
 cd $VSC_DATA/TabPFNCredit
-mkdir -p results/experiment1/logs
 
 # Log start
 echo "=== Single debug job started at $(date) ==="
