@@ -22,7 +22,7 @@ split:
   val_size: 0.2       # Fraction of train data used for validation
   cv_splits: 5        # Number of cross-validation folds (1 = no CV)
   seed: 42            # Random seed for reproducibility
-  row_limit: 100      # Max number of rows to load from each dataset (null = all rows)
+  row_limit: null      # Max number of rows to load from each dataset (null = all rows)
 #                       This is the total number of rows before any test/train or cv split.
 
 # ------------------------------------------------------------
