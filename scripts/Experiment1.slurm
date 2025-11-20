@@ -5,7 +5,7 @@
 #SBATCH --ntasks=4
 #SBATCH --cluster=genius
 #SBATCH --mem=40G
-#SBATCH --time=70:00:00
+#SBATCH --time=30:00:00
 #SBATCH --partition=gpu_v100
 #SBATCH --gpus-per-node=1
 #SBATCH --account=intro_vsc38338
