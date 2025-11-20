@@ -30,10 +30,11 @@ methods:
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: true             # Multilayer Perceptron
-    tabnet: true          # TabNet
+    mlp: true              # Multilayer Perceptron
+    tabnet: true           # TabNet
     tabpfn: true           # TabPFN v1 (classification)
-    PFN-v2: true           # TabPFN v2 (classification)
+    tabpfn_v2: true        # TabPFN v2 (classification) 
+    tabpfn_real: false     # TabPFN Real 
     resnet: false          # ResNet
     ftt: false             # Feature Tokenizer Transformer
     node: false            # Neural Oblivious Decision Ensembles
@@ -65,6 +66,8 @@ methods:
     tabicl: false          # TabICL
     grownet: false         # GrowNet
     tabr: false            # TabR
+    limix: false           # LiMiX (NEW)
+    mitra: false           # MITRA (NEW)
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -86,35 +89,38 @@ methods:
     # -----------------------------
     mlp: true              # Multilayer Perceptron
     tabnet: true           # TabNet
-    PFN-v2: true           # TabPFN v2 (supports regression, unlike v1)
-    resnet: false           # ResNet
-    ftt: false              # Feature Tokenizer Transformer
-    node: false             # Neural Oblivious Decision Ensembles
-    saint: false            # SAINT
-    tabtransformer: false   # TabTransformer
-    autoint: false          # AutoInt
-    danets: false           # DANets
-    snn: false              # Self-Normalizing Neural Networks
-    dcn2: false             # Deep & Cross Network v2
-    tabcaps: false          # TabCaps
-    tangos: false           # TANGOS
-    ptarl: false            # PTARL
-    switchtab: false        # SwitchTab
-    dnnr: false             # DNNR
-    modernNCA: false        # ModernNCA
-    hyperfast: false        # HyperFast
-    bishop: false           # BISHOP
-    realmlp: false          # RealMLP
-    protogate: false        # ProtoGate
-    mlp_plr: false          # MLP-PLR
-    excelformer: false      # ExcelFormer
-    grande: false           # GRANDE
-    amformer: false         # AMFormer
-    tabptm: false           # TabPTM
-    trompt: false           # TROMPT
-    tabm: false             # TabM
-    t2gformer: false        # T2G-Former
-    tabautopnpnet: false    # TabAuto-PNPNet
-    tabicl: false           # TabICL
-    grownet: false          # GrowNet
-    tabr: false             # TabR
+    tabpfn_v2: true        # TabPFN v2 (supports regression)
+    tabpfn_real: false     # TabPFN Real 
+    resnet: false          # ResNet
+    ftt: false             # Feature Tokenizer Transformer
+    node: false            # Neural Oblivious Decision Ensembles
+    saint: false           # SAINT
+    tabtransformer: false  # TabTransformer
+    autoint: false         # AutoInt
+    danets: false          # DANets
+    snn: false             # Self-Normalizing Neural Networks
+    dcn2: false            # Deep & Cross Network v2
+    tabcaps: false         # TabCaps
+    tangos: false          # TANGOS
+    ptarl: false           # PTARL
+    switchtab: false       # SwitchTab
+    dnnr: false            # DNNR
+    modernNCA: false       # ModernNCA
+    hyperfast: false       # HyperFast
+    bishop: false          # BISHOP
+    realmlp: false         # RealMLP
+    protogate: false       # ProtoGate
+    mlp_plr: false         # MLP-PLR
+    excelformer: false     # ExcelFormer
+    grande: false          # GRANDE
+    amformer: false        # AMFormer
+    tabptm: false          # TabPTM
+    trompt: false          # TROMPT
+    tabm: false            # TabM
+    t2gformer: false       # T2G-Former
+    tabautopnpnet: false   # TabAuto-PNPNet
+    tabicl: false          # TabICL
+    grownet: false         # GrowNet
+    tabr: false            # TabR
+    limix: false           # LiMiX 
+    mitra: false           # MITRA 

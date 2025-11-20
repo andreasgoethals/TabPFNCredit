@@ -7,29 +7,17 @@ scipy==1.13.0
 scikit-learn==1.4.2
 tqdm==4.66.4
 PyYAML==6.0.1
-statsmodels>=0.14
-notebook>=7.0
 
 # ============================================
-# Torch + TALENT (installed from GitHub)
+# TALENT framework (installed from GitHub)
+# Requires: torch already installed
 # ============================================
-torch==2.0.1          # required by TALENT
 TALENT @ git+https://github.com/LAMDA-Tabular/TALENT.git@main
 
 # ============================================
-# Data preprocessing & optimization
+# Hyperparameter optimization
 # ============================================
-category_encoders==2.6.3
-imbalanced-learn==0.11.0
 optuna==3.6.1
-
-# ============================================
-# Visualization (for notebooks, diagnostics, Streamlit app)
-# ============================================
-matplotlib==3.9.2
-seaborn==0.13.2
-plotly==5.22.0
-streamlit==1.36.0
 
 # ============================================
 # Evaluation utilities
@@ -40,3 +28,20 @@ hmeasure==0.1.6
 # Misc / Utilities
 # ============================================
 typing_extensions>=4.8
+
+# ============================================
+# Model downloads (for TabPFN v2)
+# ============================================
+huggingface-hub
+
+# ============================================
+# Development / Analysis
+# ============================================
+notebook>=7.0
+matplotlib==3.9.2
+seaborn==0.13.2
+plotly==5.22.0
+streamlit==1.36.0
+category_encoders==2.6.3
+imbalanced-learn==0.11.0
+statsmodels>=0.14

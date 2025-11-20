@@ -75,14 +75,15 @@ logger = logging.getLogger(__name__)
 
 # Deep learning methods - EXACT NAMES AS TALENT EXPECTS THEM
 DEEP_METHODS = {
-    "mlp", "tabnet", "tabpfn", "PFN-v2",
+    "mlp", "tabnet", "tabpfn", "tabpfn_v2", "tabpfn_real",
     "resnet", "node", "ftt", "tabptm", "tabr",
     "saint", "tabtransformer", "grownet", "autoint",
     "snn", "danets", "tabcaps", "dcn2", "tangos",
     "ptarl", "switchtab", "dnnr", "modernNCA",
     "hyperfast", "bishop", "realmlp", "protogate",
     "mlp_plr", "excelformer", "grande", "amformer",
-    "trompt", "tabm", "t2gformer", "tabautopnpnet", "tabicl"
+    "trompt", "tabm", "t2gformer", "tabautopnpnet", "tabicl",
+    "limix", "mitra"
 }
 
 # Classical methods - EXACT NAMES AS TALENT EXPECTS THEM
@@ -94,7 +95,7 @@ CLASSICAL_METHODS = {
 
 # Methods that don't benefit from HPO (pre-trained or too simple)
 NO_HPO_METHODS = {
-    'tabpfn', 'PFN-v2', 'dummy', 'NCM', 
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real', 'dummy', 'NCM', 
     'NaiveBayes', 'LinearRegression'
 }
 
@@ -110,15 +111,63 @@ LOGIT_METHODS = {
 PROBABILITY_METHODS = {
     'xgboost', 'catboost', 'lightgbm', 'RandomForest', 'LogReg',
     'knn', 'svm', 'NaiveBayes', 'NCM', 'dummy',
-    'tabpfn', 'PFN-v2', 'tabnet', 'ftt', 'tabptm', 'tabr',
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real', 'tabnet', 'ftt', 'tabptm', 'tabr',
     'saint', 'tabtransformer', 'grownet', 'autoint', 'ptarl',
-    'modernNCA', 'tabicl'
+    'modernNCA', 'tabicl', 'limix', 'mitra'
 }
 
 # Methods with dataset size limitations (row limits)
 METHOD_ROW_LIMITS = {
-    'tabpfn': 10_000,   # TabPFN limited to 10k rows
-    'PFN-v2': 50_000,   # PFN-v2 limited to 50k rows
+    'tabpfn': 10_000,
+    'tabpfn_v2': 50_000,
+}
+
+# ======================================================================================
+#                       CONFIGURATION - PREPROCESSING REQUIREMENTS
+# ======================================================================================
+
+# Methods requiring cat_policy='indices'
+REQUIRES_CAT_INDICES = {
+    'amformer', 'autoint', 'bishop', 'catboost', 'dcn2', 'ftt', 'grande', 'grownet',
+    'hyperfast', 'ptarl', 'realmlp', 'saint', 'snn',
+    't2gformer', 'tabm', 'tabtransformer', 'trompt'
+}
+
+# Methods requiring cat_policy='tabr_ohe'
+REQUIRES_CAT_TABR_OHE = {
+    'modernNCA', 'tabr', 'mlp_plr', 'tabautopnpnet'
+}
+
+# Methods requiring cat_policy='ohe'
+REQUIRES_CAT_OHE = {
+    'tabptm'
+}
+
+# Methods that forbid cat_policy='indices'
+FORBIDS_CAT_INDICES = {
+    'mlp', 'resnet', 'switchtab', 'danets', 'dnnr', 'excelformer',
+    'node', 'protogate', 'tabcaps', 'tabnet', 'tangos'
+}
+
+# TabPFN variants - special preprocessing (indices, no normalization, no num encoding)
+TABPFN_VARIANTS = {
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real'
+}
+
+# Methods requiring normalization='none'
+REQUIRES_NO_NORMALIZATION = {
+    'hyperfast', 'tabicl', 'tabpfn', 'tabpfn_v2', 'tabpfn_real'
+}
+
+# Methods requiring num_policy='none'
+REQUIRES_NO_NUM_ENCODING = {
+    'hyperfast', 'modernNCA', 'tabicl', 'tabptm', 'tabr',
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real'
+}
+
+# Methods requiring normalization='standard'
+REQUIRES_STANDARD_NORMALIZATION = {
+    'tabptm'
 }
 
 
@@ -665,98 +714,45 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
     Uses EXACT method names as TALENT expects them.
     """
     
-    # Fill project defaults for missing values
-    if _is_missing(getattr(args, 'cat_policy', None)):
-        args.cat_policy = 'ordinal'
-    if _is_missing(getattr(args, 'num_policy', None)):       
-        args.num_policy = 'none'
-    if _is_missing(getattr(args, 'normalization', None)):    
-        args.normalization = 'standard'
-    if _is_missing(getattr(args, 'num_nan_policy', None)):   
-        args.num_nan_policy = 'mean'
-    if _is_missing(getattr(args, 'cat_nan_policy', None)):   
-        args.cat_nan_policy = 'new'
-
-    # Method groups with specific requirements
-    requires_indices = {
-        'amformer', 'autoint', 'bishop', 'catboost', 'dcn2', 'ftt', 'grande', 'grownet',
-        'hyperfast', 'ptarl', 'realmlp', 'saint', 'snn',
-        't2gformer', 'tabm', 'tabtransformer', 'trompt'
+    # ==========================================================================
+    # Step 1: Fill project defaults for missing values
+    # ==========================================================================
+    defaults = {
+        'cat_policy': 'ordinal',
+        'num_policy': 'none',
+        'normalization': 'standard',
+        'num_nan_policy': 'mean',
+        'cat_nan_policy': 'new'
     }
-    requires_tabr_ohe = {'modernNCA', 'tabr', 'mlp_plr', 'tabautopnpnet'}
-    forbids_indices = {
-        'mlp', 'resnet', 'switchtab', 'danets', 'dnnr', 'excelformer',
-        'node', 'protogate', 'tabcaps', 'tabnet', 'tangos'
-    }
-    requires_no_normalization = {'hyperfast', 'tabicl'}
-    requires_no_num_encoding = {
-        'hyperfast', 'modernNCA', 'tabicl', 'tabptm', 'tabr'
-    }
+    
+    for attr, default_value in defaults.items():
+        if _is_missing(getattr(args, attr, None)):
+            setattr(args, attr, default_value)
 
-    # TabPFN and PFN-v2
-    if method in {'tabpfn', 'PFN-v2'}:
+    # ==========================================================================
+    # Step 2: Apply method-specific categorical encoding requirements
+    # ==========================================================================
+    
+    # Determine required cat_policy
+    if method in TABPFN_VARIANTS or method in REQUIRES_CAT_INDICES:
+        required_cat = 'indices'
+    elif method in REQUIRES_CAT_TABR_OHE:
+        required_cat = 'tabr_ohe'
+    elif method in REQUIRES_CAT_OHE:
+        required_cat = 'ohe'
+    else:
+        required_cat = None
+    
+    # Apply or validate cat_policy
+    if required_cat:
         if user_specified.get('cat_policy', False):
-            if args.cat_policy != 'indices':
-                raise ValueError(f"{method} requires cat_policy='indices' but got '{args.cat_policy}'")
+            if args.cat_policy != required_cat:
+                raise ValueError(f"{method} requires cat_policy='{required_cat}' but got '{args.cat_policy}'")
         else:
-            args.cat_policy = 'indices'
-
-        if user_specified.get('normalization', False):
-            if args.normalization != 'none':
-                raise ValueError(f"{method} requires normalization='none' but got '{args.normalization}'")
-        else:
-            args.normalization = 'none'
-
-        if user_specified.get('num_policy', False):
-            if args.num_policy != 'none':
-                raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
-        else:
-            args.num_policy = 'none'
-
-    # TabPTM
-    elif method == 'tabptm':
-        if user_specified.get('cat_policy', False):
-            if args.cat_policy != 'ohe':
-                raise ValueError(f"{method} requires cat_policy='ohe' but got '{args.cat_policy}'")
-        else:
-            args.cat_policy = 'ohe'
-
-        if user_specified.get('normalization', False):
-            if args.normalization != 'standard':
-                raise ValueError(f"{method} requires normalization='standard' but got '{args.normalization}'")
-        else:
-            args.normalization = 'standard'
-
-        if user_specified.get('num_policy', False):
-            if args.num_policy != 'none':
-                raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
-        else:
-            args.num_policy = 'none'
-
-    # Methods requiring 'indices'
-    elif method in requires_indices:
-        if user_specified.get('cat_policy', False):
-            if args.cat_policy != 'indices':
-                raise ValueError(f"{method} requires cat_policy='indices' but got '{args.cat_policy}'")
-        else:
-            args.cat_policy = 'indices'
-
-    # Methods requiring 'tabr_ohe'
-    elif method in requires_tabr_ohe:
-        if user_specified.get('cat_policy', False):
-            if args.cat_policy != 'tabr_ohe':
-                raise ValueError(f"{method} requires cat_policy='tabr_ohe' but got '{args.cat_policy}'")
-        else:
-            args.cat_policy = 'tabr_ohe'
-
-        if user_specified.get('num_policy', False):
-            if args.num_policy != 'none':
-                raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
-        else:
-            args.num_policy = 'none'
-
-    # Methods forbidding 'indices'
-    elif method in forbids_indices:
+            args.cat_policy = required_cat
+    
+    # Handle methods that forbid 'indices'
+    elif method in FORBIDS_CAT_INDICES:
         if user_specified.get('cat_policy', False):
             if args.cat_policy == 'indices':
                 raise ValueError(f"{method} does not support cat_policy='indices'")
@@ -764,16 +760,37 @@ def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, b
             if args.cat_policy == 'indices':
                 args.cat_policy = 'ordinal'
 
-    # Methods requiring no normalization
-    if method in requires_no_normalization:
+    # ==========================================================================
+    # Step 3: Apply normalization requirements
+    # ==========================================================================
+    
+    if method in REQUIRES_NO_NORMALIZATION:
         if user_specified.get('normalization', False):
             if args.normalization != 'none':
                 raise ValueError(f"{method} requires normalization='none' but got '{args.normalization}'")
         else:
             args.normalization = 'none'
+    
+    elif method in REQUIRES_STANDARD_NORMALIZATION:
+        if user_specified.get('normalization', False):
+            if args.normalization != 'standard':
+                raise ValueError(f"{method} requires normalization='standard' but got '{args.normalization}'")
+        else:
+            args.normalization = 'standard'
 
-    # Methods requiring no numerical encoding
-    if method in requires_no_num_encoding:
+    # ==========================================================================
+    # Step 4: Apply numerical encoding requirements
+    # ==========================================================================
+    
+    if method in REQUIRES_NO_NUM_ENCODING:
+        if user_specified.get('num_policy', False):
+            if args.num_policy != 'none':
+                raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
+        else:
+            args.num_policy = 'none'
+    
+    # TabR OHE methods also require no num encoding
+    if method in REQUIRES_CAT_TABR_OHE:
         if user_specified.get('num_policy', False):
             if args.num_policy != 'none':
                 raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
