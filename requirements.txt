@@ -1,47 +1,76 @@
 # ============================================
-# Core scientific stack
+# TabPFNCredit Requirements
+# Credit Risk Benchmarking with TALENT
 # ============================================
-numpy>=1.26.4
-pandas>=2.2.2
-scipy>=1.13.0
-scikit-learn==1.4.2
-tqdm==4.66.4
-PyYAML==6.0.1
 
 # ============================================
-# TALENT framework (installed from GitHub)
-# Requires: torch already installed
+# Core Scientific Stack
+# ============================================
+numpy==1.26.4
+pandas==2.2.2
+scipy>=1.14.0  # TALENT uses 1.13.0, but >=1.14 needed for Python 3.13
+scikit-learn==1.4.2
+
+# ============================================
+# PyTorch (version managed separately for CPU/GPU)
+# See requirements_vsc.txt for GPU-specific builds
+# ============================================
+# torch==2.0.1  # Managed in requirements_vsc.txt
+# torchvision  # Managed in requirements_vsc.txt
+
+# ============================================
+# TALENT Framework Dependencies
+# ============================================
+annoy==1.17.3           # Approximate nearest neighbors
+delu==0.0.23            # Deep learning utilities
+einops==0.8.0           # Tensor operations
+qhoptim==1.1.0          # Quasi-hyperbolic optimizer
+category_encoders==2.6.3
+
+# ============================================
+# Gradient Boosting Libraries
+# (Required by TALENT classical methods)
+# ============================================
+xgboost==2.1.4          # TALENT uses 2.0.3, compatible with our code fixes
+lightgbm==4.6.0         # TALENT pinned version
+catboost==1.2.8         # TALENT pinned version
+
+# ============================================
+# TALENT Framework
+# Install after all dependencies are satisfied
 # ============================================
 TALENT @ git+https://github.com/LAMDA-Tabular/TALENT.git@main
 
 # ============================================
-# Hyperparameter optimization
+# Hyperparameter Optimization
 # ============================================
 optuna==3.6.1
 
 # ============================================
-# Evaluation utilities
+# Configuration & Utilities
 # ============================================
-hmeasure==0.1.6
-
-# ============================================
-# Misc / Utilities
-# ============================================
+PyYAML==6.0.1
+tqdm==4.66.4
+Requests==2.31.0
 typing_extensions>=4.8
+huggingface-hub  # For TabPFN v2 model downloads
 
 # ============================================
-# Model downloads (for TabPFN v2)
+# Credit Risk Evaluation Metrics
 # ============================================
-huggingface-hub
+hmeasure==0.1.6         # H-measure for credit scoring
+imbalanced-learn==0.11.0  # Sampling techniques
+statsmodels>=0.14       # Statistical models
 
 # ============================================
-# Development / Analysis
+# Visualization & Analysis
 # ============================================
-notebook>=7.0
 matplotlib==3.9.2
 seaborn==0.13.2
 plotly==5.22.0
+
+# ============================================
+# Interactive Development
+# ============================================
+notebook>=7.0
 streamlit==1.36.0
-category_encoders==2.6.3
-imbalanced-learn==0.11.0
-statsmodels>=0.14
