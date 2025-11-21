@@ -8,7 +8,7 @@
 # ============================================
 numpy==1.26.4
 pandas==2.2.2
-scipy>=1.14.0  # TALENT uses 1.13.0, but >=1.14 needed for Python 3.13
+scipy==1.13.0  # TALENT requirement (Python 3.10 compatible)
 scikit-learn==1.4.2
 
 # ============================================
