@@ -601,7 +601,6 @@ def _cleanup_temp_directories(tmp_dir: Path, clean: bool = True) -> None:
     cwd = Path.cwd()
     stray_dirs = [
         cwd / "results_model",
-        cwd / "results",
         cwd / "checkpoints",
         cwd / "models",  
     ]
