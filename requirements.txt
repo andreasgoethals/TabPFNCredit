@@ -21,11 +21,13 @@ scikit-learn==1.4.2
 # ============================================
 # TALENT Framework Dependencies
 # ============================================
-annoy==1.17.3           # Approximate nearest neighbors
+annoy==1.17.3           # Approximate nearest neighbors (required by DNNR)
 delu==0.0.23            # Deep learning utilities
 einops==0.8.0           # Tensor operations
 qhoptim==1.1.0          # Quasi-hyperbolic optimizer
 category_encoders==2.6.3
+dill                    # Serialization library (required by RealMLP)
+faiss-cpu               # Efficient similarity search (required by TabR)
 
 # ============================================
 # Gradient Boosting Libraries

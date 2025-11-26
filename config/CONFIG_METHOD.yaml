@@ -90,7 +90,6 @@ methods:
     mlp: true              # Multilayer Perceptron
     tabnet: true           # TabNet
     tabpfn_v2: true        # TabPFN v2 (supports regression)
-    tabpfn_real: false     # TabPFN Real 
     resnet: false          # ResNet
     ftt: false             # Feature Tokenizer Transformer
     node: false            # Neural Oblivious Decision Ensembles

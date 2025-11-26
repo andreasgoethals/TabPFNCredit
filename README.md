@@ -23,9 +23,9 @@ Each method is evaluated with and without hyperparameter optimization (HPO) acro
 ```
 TabPFNCredit/
 ├── config/                  # Configuration files
-│   ├── CONFIG_DATA.yaml         # Dataset selection
-│   ├── CONFIG_METHOD.yaml       # Method selection & preprocessing
-│   └── CONFIG_EXPERIMENT.yaml   # Training parameters
+│   ├── CONFIG_DATA.yaml         # Dataset selection & row limit, sampling, ...
+│   ├── CONFIG_METHOD.yaml       # Method selection 
+│   └── CONFIG_EXPERIMENT.yaml   # HPO and deep learning Training parameters
 │
 ├── data/                    # Dataset storage (gitignored)
 │   ├── raw/                     # Original datasets
@@ -57,7 +57,6 @@ TabPFNCredit/
     └── utils/                   # Utilities
         ├── config_reader.py
         ├── storage_handler.py
-        └── storage_archiver.py
 ```
 
 ## Setup
