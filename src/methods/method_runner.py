@@ -16,6 +16,8 @@ Key features:
 - Handles CUDA tensor to numpy conversion
 - Extracts probabilities from logits for classification tasks
 - Automatic row limit capping for TabPFN (10k) and PFN-v2 (50k)
+- Calculates comprehensive metrics internally (not relying on TALENT)
+- Clips LGD predictions to [0, 1] range
 
 Architecture notes:
 - TALENT was designed as CLI scripts, not a library, so we manipulate sys.argv
@@ -24,6 +26,7 @@ Architecture notes:
 - Configs are stored in project's 'config_hpo' folder organized by task type (pd/lgd)
 - Deep learning methods return logits; classical methods return probabilities
 - TabPFN and PFN-v2 have inherent dataset size limitations
+- All metrics are calculated by us for consistency and control
 """
 
 from __future__ import annotations
@@ -172,6 +175,259 @@ REQUIRES_STANDARD_NORMALIZATION = {
 
 
 # ======================================================================================
+#                          METRIC CALCULATION FUNCTIONS
+# ======================================================================================
+
+def calculate_pd_metrics(
+    y_true: np.ndarray, 
+    y_prob: Optional[np.ndarray], 
+    y_pred: np.ndarray
+) -> Dict[str, float]:
+    """
+    Calculate comprehensive classification metrics for PD (Probability of Default) task.
+    
+    This function computes all relevant metrics for binary classification in credit risk.
+    Metrics are divided into probability-based (require y_prob) and prediction-based
+    (require y_pred) categories.
+    
+    Args:
+        y_true: Ground truth binary labels (0 or 1), shape (n_samples,)
+        y_prob: Predicted probabilities for positive class (0.0 to 1.0), shape (n_samples,)
+                Can be None if method doesn't produce probabilities
+        y_pred: Predicted binary labels (0 or 1), shape (n_samples,)
+        
+    Returns:
+        Dictionary mapping metric names to float values. NaN is used for metrics
+        that cannot be computed (e.g., AUC when y_prob is None).
+        
+    Metrics computed:
+        Probability-based (require y_prob):
+        - AUC: Area Under ROC Curve (higher is better, 0.5 = random)
+        - Gini: Gini coefficient = 2*AUC - 1 (higher is better, 0 = random)
+        - Avg_Precision: Average Precision / PR-AUC (higher is better)
+        - KS: Kolmogorov-Smirnov statistic (higher is better)
+        - Brier: Brier score (lower is better, measures calibration)
+        - LogLoss: Log loss / cross-entropy (lower is better)
+        
+        Prediction-based (require y_pred):
+        - Accuracy: Overall accuracy (higher is better)
+        - Balanced_Accuracy: Balanced accuracy (higher is better, handles imbalance)
+        - F1: F1 score (higher is better)
+        - Precision: Precision (higher is better)
+        - Recall: Recall / Sensitivity / TPR (higher is better)
+        - MCC: Matthews Correlation Coefficient (higher is better, -1 to 1)
+    """
+    from sklearn.metrics import (
+        roc_auc_score, average_precision_score, accuracy_score,
+        balanced_accuracy_score, f1_score, precision_score, recall_score,
+        brier_score_loss, log_loss, matthews_corrcoef
+    )
+    from scipy import stats
+    
+    metrics: Dict[str, float] = {}
+    
+    # Ensure arrays are 1D
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
+    if y_prob is not None:
+        y_prob = np.asarray(y_prob).ravel()
+    
+    # Check if we have both classes
+    has_both_classes = len(np.unique(y_true)) > 1
+    
+    # ==========================================================================
+    # Probability-based metrics (require y_prob)
+    # ==========================================================================
+    
+    # AUC-ROC
+    try:
+        if y_prob is not None and has_both_classes:
+            metrics['AUC'] = float(roc_auc_score(y_true, y_prob))
+            metrics['Gini'] = 2 * metrics['AUC'] - 1
+        else:
+            metrics['AUC'] = np.nan
+            metrics['Gini'] = np.nan
+    except Exception:
+        metrics['AUC'] = np.nan
+        metrics['Gini'] = np.nan
+    
+    # Average Precision (PR-AUC)
+    try:
+        if y_prob is not None and has_both_classes:
+            metrics['Avg_Precision'] = float(average_precision_score(y_true, y_prob))
+        else:
+            metrics['Avg_Precision'] = np.nan
+    except Exception:
+        metrics['Avg_Precision'] = np.nan
+    
+    # KS Statistic (Kolmogorov-Smirnov)
+    try:
+        if y_prob is not None and has_both_classes:
+            pos_probs = y_prob[y_true == 1]
+            neg_probs = y_prob[y_true == 0]
+            if len(pos_probs) > 0 and len(neg_probs) > 0:
+                ks_stat, _ = stats.ks_2samp(pos_probs, neg_probs)
+                metrics['KS'] = float(ks_stat)
+            else:
+                metrics['KS'] = np.nan
+        else:
+            metrics['KS'] = np.nan
+    except Exception:
+        metrics['KS'] = np.nan
+    
+    # Brier Score (lower is better, measures calibration)
+    try:
+        if y_prob is not None:
+            metrics['Brier'] = float(brier_score_loss(y_true, y_prob))
+        else:
+            metrics['Brier'] = np.nan
+    except Exception:
+        metrics['Brier'] = np.nan
+    
+    # Log Loss (lower is better)
+    try:
+        if y_prob is not None:
+            # Clip probabilities to avoid log(0)
+            y_prob_clipped = np.clip(y_prob, 1e-15, 1 - 1e-15)
+            metrics['LogLoss'] = float(log_loss(y_true, y_prob_clipped))
+        else:
+            metrics['LogLoss'] = np.nan
+    except Exception:
+        metrics['LogLoss'] = np.nan
+    
+    # ==========================================================================
+    # Prediction-based metrics (require y_pred)
+    # ==========================================================================
+    
+    # Accuracy
+    metrics['Accuracy'] = float(accuracy_score(y_true, y_pred))
+    
+    # Balanced Accuracy (handles class imbalance)
+    metrics['Balanced_Accuracy'] = float(balanced_accuracy_score(y_true, y_pred))
+    
+    # F1 Score
+    metrics['F1'] = float(f1_score(y_true, y_pred, zero_division=0))
+    
+    # Precision
+    metrics['Precision'] = float(precision_score(y_true, y_pred, zero_division=0))
+    
+    # Recall (Sensitivity, True Positive Rate)
+    metrics['Recall'] = float(recall_score(y_true, y_pred, zero_division=0))
+    
+    # MCC (Matthews Correlation Coefficient) - robust to class imbalance
+    metrics['MCC'] = float(matthews_corrcoef(y_true, y_pred))
+    
+    return metrics
+
+
+def calculate_lgd_metrics(
+    y_true: np.ndarray, 
+    y_pred: np.ndarray
+) -> Dict[str, float]:
+    """
+    Calculate comprehensive regression metrics for LGD (Loss Given Default) task.
+    
+    This function computes all relevant metrics for regression in credit risk.
+    Predictions should already be clipped to [0, 1] before calling this function.
+    
+    Args:
+        y_true: Ground truth LGD values, shape (n_samples,)
+        y_pred: Predicted LGD values (should be clipped to [0, 1]), shape (n_samples,)
+        
+    Returns:
+        Dictionary mapping metric names to float values. NaN is used for metrics
+        that cannot be computed.
+        
+    Metrics computed:
+        Error metrics:
+        - R2: R-squared / Coefficient of Determination (higher is better, can be negative)
+        - MSE: Mean Squared Error (lower is better)
+        - RMSE: Root Mean Squared Error (lower is better)
+        - MAE: Mean Absolute Error (lower is better)
+        - MedAE: Median Absolute Error (lower is better, robust to outliers)
+        - MaxError: Maximum absolute error (lower is better)
+        - Explained_Variance: Explained variance score (higher is better)
+        
+        Percentage metrics:
+        - MAPE: Mean Absolute Percentage Error (lower is better, excludes y_true=0)
+        
+        Correlation metrics:
+        - Pearson_Corr: Pearson correlation coefficient (higher is better)
+        - Spearman_Corr: Spearman rank correlation (higher is better, robust to outliers)
+    """
+    from sklearn.metrics import (
+        r2_score, mean_squared_error, mean_absolute_error,
+        explained_variance_score, median_absolute_error, max_error
+    )
+    from scipy import stats
+    
+    metrics: Dict[str, float] = {}
+    
+    # Ensure arrays are 1D
+    y_true = np.asarray(y_true).ravel()
+    y_pred = np.asarray(y_pred).ravel()
+    
+    # ==========================================================================
+    # Error metrics
+    # ==========================================================================
+    
+    # R² (Coefficient of Determination) - can be negative if model is worse than mean
+    try:
+        metrics['R2'] = float(r2_score(y_true, y_pred))
+    except Exception:
+        metrics['R2'] = np.nan
+    
+    # MSE (Mean Squared Error)
+    metrics['MSE'] = float(mean_squared_error(y_true, y_pred))
+    
+    # RMSE (Root Mean Squared Error)
+    metrics['RMSE'] = float(np.sqrt(metrics['MSE']))
+    
+    # MAE (Mean Absolute Error)
+    metrics['MAE'] = float(mean_absolute_error(y_true, y_pred))
+    
+    # Median Absolute Error (more robust to outliers than MAE)
+    metrics['MedAE'] = float(median_absolute_error(y_true, y_pred))
+    
+    # Max Error (worst case)
+    metrics['MaxError'] = float(max_error(y_true, y_pred))
+    
+    # Explained Variance
+    metrics['Explained_Variance'] = float(explained_variance_score(y_true, y_pred))
+    
+    # ==========================================================================
+    # Percentage error metrics
+    # ==========================================================================
+    
+    # MAPE (Mean Absolute Percentage Error) - exclude zeros to avoid division by zero
+    mask = y_true != 0
+    if mask.sum() > 0:
+        mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
+        metrics['MAPE'] = float(mape)
+    else:
+        metrics['MAPE'] = np.nan
+    
+    # ==========================================================================
+    # Correlation metrics
+    # ==========================================================================
+    
+    # Pearson Correlation
+    if np.std(y_pred) > 1e-10 and np.std(y_true) > 1e-10:
+        metrics['Pearson_Corr'] = float(np.corrcoef(y_true, y_pred)[0, 1])
+    else:
+        metrics['Pearson_Corr'] = np.nan
+    
+    # Spearman Correlation (rank-based, robust to outliers and non-linear relationships)
+    try:
+        spearman_corr, _ = stats.spearmanr(y_true, y_pred)
+        metrics['Spearman_Corr'] = float(spearman_corr)
+    except Exception:
+        metrics['Spearman_Corr'] = np.nan
+    
+    return metrics
+
+
+# ======================================================================================
 #                          TENSOR TO NUMPY CONVERSION
 # ======================================================================================
 
@@ -281,6 +537,76 @@ def _extract_class_probabilities(
             f"Cannot extract class probabilities."
         )
         return None
+
+
+def _extract_binary_predictions(
+    predictions: np.ndarray,
+    y_prob: Optional[np.ndarray],
+    threshold: float = 0.5
+) -> np.ndarray:
+    """
+    Extract binary class predictions from model output.
+    
+    For classification, converts probabilities or raw predictions to binary 0/1.
+    
+    Args:
+        predictions: Raw model predictions (may be 2D with class scores)
+        y_prob: Class probabilities if already computed
+        threshold: Classification threshold (default 0.5)
+        
+    Returns:
+        1D array of binary predictions (0 or 1)
+    """
+    # If we have probabilities, threshold them
+    if y_prob is not None:
+        return (y_prob >= threshold).astype(np.int32)
+    
+    # Handle 2D predictions: argmax across classes
+    if len(predictions.shape) == 2 and predictions.shape[1] >= 2:
+        return np.argmax(predictions, axis=1).astype(np.int32)
+    
+    # Handle 1D predictions
+    predictions = predictions.ravel()
+    
+    # Check if already binary
+    unique_vals = np.unique(predictions)
+    if len(unique_vals) <= 2 and np.all(np.isin(unique_vals, [0, 1])):
+        return predictions.astype(np.int32)
+    
+    # Threshold continuous values
+    return (predictions >= threshold).astype(np.int32)
+
+
+def _clip_regression_predictions(
+    predictions: np.ndarray,
+    lower: float = 0.0,
+    upper: float = 1.0
+) -> Tuple[np.ndarray, int, int]:
+    """
+    Clip regression predictions to valid range for LGD.
+    
+    LGD (Loss Given Default) must be in [0, 1] range. This function clips
+    predictions and reports how many were outside the valid range.
+    
+    Args:
+        predictions: Raw regression predictions
+        lower: Lower bound (default 0.0)
+        upper: Upper bound (default 1.0)
+        
+    Returns:
+        Tuple of:
+        - clipped predictions (np.ndarray)
+        - count of predictions clipped from below
+        - count of predictions clipped from above
+    """
+    predictions = predictions.ravel()
+    
+    n_below = int(np.sum(predictions < lower))
+    n_above = int(np.sum(predictions > upper))
+    
+    clipped = np.clip(predictions, lower, upper)
+    
+    return clipped, n_below, n_above
 
 
 # ======================================================================================
@@ -647,9 +973,9 @@ def _cleanup_checkpoints_from_config_dir(config_dir: Path) -> None:
                 pass
 
 
-def _parse_prediction_output(output: Any) -> Tuple[Optional[float], Any, Optional[list], Any]:
+def _parse_prediction_output(output: Any) -> Tuple[Any]:
     """
-    Parse TALENT's prediction output.
+    Parse TALENT's prediction output to extract just predictions.
     
     TALENT methods return predictions in various formats:
     - Just predictions: output
@@ -657,42 +983,16 @@ def _parse_prediction_output(output: Any) -> Tuple[Optional[float], Any, Optiona
     - (metrics, metric_names, predictions): tuple of 3
     - (val_loss, metrics, metric_names, predictions): tuple of 4+
     
+    We only care about predictions since we calculate metrics ourselves.
+    
     Returns:
-        Tuple of (val_loss, metrics, metric_names, predictions)
+        Raw predictions array
     """
-    val_loss = None
-    metrics = None
-    metric_names = None
-    predictions = None
-    
     if isinstance(output, tuple):
-        if len(output) >= 4:
-            val_loss, metrics, metric_names, predictions = output[:4]
-        elif len(output) == 3:
-            metrics, metric_names, predictions = output
-        elif len(output) == 2:
-            metrics, predictions = output
-        elif len(output) == 1:
-            predictions = output[0]
+        # Predictions are always the last element
+        return output[-1]
     else:
-        predictions = output
-    
-    # Ensure metric_names is a list of strings
-    if metric_names is None:
-        metric_names = []
-    elif isinstance(metric_names, str):
-        metric_names = [metric_names]
-    elif not isinstance(metric_names, list):
-        metric_names = list(metric_names)
-    
-    # Ensure val_loss is Python float
-    if val_loss is not None:
-        if _HAS_TORCH and isinstance(val_loss, torch.Tensor):
-            val_loss = float(val_loss.detach().cpu().item())
-        else:
-            val_loss = float(val_loss)
-    
-    return val_loss, metrics, metric_names, predictions
+        return output
 
 
 # Sentinel values that indicate "missing" or "not specified"
@@ -815,19 +1115,6 @@ def _apply_method_row_limit(method: str, row_limit: Optional[int]) -> Optional[i
         
     Returns:
         Capped row limit respecting both user preference and method constraints
-        
-    Example:
-        >>> _apply_method_row_limit('tabpfn', None)
-        10000  # TabPFN max applied
-        
-        >>> _apply_method_row_limit('tabpfn', 5000)
-        5000   # User's smaller limit preserved
-        
-        >>> _apply_method_row_limit('tabpfn', 20000)
-        10000  # Capped to TabPFN max
-        
-        >>> _apply_method_row_limit('xgboost', None)
-        None   # No limit for XGBoost
     """
     if method not in METHOD_ROW_LIMITS:
         return row_limit
@@ -944,36 +1231,28 @@ def run_talent_method(
     - Handles CUDA tensor to numpy conversion
     - Extracts probabilities from logits for classification tasks
     - Automatic row limit enforcement for TabPFN (10k) and PFN-v2 (50k)
+    - Clips LGD predictions to [0, 1] range
+    - Calculates comprehensive metrics internally (not relying on TALENT)
     
-    HPO Configuration Behavior:
-    ┌─────────────┬──────────────────────────────────────────────────────────┐
-    │   Setting   │                       Behavior                           │
-    ├─────────────┼──────────────────────────────────────────────────────────┤
-    │ tune=True   │ Fold 1: Run HPO, save config to config_hpo/{task}/      │
-    │             │ Fold 2+: Load saved config from fold 1                  │
-    │             │                                                          │
-    │ tune=False  │ All folds: Use TALENT's default hyperparameters         │
-    │             │ (Never loads saved configs, always uses defaults)       │
-    └─────────────┴──────────────────────────────────────────────────────────┘
-    
-    Config Storage:
-    - Configs stored at: {config_base_dir}/config_hpo/{task}/{dataset}/{method}-tuned.json
-    - Task is 'pd' for classification or 'lgd' for regression
-    - Each dataset has its own folder
-    - Configs persist across runs for reproducibility
-    - tune=False always ignores saved configs
-    
-    Row Limit Enforcement:
-    - TabPFN: Automatically capped at 10,000 rows (in-context learning limit)
-    - PFN-v2: Automatically capped at 50,000 rows (larger context window)
-    - User can specify smaller limits, but not larger
-    - Other methods: No automatic row limit
-    
-    Architecture notes:
-    - CV is implemented outside TALENT (in DataFeeder), so we manually handle fold iteration
-    - DataFeeder returns fold IDs starting at 1, so we detect first fold dynamically
-    - When tune=True, HPO runs only on first fold and saves config
-    - Subsequent folds automatically load and reuse the optimized config (ONLY when tune=True)
+    Returns dictionary structure:
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │ Key              │ Type              │ Description                      │
+    ├─────────────────────────────────────────────────────────────────────────┤
+    │ y_true           │ np.ndarray        │ Ground truth values              │
+    │ y_prob           │ np.ndarray/None   │ Class probabilities (PD only)    │
+    │ y_pred           │ np.ndarray        │ Predictions (binary PD/clipped LGD)│
+    │ y_pred_raw       │ np.ndarray        │ Raw unprocessed predictions      │
+    │ metrics          │ Dict[str, float]  │ Comprehensive metrics dict       │
+    │ train_time       │ float             │ Training time in seconds         │
+    │ info             │ dict              │ Dataset information              │
+    │ method           │ str               │ Method name                      │
+    │ dataset          │ str               │ Dataset name                     │
+    │ task             │ str               │ Task type (pd/lgd)               │
+    │ fold_id          │ int               │ Fold identifier                  │
+    │ used_hpo         │ bool              │ Whether HPO was used             │
+    │ n_clipped_below  │ int               │ Predictions < 0 (LGD only)       │
+    │ n_clipped_above  │ int               │ Predictions > 1 (LGD only)       │
+    └─────────────────────────────────────────────────────────────────────────┘
     
     Args:
         task: Task type ('pd' for classification, 'lgd' for regression)
@@ -999,41 +1278,16 @@ def run_talent_method(
         evaluate_option: Which model to use for evaluation ('best-val', 'last')
         model_config: Custom model hyperparameters
         fit_config: Custom fit configuration
-        config_base_dir: Base directory where config_hpo folder will be created (default: project root)
+        config_base_dir: Base directory where config_hpo folder will be created
         verbose: Whether to print detailed progress
         clean_temp_dir: Whether to clean up temporary directories after run
         
     Returns:
-        Dictionary mapping fold_id to results dict containing:
-            - y_true: Ground truth labels/values (np.array)
-            - y_pred: Model predictions (np.array)
-            - y_prob: Class probabilities (np.array) - classification only
-            - metrics: Performance metrics
-            - metric_names: List of metric names
-            - primary_metric: Name of primary metric
-            - val_loss: Validation loss
-            - train_time: Training time in seconds
-            - info: Dataset information
-            - method, dataset, task, fold_id: Metadata
-            - used_hpo: Whether HPO was used for this fold
-            
+        Dictionary mapping fold_id to results dict
+        
     Raises:
         ValueError: If method requirements conflict with user-specified options
         RuntimeError: If training or prediction fails
-        
-    Example:
-        >>> results = run_talent_method(
-        ...     task='pd',
-        ...     dataset='0014.hmeq',
-        ...     test_size=0.2,
-        ...     val_size=0.2,
-        ...     cv_splits=5,
-        ...     seed=42,
-        ...     method='xgboost',
-        ...     tune=True,
-        ...     n_trials=100,
-        ... )
-        >>> y_prob = results[1]['y_prob']  # Probability of positive class
     """
     
     # Log method start 
@@ -1095,13 +1349,10 @@ def run_talent_method(
         
         # Setup directories
         if config_base_dir is None:
-            # Default: use project root
             base_config_dir = _PROJECT_ROOT / "config_hpo"
         else:
-            # User-specified: create config_hpo in specified location
             base_config_dir = Path(config_base_dir) / "config_hpo"
         
-        # Create dataset-specific config directory
         dataset_config_dir = base_config_dir / task.lower() / dataset
         dataset_config_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1213,7 +1464,6 @@ def run_talent_method(
                 if method == 'catboost':
                     _fix_catboost_config(args, is_regression)
                 
-                # Suppress LightGBM verbosity completely
                 if method == 'lightgbm':
                     _fix_lightgbm_config(args)
                 
@@ -1275,27 +1525,64 @@ def run_talent_method(
                         
                         output = model.predict((N, C, y), info, model_name=args.evaluate_option)
                     
-                    # Parse output
-                    val_loss, metrics, metric_names, predictions = _parse_prediction_output(output)
+                    # Parse output - we only need predictions
+                    predictions_raw = _parse_prediction_output(output)
                     
                     # Convert to numpy arrays
                     y_true_np = _ensure_numpy_array(y["test"])
-                    y_pred_np = _ensure_numpy_array(predictions)
+                    y_pred_raw_np = _ensure_numpy_array(predictions_raw)
                     
-                    # Extract class probabilities for classification
-                    y_prob_np = _extract_class_probabilities(y_pred_np, method, is_regression)
+                    # Initialize clipping counters
+                    n_clipped_below = 0
+                    n_clipped_above = 0
                     
-                    # Store results
+                    if is_regression:
+                        # LGD: Clip predictions to [0, 1]
+                        y_pred_np, n_clipped_below, n_clipped_above = _clip_regression_predictions(
+                            y_pred_raw_np
+                        )
+                        y_prob_np = None  # No probabilities for regression
+                        
+                        if verbose and (n_clipped_below > 0 or n_clipped_above > 0):
+                            total = len(y_pred_np)
+                            pct_clipped = 100 * (n_clipped_below + n_clipped_above) / total
+                            print(f"\n[CLIPPING] {n_clipped_below} predictions < 0, {n_clipped_above} > 1 ({pct_clipped:.1f}% total)")
+                            if pct_clipped > 5:
+                                print(f"[WARNING] High clipping rate may indicate model issues")
+                        
+                        # Calculate our own metrics
+                        metrics = calculate_lgd_metrics(y_true_np, y_pred_np)
+                        
+                    else:
+                        # PD: Extract probabilities and binary predictions
+                        y_prob_np = _extract_class_probabilities(y_pred_raw_np, method, is_regression)
+                        y_pred_np = _extract_binary_predictions(y_pred_raw_np, y_prob_np)
+                        
+                        # Calculate our own metrics
+                        metrics = calculate_pd_metrics(y_true_np, y_prob_np, y_pred_np)
+                    
+                    # Store results in new structure
                     results[fold_id] = {
+                        # Core predictions (in requested order)
                         "y_true": y_true_np,
-                        "y_pred": y_pred_np,
                         "y_prob": y_prob_np,
-                        "metrics": metrics if isinstance(metrics, (dict, list, tuple)) else {},
-                        "metric_names": metric_names,
-                        "primary_metric": metric_names[0] if metric_names else None,
-                        "val_loss": float(val_loss) if val_loss is not None else None,
+                        "y_pred": y_pred_np,
+                        
+                        # Raw predictions for debugging
+                        "y_pred_raw": y_pred_raw_np,
+                        
+                        # Our calculated metrics
+                        "metrics": metrics,
+                        
+                        # Clipping diagnostics (LGD only, 0 for PD)
+                        "n_clipped_below": n_clipped_below,
+                        "n_clipped_above": n_clipped_above,
+                        
+                        # Training info
                         "train_time": float(train_time),
                         "info": info,
+                        
+                        # Metadata
                         "method": method,
                         "dataset": dataset,
                         "task": task,
@@ -1303,14 +1590,11 @@ def run_talent_method(
                         "used_hpo": fold_id == first_fold_id and tune,
                     }
                     
-                    if verbose and metrics:
-                        print(f"\nFold {fold_id} results:")
-                        if isinstance(metrics, (list, tuple)):
-                            for name, res in zip(metric_names, metrics):
-                                if name:
-                                    print(f"  {name}: {res:.4f}")
-                        else:
-                            print(f"  {metrics}")
+                    if verbose:
+                        print(f"\nFold {fold_id} metrics:")
+                        for metric_name, metric_value in metrics.items():
+                            if not np.isnan(metric_value):
+                                print(f"  {metric_name}: {metric_value:.4f}")
             
                 except Exception as e:
                     if verbose:

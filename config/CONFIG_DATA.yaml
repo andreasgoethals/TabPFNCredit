@@ -53,6 +53,7 @@ dataset_pd:
   0012.loan_default: true
   0013.home_credit: true
   0014.hmeq: true
+  0015.algorithmwatch: true
 
 # ------------------------------------------------------------
 # Loss Given Default (LGD) datasets

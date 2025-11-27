@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 
-#SBATCH --job-name=exp1_single
+#SBATCH --job-name=exp1_array
 #SBATCH --nodes=1
-#SBATCH --ntasks=4
+#SBATCH --ntasks=9
 #SBATCH --cpus-per-task=1
 #SBATCH --cluster=genius
 #SBATCH --mem=40G
-#SBATCH --time=04:00:00
+#SBATCH --time=40:00:00
 #SBATCH --partition=gpu_p100
 #SBATCH --gpus-per-node=1
 #SBATCH --account=intro_vsc38338
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=andreas.goethals@kuleuven.be
-#SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.o%j
-#SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.e%j
+#SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.o%A_%a
+#SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.e%A_%a
+#SBATCH --array=0-19%8
 
-# Force unbuffered output
+# Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
 # Setup environment
@@ -26,13 +27,13 @@ source activate TabPFNCredit
 cd $VSC_DATA/TabPFNCredit
 
 # Log start
-echo "=== Single debug job started at $(date) ==="
+echo "=== Array task $SLURM_ARRAY_TASK_ID started at $(date) ==="
 echo "Node: $SLURM_NODELIST"
 echo "GPUs: $CUDA_VISIBLE_DEVICES"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 
-# Run single dataset (change index as needed)
-# Dataset indices: 0-13 = PD datasets, 14-18 = LGD datasets
-python -u scripts/Experiment1.py --dataset_idx=0
+# Run experiment
+python -u scripts/Experiment1/Experiment1.py --dataset_idx=$SLURM_ARRAY_TASK_ID
 
-echo "=== Single debug job finished at $(date) ==="
+# Log end
+echo "=== Array task $SLURM_ARRAY_TASK_ID finished at $(date) ==="

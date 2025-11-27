@@ -1,12 +1,12 @@
-# scripts/Experiment1.py
+# scripts/Experiment1/Experiment1.py
 """
 Experiment 1: HPO Benchmark across all enabled datasets.
 
 Supports parallelization via SLURM array jobs:
-    python scripts/Experiment1.py --dataset_idx=0
+    python scripts/Experiment1/Experiment1.py --dataset_idx=0
     
 Or run all sequentially:
-    python scripts/Experiment1.py
+    python scripts/Experiment1/Experiment1.py
 """
 
 import sys
@@ -17,7 +17,7 @@ import logging
 import shutil
 
 # Setup paths
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config

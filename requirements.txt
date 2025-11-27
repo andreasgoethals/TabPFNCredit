@@ -10,6 +10,7 @@ numpy==1.26.4
 pandas==2.2.2
 scipy==1.13.0  # TALENT requirement (Python 3.10 compatible)
 scikit-learn==1.4.2
+pyarrow>=14.0.0         # Parquet file support (for large datasets like AlgorithmWatch)
 
 # ============================================
 # PyTorch (version managed separately for CPU/GPU)
@@ -41,7 +42,7 @@ catboost==1.2.8         # TALENT pinned version
 # TALENT Framework
 # Install after all dependencies are satisfied
 # ============================================
-TALENT @ git+https://github.com/LAMDA-Tabular/TALENT.git@main
+TALENT @ git+https://github.com/andreasgoethals/TALENT.git@feature/probability-support-classical-methods
 
 # ============================================
 # Hyperparameter Optimization
