@@ -9,7 +9,7 @@
 #SBATCH --time=10:00:00
 #SBATCH --partition=gpu_p100
 #SBATCH --gpus-per-node=1
-#SBATCH --account=intro_vsc38338
+#SBATCH --account=lp_verbekelab
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=andreas.goethals@kuleuven.be
 #SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.o%A_%a
