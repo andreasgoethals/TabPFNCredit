@@ -5,7 +5,7 @@
 #SBATCH --ntasks=9
 #SBATCH --cpus-per-task=1
 #SBATCH --cluster=genius
-#SBATCH --mem=40G
+#SBATCH --mem=15G
 #SBATCH --time=10:00:00
 #SBATCH --partition=gpu_p100
 #SBATCH --gpus-per-node=1
