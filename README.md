@@ -1,129 +1,159 @@
-# TabPFNCredit: Foundation Models for Credit Risk Prediction
+# TabPFNCredit
 
-**TabPFNCredit** is a comprehensive benchmarking framework designed to evaluate the performance of Tabular Foundation Models (specifically **TabPFN** and **TabPFN v2**) against state-of-the-art Gradient Boosting methods and Deep Learning baselines in the context of Credit Risk Modeling.
+**Benchmarking Tabular Foundation Models for Credit Risk Prediction**
 
-This repository supports both **Probability of Default (PD)** classification tasks and **Loss Given Default (LGD)** regression tasks, utilizing the [TALENT](https://github.com/LAMDA-Tabular/TALENT) framework for standardized model execution.
+A comprehensive benchmarking framework that systematically compares Tabular Foundation Models (TabPFN, TabPFN v2) against classical machine learning methods and deep learning baselines for credit risk prediction tasks. Built on the [TALENT](https://github.com/LAMDA-Tabular/TALENT) framework.
 
-## Key Features
+## Overview
 
-- **Dual-Task Support**: Seamlessly handles Classification (PD) and Regression (LGD)
-- **20 Datasets**: 15 PD classification + 5 LGD regression datasets from diverse sources
-- **40+ Methods**: Classical ML, Gradient Boosting, and Deep Learning methods via TALENT
-- **Zero-Shot vs. Fine-Tuned**: Benchmarks TabPFN's zero-shot capabilities against tuned baselines
-- **Automated HPO**: Integrated Hyperparameter Optimization using Optuna
-- **Cluster Ready**: Optimized SLURM scripts for VSC/HPC clusters (Fast/Slow job splits)
-- **Robust Data Pipeline**: Automated preprocessing, PCA for wide datasets, Parquet support
-- **Result Aggregation**: Automated summarization with pivot tables and cross-validation statistics
+TabPFNCredit provides a rigorous empirical evaluation of tabular machine learning methods in the credit risk domain. The framework supports:
+
+- **Probability of Default (PD)** — Binary classification tasks
+- **Loss Given Default (LGD)** — Regression tasks
+
+Each method is evaluated with both default hyperparameters and Optuna-optimized configurations, enabling fair comparison of out-of-the-box performance versus tuned performance.
 
 ## Repository Structure
 
 ```
 TabPFNCredit/
-├── config/                          # Centralized YAML configuration
-│   ├── CONFIG_DATA.yaml             # Dataset selection, paths, split settings
-│   ├── CONFIG_EXPERIMENT.yaml       # Training epochs, batch sizes, HPO trials
-│   └── CONFIG_METHOD.yaml           # Enable/disable specific algorithms
+├── LICENSE.txt
+├── requirements.txt                 # Base dependencies
+├── requirements_local.txt           # Local machine (includes PyTorch CPU)
+├── requirements_vsc.txt             # VSC supercomputer (CUDA 11.8)
 │
-├── data/                            # Data storage (gitignored)
-│   ├── raw/                         # Raw datasets (.csv or .parquet)
-│   │   ├── pd/                      # PD classification datasets
-│   │   └── lgd/                     # LGD regression datasets
-│   └── processed/                   # Cached preprocessed numpy arrays
+├── config/                          # Configuration files
+│   ├── CONFIG_DATA.yaml             # Dataset paths, splits, and toggles
+│   ├── CONFIG_EXPERIMENT.yaml       # Training parameters (epochs, batch size, HPO trials)
+│   └── CONFIG_METHOD.yaml           # Method toggles for PD and LGD tasks
 │
-├── notebooks/                       # Interactive development
-│   ├── Data_Exploration.ipynb       # Dataset statistics and visualization
-│   ├── Individual_Method_Runner.ipynb  # Test single method/dataset pairs
-│   └── experiment_runner.ipynb      # Run experiments from Jupyter
+├── data/                            # Data directory (not included in repo)
+│   └── raw/
+│       ├── pd/                      # PD classification datasets
+│       └── lgd/                     # LGD regression datasets
 │
-├── results/                         # Experiment outputs
-│   └── experiment1/                 # Results organized by experiment
-│       ├── pd/                      # PD task results (.pkl per dataset)
-│       ├── lgd/                     # LGD task results (.pkl per dataset)
-│       └── summary/                 # Aggregated CSV summaries
+├── notebooks/
+│   ├── experiment_runner.ipynb      # Run complete experiments from notebook
+│   └── Individual_Method_Runner.ipynb  # Quick testing of single methods
 │
-├── scripts/                         # Execution scripts
+├── scripts/
+│   ├── __init__.py
 │   └── Experiment1/                 # Main experiment scripts
-│       ├── Experiment1.py           # Main entry point
-│       ├── Experiment1_Fast.slurm   # HPC: 16 standard datasets (40h)
-│       └── Experiment1_Slow.slurm   # HPC: 4 large datasets (72h)
+│       ├── __init__.py
+│       ├── Experiment1.py           # Python entry point for experiments
+│       ├── Experiment1_Array.slurm  # SLURM array job template
+│       ├── Experiment1_Fast.slurm   # Fast datasets (16 datasets, ~4h each)
+│       ├── Experiment1_Single.slurm # Single dataset for debugging
+│       └── Experiment1_Slow.slurm   # Large datasets (4 datasets, ~72h each)
 │
-├── src/                             # Core source code
-│   ├── data/                        # Data loading and preprocessing
-│   │   ├── dataset_preprocessing.py # Dataset-specific cleaning logic
-│   │   ├── data_feeder.py           # Data loading utilities
-│   │   └── preprocessing.py         # General preprocessing functions
-│   ├── methods/                     # Model execution
-│   │   ├── method_runner.py         # TALENT wrapper with metrics
-│   │   ├── all_methods_runner.py    # Run all methods on all datasets
-│   │   ├── HPO_runner.py            # Hyperparameter optimization
-│   │   └── method_debugger.py       # Quick debugging utility
-│   ├── postprocessing/              # Result analysis
-│   │   └── Summarize_Results.py     # Aggregate results into CSVs
-│   └── utils/                       # Utilities
-│       └── config.py                # Configuration loading
+├── src/
+│   ├── __init__.py
+│   │
+│   ├── data/
+│   │   ├── __init__.py
+│   │   ├── data_feeder.py           # DataFeeder: unified data loading and CV splitting
+│   │   ├── dataset_preprocessing.py # Dataset-specific preprocessing logic
+│   │   └── preprocessing.py         # Preprocessing entry point
+│   │
+│   ├── methods/
+│   │   ├── __init__.py
+│   │   ├── method_runner.py         # Core method execution via TALENT
+│   │   ├── all_methods_runner.py    # Run all enabled methods on a dataset
+│   │   ├── HPO_runner.py            # Run NO_HPO vs HPO comparison
+│   │   └── method_debugger.py       # Debug and validate all methods
+│   │
+│   ├── postprocessing/
+│   │   ├── __init__.py
+│   │   └── Summarize_Results.py     # Aggregate results into CSV summaries
+│   │
+│   └── utils/
+│       ├── __init__.py
+│       ├── config_reader.py         # Load YAML configurations
+│       └── storage_handler.py       # Save/load experiment results
 │
-├── requirements.txt                 # Main dependencies
-├── requirements_local.txt           # Local development (CPU)
-└── requirements_vsc.txt             # VSC cluster (GPU)
+└── results/                         # Experiment outputs (generated at runtime)
+    └── {experiment_name}/
+        ├── pd/                      # PD results (.pkl files per dataset)
+        ├── lgd/                     # LGD results (.pkl files per dataset)
+        ├── logs/                    # Experiment logs
+        └── summary/                 # Aggregated CSV files
 ```
 
 ## Datasets
 
-### PD (Classification) - 15 Datasets
+### Probability of Default (PD) — 15 Datasets
 
-| ID | Dataset | Samples | Features | Source |
-|----|---------|---------|----------|--------|
-| 0001 | gmsc | 150,000 | 10 | Give Me Some Credit (Kaggle) |
-| 0002 | taiwan_creditcard | 30,000 | 23 | UCI Repository |
-| 0003 | vehicle_loan | 233,154 | 41 | Analytics Vidhya |
-| 0004 | lendingclub | 9,578 | 14 | LendingClub |
-| 0005 | case_study | ~10,000 | 20 | Academic case study |
-| 0006 | myhom | ~5,000 | 15 | Financial institution |
-| 0007 | hackerearth | 252,000 | 36 | HackerEarth competition |
-| 0008 | cobranded | ~20,000 | 30 | Co-branded credit cards |
-| 0009 | german | 1,000 | 20 | UCI German Credit |
-| 0010 | bank_status | ~12,000 | 15 | Bank account status |
-| 0011 | thomas | ~5,000 | 12 | Thomas et al. textbook |
-| 0012 | loan_default | ~35,000 | 25 | Loan default prediction |
-| 0013 | home_credit | 307,511 | 121 | Home Credit (Kaggle) |
-| 0014 | hmeq | 5,960 | 12 | Home Equity dataset |
-| 0015 | algorithmwatch | 158,700 | 2,987 | AlgorithmWatch (PCA reduced) |
+| ID | Dataset | Rows | Description |
+|----|---------|------|-------------|
+| 0001 | gmsc | 150K | Give Me Some Credit (Kaggle) |
+| 0002 | taiwan_creditcard | 30K | Taiwan Credit Card Default |
+| 0003 | vehicle_loan | 233K | Vehicle Loan Default |
+| 0004 | lendingclub | 42K | Lending Club Loans |
+| 0005 | case_study | 32K | Credit Case Study |
+| 0006 | myhom | 28K | Home Loan Default |
+| 0007 | hackerearth | 252K | HackerEarth ML Challenge |
+| 0008 | cobranded | 26K | Co-branded Credit Cards |
+| 0009 | german | 1K | German Credit (UCI) |
+| 0010 | bank_status | 100K | Bank Loan Status |
+| 0011 | thomas | 1K | Thomas Credit Scoring |
+| 0012 | loan_default | 255K | Loan Default Prediction |
+| 0013 | home_credit | 307K | Home Credit Default Risk |
+| 0014 | hmeq | 6K | Home Equity Loans |
+| 0015 | algorithmwatch | 159K | AlgorithmWatch (2987 features → PCA) |
 
-### LGD (Regression) - 5 Datasets
+### Loss Given Default (LGD) — 5 Datasets
 
-| ID | Dataset | Samples | Features | Source |
-|----|---------|---------|----------|--------|
-| 0001 | heloc | ~10,000 | 23 | Home Equity Line of Credit |
-| 0002 | loss2 | ~5,000 | 15 | Loss severity data |
-| 0003 | axa | ~8,000 | 20 | Insurance LGD |
-| 0004 | base_model | ~10,000 | 18 | Base LGD model |
-| 0005 | base_modelisation | ~10,000 | 18 | LGD modelisation |
+| ID | Dataset | Description |
+|----|---------|-------------|
+| 0001 | heloc | Home Equity Line of Credit |
+| 0002 | loss2 | Loss Severity Dataset |
+| 0003 | axa | AXA Insurance LGD |
+| 0004 | base_model | Base LGD Model |
+| 0005 | base_modelisation | Base Modelisation |
 
 ## Methods
 
 ### Classical Machine Learning
-- **XGBoost**, **LightGBM**, **CatBoost** - Gradient Boosting
-- **Random Forest**, **KNN**, **SVM**, **Logistic/Linear Regression**
-- **Naive Bayes**, **NCM** (Nearest Class Mean), **Dummy** (baseline)
+
+| Method | PD | LGD | HPO Support |
+|--------|:--:|:---:|:-----------:|
+| XGBoost | ✓ | ✓ | ✓ |
+| LightGBM | ✓ | ✓ | ✓ |
+| CatBoost | ✓ | ✓ | ✓ |
+| Random Forest | ✓ | ✓ | ✓ |
+| Logistic Regression | ✓ | — | ✓ |
+| Linear Regression | — | ✓ | ✓ |
+| K-Nearest Neighbors | ✓ | ✓ | ✓ |
+| Support Vector Machine | ✓ | ✓ | ✓ |
+| Naive Bayes | ✓ | — | ✓ |
+| Nearest Class Mean (NCM) | ✓ | — | — |
+| Dummy Baseline | ✓ | — | — |
 
 ### Deep Learning / Transformers
-- **TabPFN v1** - Zero-shot tabular foundation model (classification only)
-- **TabPFN v2** - Improved version with regression support
-- **TabNet**, **MLP**, **ResNet**, **SAINT**, **FT-Transformer**
-- **NODE**, **TabTransformer**, **AutoInt**, **DCN2**, and 20+ more via TALENT
+
+| Method | PD | LGD | HPO Support | Notes |
+|--------|:--:|:---:|:-----------:|-------|
+| TabPFN | ✓ | — | — | Pre-trained, classification only |
+| TabPFN v2 | ✓ | ✓ | — | Pre-trained, supports regression |
+| MLP | ✓ | ✓ | ✓ | Multilayer Perceptron |
+| TabNet | ✓ | ✓ | ✓ | Attention-based |
+| ResNet | ✓ | ✓ | ✓ | Residual networks for tabular |
+| FT-Transformer | ✓ | ✓ | ✓ | Feature Tokenizer Transformer |
+| SAINT | ✓ | ✓ | ✓ | Self-Attention + Intersample |
+| NODE | ✓ | ✓ | ✓ | Neural Oblivious Decision Ensembles |
+| TabTransformer | ✓ | ✓ | ✓ | Transformer for categorical |
+| AutoInt | ✓ | ✓ | ✓ | Automatic Feature Interaction |
+| DCN2 | ✓ | ✓ | ✓ | Deep & Cross Network v2 |
+| + more... | ✓ | ✓ | ✓ | See CONFIG_METHOD.yaml |
 
 ## Installation
 
-### Prerequisites
-- Python 3.10 or 3.11 (3.13 not yet supported)
-- CUDA 11.8+ (optional, for GPU acceleration)
-
-### Local Setup
+### Local Machine
 
 ```bash
-# Clone the repository
-git clone https://github.com/andreasgoethals/TabPFNCredit.git
-cd TabPFNCredit
+# Clone repository
+git clone https://github.com/andreasgoethals/tabpfncredit.git
+cd tabpfncredit
 
 # Create virtual environment
 python -m venv .venv
@@ -131,224 +161,370 @@ source .venv/bin/activate  # Linux/Mac
 # .venv\Scripts\activate   # Windows
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -r requirements_local.txt
 ```
 
-### VSC/HPC Setup
+### VSC Supercomputer
 
 ```bash
-# Load required modules
-module load Python/3.10.4-GCCcore-11.3.0
-module load SciPy-bundle/2023.07-gfbf-2023a
+# Load modules
+module purge
+module load Python/3.10.8-GCCcore-12.2.0
 
-# Create venv with system packages
-python -m venv venv --system-site-packages
-source venv/bin/activate
+# Create conda environment
+conda create -n TabPFNCredit python=3.10 -y
+conda activate TabPFNCredit
 
-# Install dependencies
+# Install dependencies (CUDA 11.8)
 pip install -r requirements_vsc.txt
 ```
 
 ## Configuration
 
-### 1. Dataset Selection (`config/CONFIG_DATA.yaml`)
+All experiments are controlled through three YAML configuration files in the `config/` directory.
+
+### CONFIG_DATA.yaml
+
+Controls dataset selection and cross-validation settings:
 
 ```yaml
 split:
-  cv_splits: 5        # 5-fold cross-validation
-  test_size: 0.2      # Test split (if cv_splits=1)
-  val_size: 0.2       # Validation split from training
-  seed: 42
-  row_limit: null     # Set integer for debugging (e.g., 1000)
+  test_size: 0.2      # Test set fraction (only used if cv_splits=1)
+  val_size: 0.2       # Validation fraction of training data
+  cv_splits: 5        # Number of CV folds
+  seed: 42            # Random seed
+  row_limit: null     # Optional row limit for debugging
+
+paths:
+  pd_dir: "data/raw/pd"
+  lgd_dir: "data/raw/lgd"
 
 dataset_pd:
   0001.gmsc: true
   0002.taiwan_creditcard: true
-  # ... enable/disable datasets
-
+  # ... toggle datasets on/off
+  
 dataset_lgd:
   0001.heloc: true
   # ...
 ```
 
-### 2. Method Selection (`config/CONFIG_METHOD.yaml`)
+### CONFIG_EXPERIMENT.yaml
+
+Controls training parameters:
+
+```yaml
+max_epochs: 200              # Maximum training epochs for deep models
+batch_size: 128              # Batch size for training
+n_trials: 50                 # Number of HPO trials (Optuna)
+early_stopping: true         # Enable early stopping
+early_stopping_patience: 25  # Patience for early stopping
+```
+
+### CONFIG_METHOD.yaml
+
+Controls which methods are included in experiments:
 
 ```yaml
 methods:
-  pd:
+  pd:                        # Classification methods
     xgboost: true
-    tabpfn_v2: true
+    lightgbm: true
     catboost: true
-    # ... enable/disable methods
-  lgd:
-    xgboost: true
+    tabpfn: true
     tabpfn_v2: true
+    mlp: true
     # ...
-```
-
-### 3. Experiment Settings (`config/CONFIG_EXPERIMENT.yaml`)
-
-```yaml
-max_epochs: 200      # Deep learning training epochs
-batch_size: 128
-n_trials: 50         # Optuna HPO trials
-early_stopping: true
+    
+  lgd:                       # Regression methods
+    xgboost: true
+    lightgbm: true
+    tabpfn_v2: true
+    mlp: true
+    # ...
 ```
 
 ## Usage
 
-### Running Locally
+### Notebooks
+
+#### Individual_Method_Runner.ipynb
+
+Quick testing of a single method on a single dataset:
+
+```python
+# Configuration at top of notebook
+METHOD = "xgboost"           # Method to test
+DATASET = "0001.gmsc"        # Dataset name
+TASK = "pd"                  # 'pd' or 'lgd'
+ROW_LIMIT = 10000            # Limit rows for fast testing
+MAX_EPOCHS = 15              # Limit epochs
+CV_SPLITS = 1                # Single fold for debugging
+TUNE = False                 # No HPO for quick test
+```
+
+#### experiment_runner.ipynb
+
+Run the complete experiment from a notebook environment:
+
+```python
+from scripts.Experiment1 import run_experiment1
+
+run_experiment1(
+    experiment_name="experiment1",
+    skip_completed=True,   # Skip datasets with existing results
+    verbose=True
+)
+```
+
+### Command Line
 
 ```bash
-# Run full benchmark
+# Run all datasets sequentially
 python scripts/Experiment1/Experiment1.py
 
-# Options
-python scripts/Experiment1/Experiment1.py --no_skip    # Force re-run
-python scripts/Experiment1/Experiment1.py --quiet      # Less output
+# Run specific dataset by index (for parallel execution)
+python scripts/Experiment1/Experiment1.py --dataset_idx=0
+
+# Debug all methods on sample data
+python src/methods/method_debugger.py
 ```
 
-### Running on HPC (SLURM)
+### SLURM (HPC Cluster)
 
 ```bash
-# Fast job: 16 standard datasets (~40 hours)
+# Submit fast datasets (~4 hours each, 16 datasets)
 sbatch scripts/Experiment1/Experiment1_Fast.slurm
 
-# Slow job: 4 large datasets (~72 hours)
+# Submit large datasets (~72 hours each, 4 datasets)
 sbatch scripts/Experiment1/Experiment1_Slow.slurm
 
-# Monitor jobs
-squeue -u $USER
+# Debug single dataset
+sbatch scripts/Experiment1/Experiment1_Single.slurm
 ```
 
-### Interactive Testing
-
-Use the Jupyter notebooks for development:
-
-```bash
-# Test single method/dataset
-jupyter notebook notebooks/Individual_Method_Runner.ipynb
-
-# Explore dataset statistics
-jupyter notebook notebooks/Data_Exploration.ipynb
-```
+Dataset index mapping for SLURM array jobs:
+- **0-14**: PD datasets (0001.gmsc through 0015.algorithmwatch)
+- **15-19**: LGD datasets (0001.heloc through 0005.base_modelisation)
 
 ## Results
 
 ### Output Structure
 
+Results are saved as pickle files in `results/{experiment_name}/`:
+
 ```
 results/experiment1/
 ├── pd/
-│   ├── 0001.gmsc.pkl           # Raw results (all folds, metrics, predictions)
+│   ├── 0001.gmsc.pkl
+│   ├── 0002.taiwan_creditcard.pkl
 │   └── ...
 ├── lgd/
+│   ├── 0001.heloc.pkl
 │   └── ...
-└── summary/                     # Generated by Summarize_Results.py
-    ├── summary_pd_raw.csv       # All fold results
-    ├── summary_pd_aggregated.csv # Mean ± std per method/dataset
-    ├── pivot_pd_AUC_no_hpo.csv  # Methods × Datasets comparison
-    └── ...
+├── logs/
+│   └── *.log
+└── experiment_metadata.json
 ```
 
-### Result File Format (`.pkl`)
+### Result Format
+
+Each pickle file contains:
 
 ```python
 {
-    'NO_HPO': {
+    'NO_HPO': {                    # Default hyperparameters
         'xgboost': {
-            1: {'metrics': {'AUC': 0.85, 'Gini': 0.70, ...}, 'train_time': 2.3, ...},
-            2: {...},  # Fold 2
+            1: {                   # Fold ID
+                'y_true': np.array([...]),
+                'y_pred': np.array([...]),
+                'y_prob': np.array([...]),   # Probabilities (PD only)
+                'metrics': {
+                    'AUC': 0.85,
+                    'Gini': 0.70,
+                    'KS': 0.45,
+                    # ...
+                },
+                'train_time': 12.5,
+                'info': {'n_num_features': 10, 'n_cat_features': 5}
+            },
+            2: {...},              # Fold 2
             # ...
         },
-        'tabpfn_v2': {...},
+        'tabpfn': {...},
+        # ...
     },
-    'HPO': {
-        'xgboost': {...},  # With hyperparameter optimization
+    'HPO': {                       # Optuna-optimized
+        'xgboost': {...},
+        # ...
     }
 }
 ```
 
-### Summarizing Results
+### Evaluation Metrics
+
+**PD (Classification):**
+- AUC, Gini, KS Statistic
+- Brier Score, Log Loss
+- Accuracy, Balanced Accuracy
+- F1, Precision, Recall, MCC
+- Average Precision, Average Recall
+
+**LGD (Regression):**
+- R², RMSE, MAE, MSE
+- MAPE, Correlation, Spearman
+
+### Postprocessing
+
+Aggregate all results into summary CSV files:
 
 ```bash
-# Generate summary CSVs
-python src/postprocessing/Summarize_Results.py
-
-# For specific experiment
-python src/postprocessing/Summarize_Results.py --experiment experiment2
+python src/postprocessing/Summarize_Results.py --experiment experiment1
 ```
 
-**Output files:**
-- `summary_pd_raw.csv` - Every fold: method, dataset, fold_id, AUC, Gini, KS, Brier, train_time, ...
-- `summary_pd_aggregated.csv` - Mean ± std across folds
-- `pivot_pd_AUC_no_hpo.csv` - Quick comparison table (methods × datasets)
+This creates:
 
-## Metrics
+```
+results/experiment1/summary/
+├── summary_pd_raw.csv           # All folds, all methods, all metrics
+├── summary_lgd_raw.csv
+├── summary_pd_aggregated.csv    # Mean ± std per method/dataset/hpo_mode
+├── summary_lgd_aggregated.csv
+├── pivot_pd_AUC_no_hpo.csv      # Methods × Datasets (default params)
+├── pivot_pd_AUC_hpo.csv         # Methods × Datasets (tuned params)
+├── pivot_lgd_R2_no_hpo.csv
+└── pivot_lgd_R2_hpo.csv
+```
 
-### PD (Classification)
-- **AUC** (Area Under ROC Curve) - Primary metric
-- **Gini** coefficient
-- **KS** (Kolmogorov-Smirnov) statistic
-- **Brier** score
-- **LogLoss**, **Accuracy**, **F1**, **Precision**, **Recall**, **MCC**
+## Key Components
 
-### LGD (Regression)
-- **R²** (Coefficient of Determination) - Primary metric
-- **RMSE** (Root Mean Squared Error)
-- **MAE** (Mean Absolute Error)
-- **Correlation**, **Spearman** correlation
+### DataFeeder (`src/data/data_feeder.py`)
 
-## Contributing
+Unified data loading and cross-validation splitting:
 
-### Adding a New Dataset
+```python
+from src.data.data_feeder import DataFeeder
 
-1. Add CSV/Parquet to `data/raw/pd/` or `data/raw/lgd/`
-2. Add preprocessing logic in `src/data/dataset_preprocessing.py`
+feeder = DataFeeder(
+    task="pd",
+    dataset="0001.gmsc",
+    test_size=0.2,
+    val_size=0.2,
+    cv_splits=5,
+    seed=42,
+    row_limit=None
+)
+
+# Returns dict: {fold_id: ((N, C, y), info)}
+folds = feeder.prepare()
+```
+
+### Method Runner (`src/methods/method_runner.py`)
+
+Core interface to TALENT methods:
+
+```python
+from src.methods.method_runner import run_talent_method, get_available_methods, supports_hpo
+
+# Check available methods
+methods = get_available_methods()
+# {'classical': [...], 'deep': [...]}
+
+# Check if method supports HPO
+supports_hpo('xgboost')  # True
+supports_hpo('tabpfn')   # False (pre-trained)
+
+# Run a method
+results = run_talent_method(
+    task='pd',
+    dataset='0001.gmsc',
+    method='xgboost',
+    tune=True,
+    # ...
+)
+```
+
+### HPO Runner (`src/methods/HPO_runner.py`)
+
+Runs all methods with both default and optimized hyperparameters:
+
+```python
+from src.methods.HPO_runner import run_hpo_comparison
+
+results = run_hpo_comparison(
+    task='pd',
+    dataset='0001.gmsc',
+    test_size=0.2,
+    val_size=0.2,
+    cv_splits=5,
+    seed=42,
+    n_trials=50,
+    verbose=True
+)
+# Returns: {'NO_HPO': {...}, 'HPO': {...}}
+```
+
+## TALENT Integration
+
+This project builds on [TALENT](https://github.com/LAMDA-Tabular/TALENT). Key integration details:
+
+### Method-Specific Requirements
+
+| Method | cat_policy | normalization | Row Limit | Feature Limit |
+|--------|------------|---------------|-----------|---------------|
+| TabPFN | indices | none | 10,000 | 100 |
+| TabPFN v2 | indices | none | 50,000 | — |
+| Classical | ordinal | standard | — | — |
+
+### Preprocessing Policies
+
+- **cat_nan_policy**: All classical methods require `'new'` (creates new category for NaN)
+- **num_nan_policy**: Default is `'mean'` (impute with mean)
+
+### Contributions to TALENT
+
+This project contributed [PR #87](https://github.com/LAMDA-Tabular/TALENT/pull/87) to TALENT, adding probability prediction support for classical methods (SVM, NCM, NaiveBayes, Dummy), enabling proper AUC calculation.
+
+## Development
+
+### Debug All Methods
+
+Test all enabled methods quickly:
+
+```bash
+python src/methods/method_debugger.py
+python src/methods/method_debugger.py --quiet  # Less verbose
+```
+
+### Add a New Dataset
+
+1. Place raw data file in `data/raw/pd/` or `data/raw/lgd/`
+2. Add preprocessing logic to `src/data/dataset_preprocessing.py`
 3. Enable in `config/CONFIG_DATA.yaml`
 
-### Adding a New Method
+### Add a New Method
 
-1. Ensure it's supported by [TALENT](https://github.com/LAMDA-Tabular/TALENT)
-2. Enable in `config/CONFIG_METHOD.yaml`
-
-## TALENT Contributions
-
-This project contributed probability support for classical methods to TALENT ([PR #87](https://github.com/LAMDA-Tabular/TALENT/pull/87)):
-
-- **SVM**: Wrapped with `CalibratedClassifierCV` for `predict_proba()`
-- **NCM**: Added softmax over centroid distances for probabilities
-- **NaiveBayes**: Enabled native `predict_proba()`
-- **Dummy**: Uses `strategy='prior'` for probability support
-
-This enables proper AUC calculation for all classical methods.
+1. Verify method exists in TALENT
+2. Enable in `config/CONFIG_METHOD.yaml` under `pd` and/or `lgd`
+3. If method doesn't support HPO, add to `NO_HPO_METHODS` list in `method_runner.py`
 
 ## License
 
-This project is licensed under the MIT License - see [LICENSE.txt](LICENSE.txt) for details.
-
-## Acknowledgments
-
-- **[TALENT](https://github.com/LAMDA-Tabular/TALENT)** - Tabular Analytics and Learning Toolbox
-- **[TabPFN](https://github.com/automl/TabPFN)** - Tabular Prior-Data Fitted Networks
-- **KU Leuven** - Research support
-- **VSC** (Vlaams Supercomputer Centrum) - Compute resources
+MIT License — see [LICENSE.txt](LICENSE.txt)
 
 ## Citation
 
-If you use this framework in your research, please cite:
-
 ```bibtex
-@software{tabpfncredit2024,
+@software{tabpfncredit2025,
   author = {Goethals, Andreas},
-  title = {TabPFNCredit: Foundation Models for Credit Risk Prediction},
-  year = {2024},
-  url = {https://github.com/andreasgoethals/TabPFNCredit}
+  title = {TabPFNCredit: Benchmarking Tabular Foundation Models for Credit Risk},
+  year = {2025},
+  url = {https://github.com/andreasgoethals/tabpfncredit}
 }
 ```
 
-## Contact
+## Acknowledgments
 
-- **Author**: Andreas Goethals
-- **Affiliation**: KU Leuven, PhD Researcher
-- **Promotor**: Prof. Wouter Verbeke
+- [TALENT](https://github.com/LAMDA-Tabular/TALENT) — Tabular Analytics and Learning Toolbox
+- [TabPFN](https://github.com/automl/TabPFN) — Prior-Data Fitted Networks for Tabular Data
+- Prof. Stefan Lessmann, KU Leuven — Supervision
