@@ -18,7 +18,7 @@ Each method is evaluated with both default hyperparameters and Optuna-optimized 
 ```
 TabPFNCredit/
 ├── LICENSE.txt
-├── requirements.txt                 # Base dependencies
+├── requirements.txt                 # Base dependencies (for both local and vsc)
 ├── requirements_local.txt           # Local machine (includes PyTorch CPU)
 ├── requirements_vsc.txt             # VSC supercomputer (CUDA 11.8)
 │
@@ -33,14 +33,15 @@ TabPFNCredit/
 │       └── lgd/                     # LGD regression datasets
 │
 ├── notebooks/
-│   ├── experiment_runner.ipynb      # Run complete experiments from notebook
-│   └── Individual_Method_Runner.ipynb  # Quick testing of single methods
+│   ├── Data_Exploration.ipynb          # Rigorous data exploration of all datasets
+│   └── Individual_Method_Runner.ipynb  # Quick testing of single methods on single datasets
+│   └── Post_Analysis.ipynb             # Visualizations and analysis of the results after the experiment
 │
 ├── scripts/
 │   ├── __init__.py
-│   └── Experiment1/                 # Main experiment scripts
+│   └── Experiment1/                 # Main experiment scripts of Experiment 1
 │       ├── __init__.py
-│       ├── Experiment1.py           # Python entry point for experiments
+│       ├── Experiment1.py           # Python entry point for the experiment
 │       ├── Experiment1_Array.slurm  # SLURM array job template
 │       ├── Experiment1_Fast.slurm   # Fast datasets (16 datasets, ~4h each)
 │       ├── Experiment1_Single.slurm # Single dataset for debugging
@@ -57,19 +58,16 @@ TabPFNCredit/
 │   │
 │   ├── methods/
 │   │   ├── __init__.py
-│   │   ├── method_runner.py         # Core method execution via TALENT
+│   │   ├── method_runner.py         # Core TALENT interface: run_talent_method()
 │   │   ├── all_methods_runner.py    # Run all enabled methods on a dataset
 │   │   ├── HPO_runner.py            # Run NO_HPO vs HPO comparison
 │   │   └── method_debugger.py       # Debug and validate all methods
-│   │
-│   ├── postprocessing/
-│   │   ├── __init__.py
-│   │   └── Summarize_Results.py     # Aggregate results into CSV summaries
 │   │
 │   └── utils/
 │       ├── __init__.py
 │       ├── config_reader.py         # Load YAML configurations
 │       └── storage_handler.py       # Save/load experiment results
+│       └── summarize_results.py     # Aggregate results into CSV summaries
 │
 └── results/                         # Experiment outputs (generated at runtime)
     └── {experiment_name}/
@@ -99,7 +97,7 @@ TabPFNCredit/
 | 0012 | loan_default | 255K | Loan Default Prediction |
 | 0013 | home_credit | 307K | Home Credit Default Risk |
 | 0014 | hmeq | 6K | Home Equity Loans |
-| 0015 | algorithmwatch | 159K | AlgorithmWatch (2987 features → PCA) |
+| 0015 | algorithmwatch | 159K | AlgorithmWatch |
 
 ### Loss Given Default (LGD) — 5 Datasets
 
@@ -115,26 +113,26 @@ TabPFNCredit/
 
 ### Classical Machine Learning
 
-| Method | PD | LGD | HPO Support |
-|--------|:--:|:---:|:-----------:|
-| XGBoost | ✓ | ✓ | ✓ |
-| LightGBM | ✓ | ✓ | ✓ |
-| CatBoost | ✓ | ✓ | ✓ |
-| Random Forest | ✓ | ✓ | ✓ |
-| Logistic Regression | ✓ | — | ✓ |
-| Linear Regression | — | ✓ | ✓ |
-| K-Nearest Neighbors | ✓ | ✓ | ✓ |
-| Support Vector Machine | ✓ | ✓ | ✓ |
-| Naive Bayes | ✓ | — | ✓ |
-| Nearest Class Mean (NCM) | ✓ | — | — |
-| Dummy Baseline | ✓ | — | — |
+| Method | PD | LGD | HPO | Notes |
+|--------|:--:|:---:|:---:|-------|
+| XGBoost | ✓ | ✓ | ✓ | |
+| LightGBM | ✓ | ✓ | ✓ | |
+| CatBoost | ✓ | ✓ | ✓ | |
+| RandomForest | ✓ | ✓ | ✓ | |
+| LogReg | ✓ | — | ✓ | Logistic Regression |
+| LinearRegression | — | ✓ | — | Too simple for HPO |
+| KNN | ✓ | ✓ | ✓ | K-Nearest Neighbors |
+| SVM | ✓ | ✓ | ✓ | Support Vector Machine |
+| NaiveBayes | ✓ | — | — | Limited hyperparameters |
+| NCM | ✓ | — | — | Nearest Class Mean |
+| Dummy | ✓ | — | — | Baseline classifier |
 
 ### Deep Learning / Transformers
 
-| Method | PD | LGD | HPO Support | Notes |
-|--------|:--:|:---:|:-----------:|-------|
-| TabPFN | ✓ | — | — | Pre-trained, classification only |
-| TabPFN v2 | ✓ | ✓ | — | Pre-trained, supports regression |
+| Method | PD | LGD | HPO | Notes |
+|--------|:--:|:---:|:---:|-------|
+| TabPFN | ✓ | — | — | Pre-trained, max 10K rows, 100 features |
+| TabPFN v2 | ✓ | ✓ | — | Pre-trained, max 50K rows |
 | MLP | ✓ | ✓ | ✓ | Multilayer Perceptron |
 | TabNet | ✓ | ✓ | ✓ | Attention-based |
 | ResNet | ✓ | ✓ | ✓ | Residual networks for tabular |
@@ -144,7 +142,9 @@ TabPFNCredit/
 | TabTransformer | ✓ | ✓ | ✓ | Transformer for categorical |
 | AutoInt | ✓ | ✓ | ✓ | Automatic Feature Interaction |
 | DCN2 | ✓ | ✓ | ✓ | Deep & Cross Network v2 |
-| + more... | ✓ | ✓ | ✓ | See CONFIG_METHOD.yaml |
+| + 25 more... | ✓ | ✓ | ✓ | See CONFIG_METHOD.yaml |
+
+**Note:** Methods without HPO support (TabPFN, TabPFN v2, NaiveBayes, LinearRegression, NCM, Dummy) automatically run with default parameters when `tune=True` is requested, avoiding errors and redundant computation.
 
 ## Installation
 
@@ -234,78 +234,17 @@ methods:
     tabpfn: true
     tabpfn_v2: true
     mlp: true
+    NaiveBayes: true
     # ...
     
   lgd:                       # Regression methods
     xgboost: true
     lightgbm: true
     tabpfn_v2: true
+    LinearRegression: true
     mlp: true
     # ...
 ```
-
-## Usage
-
-### Notebooks
-
-#### Individual_Method_Runner.ipynb
-
-Quick testing of a single method on a single dataset:
-
-```python
-# Configuration at top of notebook
-METHOD = "xgboost"           # Method to test
-DATASET = "0001.gmsc"        # Dataset name
-TASK = "pd"                  # 'pd' or 'lgd'
-ROW_LIMIT = 10000            # Limit rows for fast testing
-MAX_EPOCHS = 15              # Limit epochs
-CV_SPLITS = 1                # Single fold for debugging
-TUNE = False                 # No HPO for quick test
-```
-
-#### experiment_runner.ipynb
-
-Run the complete experiment from a notebook environment:
-
-```python
-from scripts.Experiment1 import run_experiment1
-
-run_experiment1(
-    experiment_name="experiment1",
-    skip_completed=True,   # Skip datasets with existing results
-    verbose=True
-)
-```
-
-### Command Line
-
-```bash
-# Run all datasets sequentially
-python scripts/Experiment1/Experiment1.py
-
-# Run specific dataset by index (for parallel execution)
-python scripts/Experiment1/Experiment1.py --dataset_idx=0
-
-# Debug all methods on sample data
-python src/methods/method_debugger.py
-```
-
-### SLURM (HPC Cluster)
-
-```bash
-# Submit fast datasets (~4 hours each, 16 datasets)
-sbatch scripts/Experiment1/Experiment1_Fast.slurm
-
-# Submit large datasets (~72 hours each, 4 datasets)
-sbatch scripts/Experiment1/Experiment1_Slow.slurm
-
-# Debug single dataset
-sbatch scripts/Experiment1/Experiment1_Single.slurm
-```
-
-Dataset index mapping for SLURM array jobs:
-- **0-14**: PD datasets (0001.gmsc through 0015.algorithmwatch)
-- **15-19**: LGD datasets (0001.heloc through 0005.base_modelisation)
 
 ## Results
 
@@ -368,33 +307,11 @@ Each pickle file contains:
 - Brier Score, Log Loss
 - Accuracy, Balanced Accuracy
 - F1, Precision, Recall, MCC
-- Average Precision, Average Recall
+- Average Precision
 
 **LGD (Regression):**
 - R², RMSE, MAE, MSE
 - MAPE, Correlation, Spearman
-
-### Postprocessing
-
-Aggregate all results into summary CSV files:
-
-```bash
-python src/postprocessing/Summarize_Results.py --experiment experiment1
-```
-
-This creates:
-
-```
-results/experiment1/summary/
-├── summary_pd_raw.csv           # All folds, all methods, all metrics
-├── summary_lgd_raw.csv
-├── summary_pd_aggregated.csv    # Mean ± std per method/dataset/hpo_mode
-├── summary_lgd_aggregated.csv
-├── pivot_pd_AUC_no_hpo.csv      # Methods × Datasets (default params)
-├── pivot_pd_AUC_hpo.csv         # Methods × Datasets (tuned params)
-├── pivot_lgd_R2_no_hpo.csv
-└── pivot_lgd_R2_hpo.csv
-```
 
 ## Key Components
 
@@ -428,19 +345,28 @@ from src.methods.method_runner import run_talent_method, get_available_methods, 
 
 # Check available methods
 methods = get_available_methods()
-# {'classical': [...], 'deep': [...]}
+# {'classical': ['LinearRegression', 'LogReg', 'NCM', 'NaiveBayes', 
+#                'RandomForest', 'catboost', 'dummy', 'knn', 'lightgbm', 
+#                'svm', 'xgboost'],
+#  'deep': ['mlp', 'tabnet', 'tabpfn', 'tabpfn_v2', ...]}
 
 # Check if method supports HPO
-supports_hpo('xgboost')  # True
-supports_hpo('tabpfn')   # False (pre-trained)
+supports_hpo('xgboost')       # True
+supports_hpo('tabpfn')        # False (pre-trained)
+supports_hpo('NaiveBayes')    # False (limited hyperparameters)
 
 # Run a method
 results = run_talent_method(
     task='pd',
     dataset='0001.gmsc',
     method='xgboost',
+    test_size=0.2,
+    val_size=0.2,
+    cv_splits=5,
+    seed=42,
     tune=True,
-    # ...
+    n_trials=50,
+    verbose=True
 )
 ```
 
@@ -474,12 +400,30 @@ This project builds on [TALENT](https://github.com/LAMDA-Tabular/TALENT). Key in
 |--------|------------|---------------|-----------|---------------|
 | TabPFN | indices | none | 10,000 | 100 |
 | TabPFN v2 | indices | none | 50,000 | — |
+| TabPTM | ohe | standard | — | — |
 | Classical | ordinal | standard | — | — |
 
 ### Preprocessing Policies
 
 - **cat_nan_policy**: All classical methods require `'new'` (creates new category for NaN)
 - **num_nan_policy**: Default is `'mean'` (impute with mean)
+- Row limits are automatically enforced for TabPFN (10K) and TabPFN v2 (50K)
+
+### Methods Without HPO Support
+
+The following methods don't benefit from hyperparameter optimization and run with default parameters:
+
+```python
+NO_HPO_METHODS = {
+    'tabpfn',           # Pre-trained
+    'tabpfn_v2',        # Pre-trained
+    'tabpfn_real',      # Pre-trained
+    'dummy',            # Too simple
+    'NCM',              # Simple distance-based
+    'NaiveBayes',       # Limited hyperparameters
+    'LinearRegression'  # Too simple
+}
+```
 
 ### Contributions to TALENT
 
@@ -506,7 +450,7 @@ python src/methods/method_debugger.py --quiet  # Less verbose
 
 1. Verify method exists in TALENT
 2. Enable in `config/CONFIG_METHOD.yaml` under `pd` and/or `lgd`
-3. If method doesn't support HPO, add to `NO_HPO_METHODS` list in `method_runner.py`
+3. If method doesn't support HPO, add to `NO_HPO_METHODS` in `src/methods/method_runner.py`
 
 ## License
 
