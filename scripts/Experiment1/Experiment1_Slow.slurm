@@ -14,7 +14,7 @@
 #SBATCH --mail-user=andreas.goethals@kuleuven.be
 #SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.o%A_%a
 #SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/%x.e%A_%a
-#SBATCH --array=6,12
+#SBATCH --array=14
 
 # Large/slow datasets (4 total):
 # 2:  0003.vehicle_loan
