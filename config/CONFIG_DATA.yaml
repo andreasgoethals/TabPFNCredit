@@ -65,6 +65,8 @@ dataset_lgd:
   0003.axa: true
   0004.base_model: true
   0005.base_modelisation: true
+  0006.lgd_freddie: true
+  0007.lgd_lendingclub: true
 
 
 
