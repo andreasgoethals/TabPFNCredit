@@ -83,6 +83,9 @@ from src.methods.method_config import (
     REQUIRES_NO_NORMALIZATION,
     REQUIRES_NO_NUM_ENCODING,
     REQUIRES_STANDARD_NORMALIZATION,
+    apply_preprocessing_policies,
+    apply_method_row_limit,
+    _is_missing,
 )
 from src.methods.method_metrics import (
     calculate_pd_metrics,
@@ -661,140 +664,8 @@ def _parse_prediction_output(output: Any) -> Tuple[Any]:
         return output
 
 
-# Sentinel values that indicate "missing" or "not specified"
-_MISSING_SENTINELS = {None, "", "nothing", "Nothing", "NONE", "None"}
-
-
-def _is_missing(x) -> bool:
-    """Check if a value represents "missing" or "not specified"."""
-    try:
-        return x in _MISSING_SENTINELS
-    except TypeError:
-        return False
-
-
-def _apply_preprocessing_policies(args, method: str, user_specified: dict[str, bool]) -> None:
-    """
-    Apply preprocessing policy defaults and method-specific requirements.
-    Uses EXACT method names as TALENT expects them.
-    """
-    
-    # ==========================================================================
-    # Step 1: Fill project defaults for missing values
-    # ==========================================================================
-    defaults = {
-        'cat_policy': 'ordinal',
-        'num_policy': 'none',
-        'normalization': 'standard',
-        'num_nan_policy': 'mean',
-        'cat_nan_policy': 'new'
-    }
-    
-    for attr, default_value in defaults.items():
-        if _is_missing(getattr(args, attr, None)):
-            setattr(args, attr, default_value)
-
-    # ==========================================================================
-    # Step 2: Apply method-specific categorical encoding requirements
-    # ==========================================================================
-    
-    # Determine required cat_policy
-    if method in TABPFN_VARIANTS or method in REQUIRES_CAT_INDICES:
-        required_cat = 'indices'
-    elif method in REQUIRES_CAT_TABR_OHE:
-        required_cat = 'tabr_ohe'
-    elif method in REQUIRES_CAT_OHE:
-        required_cat = 'ohe'
-    else:
-        required_cat = None
-    
-    # Apply or validate cat_policy
-    if required_cat:
-        if user_specified.get('cat_policy', False):
-            if args.cat_policy != required_cat:
-                raise ValueError(f"{method} requires cat_policy='{required_cat}' but got '{args.cat_policy}'")
-        else:
-            args.cat_policy = required_cat
-    
-    # Handle methods that forbid 'indices'
-    elif method in FORBIDS_CAT_INDICES:
-        if user_specified.get('cat_policy', False):
-            if args.cat_policy == 'indices':
-                raise ValueError(f"{method} does not support cat_policy='indices'")
-        else:
-            if args.cat_policy == 'indices':
-                args.cat_policy = 'ordinal'
-
-    # ==========================================================================
-    # Step 3: Apply normalization requirements
-    # ==========================================================================
-    
-    if method in REQUIRES_NO_NORMALIZATION:
-        if user_specified.get('normalization', False):
-            if args.normalization != 'none':
-                raise ValueError(f"{method} requires normalization='none' but got '{args.normalization}'")
-        else:
-            args.normalization = 'none'
-    
-    elif method in REQUIRES_STANDARD_NORMALIZATION:
-        if user_specified.get('normalization', False):
-            if args.normalization != 'standard':
-                raise ValueError(f"{method} requires normalization='standard' but got '{args.normalization}'")
-        else:
-            args.normalization = 'standard'
-
-    # ==========================================================================
-    # Step 4: Apply numerical encoding requirements
-    # ==========================================================================
-    
-    if method in REQUIRES_NO_NUM_ENCODING:
-        if user_specified.get('num_policy', False):
-            if args.num_policy != 'none':
-                raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
-        else:
-            args.num_policy = 'none'
-    
-    # TabR OHE methods also require no num encoding
-    if method in REQUIRES_CAT_TABR_OHE:
-        if user_specified.get('num_policy', False):
-            if args.num_policy != 'none':
-                raise ValueError(f"{method} requires num_policy='none' but got '{args.num_policy}'")
-        else:
-            args.num_policy = 'none'
-
-
-def _apply_method_row_limit(method: str, row_limit: Optional[int]) -> Optional[int]:
-    """
-    Apply method-specific row limits for methods with inherent dataset size constraints.
-    
-    Some methods have architectural limitations on the number of rows they can process:
-    - TabPFN: Maximum 10,000 rows (in-context learning limitation)
-    - PFN-v2: Maximum 50,000 rows (larger context window than TabPFN)
-    
-    If user specifies a row_limit larger than the method's maximum, it will be capped.
-    If user specifies a row_limit smaller than the maximum, it will be preserved.
-    If user doesn't specify row_limit (None), the method maximum will be applied.
-    
-    Args:
-        method: TALENT method name
-        row_limit: User-specified row limit (or None for no limit)
-        
-    Returns:
-        Capped row limit respecting both user preference and method constraints
-    """
-    if method not in METHOD_ROW_LIMITS:
-        return row_limit
-    
-    method_max = METHOD_ROW_LIMITS[method]
-    
-    if row_limit is None:
-        return method_max
-    else:
-        return min(row_limit, method_max)
-
-
 # ======================================================================================
-#                            METHOD-SPECIFIC FIXES
+#                               METHOD-SPECIFIC FIXES
 # ======================================================================================
 
 def _fix_catboost_config(args, is_regression: bool) -> None:
@@ -967,7 +838,7 @@ def run_talent_method(
         
         # Apply method-specific row limits (TabPFN: 10k, PFN-v2: 50k)
         original_row_limit = row_limit
-        row_limit = _apply_method_row_limit(method, row_limit)
+        row_limit = apply_method_row_limit(method, row_limit)
         
         if verbose:
             print(f"\n{'='*70}")
@@ -1080,7 +951,7 @@ def run_talent_method(
                 args.cat_nan_policy = cat_nan_policy
                 args.cat_policy = categorical_encoding
                 args.num_policy = numerical_encoding
-                _apply_preprocessing_policies(args, method, user_specified)
+                apply_preprocessing_policies(args, method, user_specified)
                 
                 if verbose and fold_id == first_fold_id:
                     print(f"\nPreprocessing configuration:")

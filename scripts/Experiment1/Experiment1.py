@@ -123,6 +123,15 @@ def run_single_task(task, experiment_name, config, verbose=False):
     hpo_mode = task['hpo_mode']
     tune = (hpo_mode == 'HPO')
     
+    # Print banner at start
+    print(f"\n{'='*70}")
+    print(f"TASK {task_idx}: {dataset} | {method} | {hpo_mode}")
+    print(f"{'='*70}")
+    print(f"Job ID: {os.environ.get('SLURM_JOB_ID', 'N/A')}")
+    print(f"Array Task ID: {os.environ.get('SLURM_ARRAY_TASK_ID', 'N/A')}")
+    print(f"Node: {os.environ.get('SLURMD_NODENAME', 'N/A')}")
+    print(f"{'='*70}\n")
+    
     # Result file for this dataset
     result_file = experiment_path / task_type / f"{dataset}.pkl"
     

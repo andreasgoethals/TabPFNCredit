@@ -35,8 +35,8 @@ methods:
     tabpfn: true           # TabPFN v1 (classification)
     tabpfn_v2: true        # TabPFN v2 (classification) 
     tabpfn_real: false     # TabPFN Real 
-    resnet: false          # ResNet
-    ftt: false             # Feature Tokenizer Transformer
+    resnet: true          # ResNet
+    ftt: true             # Feature Tokenizer Transformer
     node: false            # Neural Oblivious Decision Ensembles
     saint: false           # SAINT (Self-Attention and Intersample Attention Transformer)
     tabtransformer: false  # TabTransformer
@@ -65,7 +65,7 @@ methods:
     tabautopnpnet: false   # TabAuto-PNPNet
     tabicl: false          # TabICL
     grownet: false         # GrowNet
-    tabr: false            # TabR
+    tabr: true            # TabR
     limix: false           # LiMiX (NEW)
     mitra: false           # MITRA (NEW)
 
@@ -90,8 +90,8 @@ methods:
     mlp: true              # Multilayer Perceptron
     tabnet: true           # TabNet
     tabpfn_v2: true        # TabPFN v2 (supports regression)
-    resnet: false          # ResNet
-    ftt: false             # Feature Tokenizer Transformer
+    resnet: true          # ResNet
+    ftt: true             # Feature Tokenizer Transformer
     node: false            # Neural Oblivious Decision Ensembles
     saint: false           # SAINT
     tabtransformer: false  # TabTransformer
@@ -120,6 +120,6 @@ methods:
     tabautopnpnet: false   # TabAuto-PNPNet
     tabicl: false          # TabICL
     grownet: false         # GrowNet
-    tabr: false            # TabR
+    tabr: true             # TabR
     limix: false           # LiMiX 
     mitra: false           # MITRA 

@@ -31,9 +31,10 @@ lightgbm==4.6.0
 catboost==1.2.8
 
 # ============================================
-# TALENT Framework (Main Branch - includes PR #87)
+# TALENT Framework (Custom Branch - PR #90)
+# Includes probability support fix for classical methods
 # ============================================
-TALENT @ git+https://github.com/LAMDA-Tabular/TALENT.git@main
+TALENT @ git+https://github.com/andreasgoethals/TALENT.git@feature/probability-support-classical-methods
 
 # ============================================
 # Hyperparameter Optimization
