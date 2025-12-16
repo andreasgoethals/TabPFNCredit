@@ -1,20 +1,17 @@
-# scripts/Experiment1/Experiment1.py
+#!/usr/bin/env python3
 """
-Experiment 1: HPO Benchmark across all enabled datasets.
-
-Supports parallelization via SLURM array jobs:
-    python scripts/Experiment1/Experiment1.py --dataset_idx=0
-    
-Or run all sequentially:
-    python scripts/Experiment1/Experiment1.py
+Experiment 1: Method-level parallelization with file locking
 """
 
 import sys
 import argparse
+import json
+import pickle
+import fcntl  # Unix file locking
+import time
 from pathlib import Path
 from datetime import datetime
 import logging
-import shutil
 
 # Setup paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  
@@ -22,228 +19,313 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
-from src.methods.HPO_runner import run_hpo_comparison
+from src.methods.method_runner import run_talent_method  
+from src.methods.method_config import DEEP_METHODS, CLASSICAL_METHODS
 
 
-def _has_results(experiment_path: Path) -> bool:
-    """Check if experiment folder has actual results."""
-    if not experiment_path.exists():
-        return False
-    has_pkl = any(experiment_path.rglob("*.pkl"))
-    has_metadata = any(experiment_path.rglob("*metadata.json"))
-    return has_pkl or has_metadata
-
-
-def _delete_experiment_folder(experiment_path: Path) -> bool:
-    """Delete experiment folder completely."""
-    try:
-        if experiment_path.exists():
-            shutil.rmtree(experiment_path, ignore_errors=True)
-            return not experiment_path.exists()
-        return True
-    except Exception as e:
-        print(f"Warning: Could not delete {experiment_path}: {e}")
-        return False
-
-
-def run_experiment1(
-    experiment_name: str = "experiment1",
-    skip_completed: bool = True,
-    verbose: bool = True,
-    dataset_idx: int = None
-) -> None:
-    """
-    Run Experiment 1: HPO comparison across all enabled datasets.
+def generate_task_list(experiment_name="experiment1"):
+    """Generate all (dataset, method, hpo_mode) combinations."""
     
-    Args:
-        experiment_name: Name of experiment (folder name in results/)
-        skip_completed: If True, skip datasets with existing results.
-        verbose: Whether to print detailed progress during training
-        dataset_idx: If specified, only run this dataset index (for SLURM array jobs)
+    config = load_config()
+    
+    # Get enabled datasets and methods
+    pd_datasets = list(config['datasets']['pd'].keys())
+    lgd_datasets = list(config['datasets']['lgd'].keys())
+    pd_methods = list(config['methods']['pd'].keys())
+    lgd_methods = list(config['methods']['lgd'].keys())
+    
+    all_tasks = []
+    task_idx = 0
+    
+    # PD tasks
+    for dataset in pd_datasets:
+        for method in pd_methods:
+            for hpo_mode in ['NO_HPO', 'HPO']:
+                task = {
+                    'task_idx': task_idx,
+                    'dataset': dataset,
+                    'method': method,
+                    'task': 'pd',
+                    'hpo_mode': hpo_mode,
+                    'is_gpu_method': method in DEEP_METHODS,
+                }
+                all_tasks.append(task)
+                task_idx += 1
+    
+    # LGD tasks
+    for dataset in lgd_datasets:
+        for method in lgd_methods:
+            for hpo_mode in ['NO_HPO', 'HPO']:
+                task = {
+                    'task_idx': task_idx,
+                    'dataset': dataset,
+                    'method': method,
+                    'task': 'lgd',
+                    'hpo_mode': hpo_mode,
+                    'is_gpu_method': method in DEEP_METHODS,
+                }
+                all_tasks.append(task)
+                task_idx += 1
+    
+    # Separate by type
+    gpu_tasks = [t for t in all_tasks if t['is_gpu_method']]
+    cpu_tasks = [t for t in all_tasks if not t['is_gpu_method']]
+    
+    return all_tasks, {'gpu': gpu_tasks, 'cpu': cpu_tasks, 'all': all_tasks}
+
+
+def save_task_lists(experiment_name, tasks_by_type):
+    """Save task lists as JSON for SLURM to reference."""
+    
+    storage = StorageHandler(experiment_name)
+    experiment_path = storage.get_experiment_path()
+    
+    # Save all task lists
+    for task_type, tasks in tasks_by_type.items():
+        task_file = experiment_path / f"task_list_{task_type}.json"
+        with open(task_file, 'w') as f:
+            json.dump(tasks, f, indent=2)
+    
+    # Summary
+    summary = {
+        'total_tasks': len(tasks_by_type['all']),
+        'gpu_tasks': len(tasks_by_type['gpu']),
+        'cpu_tasks': len(tasks_by_type['cpu']),
+        'generated_at': datetime.now().isoformat(),
+    }
+    
+    summary_file = experiment_path / "task_summary.json"
+    with open(summary_file, 'w') as f:
+        json.dump(summary, f, indent=2)
+    
+    print(f"\n{'='*70}")
+    print(f"TASK LISTS GENERATED")
+    print(f"{'='*70}")
+    print(f"Total tasks:  {summary['total_tasks']}")
+    print(f"GPU tasks:    {summary['gpu_tasks']}")
+    print(f"CPU tasks:    {summary['cpu_tasks']}")
+    print(f"Saved to:     {experiment_path}")
+    print(f"{'='*70}\n")
+
+
+def run_single_task(task, experiment_name, config, verbose=False):
+    """
+    Run ONE method on ONE dataset with ONE HPO mode.
+    Uses file locking for safe concurrent writes.
     """
     
     storage = StorageHandler(experiment_name)
     experiment_path = storage.get_experiment_path()
     
-    # Ensure experiment directory exists
-    experiment_path.mkdir(parents=True, exist_ok=True)
-    (experiment_path / "pd").mkdir(exist_ok=True)
-    (experiment_path / "lgd").mkdir(exist_ok=True)
-    (experiment_path / "logs").mkdir(exist_ok=True)  # Create logs directory
+    dataset = task['dataset']
+    method = task['method']
+    task_type = task['task']
+    hpo_mode = task['hpo_mode']
+    tune = (hpo_mode == 'HPO')
     
-    # Load configuration
-    config = load_config()
+    # Result file for this dataset
+    result_file = experiment_path / task_type / f"{dataset}.pkl"
     
-    # Build list of all datasets
-    pd_datasets = [(ds, 'pd') for ds in config['datasets']['pd'].keys()]
-    lgd_datasets = [(ds, 'lgd') for ds in config['datasets']['lgd'].keys()]
-    all_datasets = pd_datasets + lgd_datasets
-    total_datasets = len(all_datasets)
+    # ==========================================
+    # IMPROVED LOGGING: One file per dataset
+    # ==========================================
+    log_dir = experiment_path / "logs" / task_type
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{dataset}.log"  # All methods for this dataset
     
-    # Filter to single dataset if running in parallel mode
-    if dataset_idx is not None:
-        if dataset_idx < 0 or dataset_idx >= total_datasets:
-            print(f"Error: dataset_idx {dataset_idx} out of range [0, {total_datasets-1}]")
-            sys.exit(1)
-        all_datasets = [all_datasets[dataset_idx]]
-        parallel_mode = True
-    else:
-        parallel_mode = False
+    # Setup logger with method/hpo identification
+    logger_name = f"{experiment_name}.{dataset}.{method}.{hpo_mode}"
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.INFO if verbose else logging.WARNING)
+    logger.handlers.clear()  # Remove any existing handlers
     
-    # Configure logging
-    if parallel_mode:
-        dataset_name, task = all_datasets[0]
-        # Store parallel logs in logs subfolder
-        log_file = experiment_path / "logs" / f"{experiment_name}_{task}_{dataset_name}.log"
-    else:
-        # Store sequential log in main experiment folder
-        log_file = experiment_path / f"{experiment_name}.log"
+    # Format includes method and hpo_mode for identification
+    log_format = f'%(asctime)s - [{method}/{hpo_mode}] - %(levelname)s - %(message)s'
+    formatter = logging.Formatter(log_format)
     
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file, encoding='utf-8'),
-            logging.StreamHandler()
-        ],
-        force=True
-    )
-    logger = logging.getLogger(__name__)
+    # File handler (append mode - multiple methods write to same file)
+    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
     
-    logger.info("="*80)
-    logger.info("EXPERIMENT 1: HPO Benchmark")
-    if parallel_mode:
-        logger.info(f"PARALLEL MODE: Running dataset {dataset_idx + 1}/{total_datasets}")
-    logger.info("="*80)
+    # Console handler (if verbose)
+    if verbose:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
     
-    logger.info(f"Results will be saved to: {experiment_path}")
-    logger.info(f"Log file: {log_file}")
+    logger.info(f"Starting task")
     
-    # Save experiment metadata (only in sequential mode or for first dataset)
-    if not parallel_mode or dataset_idx == 0:
-        metadata = {
-            "experiment_name": experiment_name,
-            "start_time": datetime.now().isoformat(),
-            "skip_completed": skip_completed,
-            "total_datasets": total_datasets,
-            "parallel_mode": parallel_mode,
-        }
-        storage.save_experiment_metadata(metadata)
+    # ==========================================
+    # Check if already completed (with locking)
+    # ==========================================
+    if result_file.exists():
+        try:
+            with open(result_file, 'rb') as f:
+                # Shared lock for reading (multiple readers OK)
+                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                try:
+                    existing_results = pickle.load(f)
+                finally:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+            
+            if hpo_mode in existing_results and method in existing_results[hpo_mode]:
+                logger.info(f"Already completed, skipping")
+                print(f"[SKIP] {dataset}/{method}/{hpo_mode} - already done")
+                return
+        except Exception as e:
+            logger.warning(f"Could not check existing results: {e}")
+            # Continue with task anyway
     
-    logger.info(f"Processing {len(all_datasets)} dataset(s)")
-    
-    # Track results
-    completed_datasets = []
-    skipped_datasets = []
-    failed_datasets = []
-    
-    # Extract common experiment parameters
+    # Build parameters for method_runner
     experiment_params = {
+        'task': task_type,
+        'dataset': dataset,
         'test_size': config['split']['test_size'],
         'val_size': config['split']['val_size'],
         'cv_splits': config['split']['cv_splits'],
         'seed': config['split']['seed'],
         'row_limit': config['split'].get('row_limit', None),
         'sampling': config['split'].get('sampling', None),
+        'method': method,
         'max_epoch': config['training']['max_epochs'],
         'batch_size': config['training']['batch_size'],
         'early_stopping': config['training']['early_stopping'],
         'early_stopping_patience': config['training']['early_stopping_patience'],
         'n_trials': config['tuning']['n_trials'],
+        'tune': tune,
         'config_base_dir': experiment_path,
         'verbose': verbose,
     }
     
-    # Process datasets
-    for idx, (dataset, task) in enumerate(all_datasets):
-        global_idx = dataset_idx if parallel_mode else idx
+    try:
+        # ==========================================
+        # TRAINING (no file lock, fully parallel)
+        # ==========================================
+        logger.info("Training started")
+        method_results = run_talent_method(**experiment_params)
+        logger.info("Training completed")
         
-        logger.info("\n" + "="*80)
-        logger.info(f"Dataset {global_idx + 1}/{total_datasets}: {dataset} ({task.upper()})")
-        logger.info("="*80)
+        # ==========================================
+        # SAVE RESULTS (with file locking)
+        # ==========================================
+        logger.info("Saving results (acquiring file lock)")
         
-        # Check if already completed
-        if skip_completed and storage.dataset_exists(dataset, task=task):
-            logger.info(f"[SKIP] Results already exist for {dataset}")
-            skipped_datasets.append(f"{task}/{dataset}")
-            continue
+        max_retries = 10
+        retry_delay = 0.5  # seconds
         
-        try:
-            logger.info("Running HPO comparison...")
-            
-            # Run HPO comparison
-            results = run_hpo_comparison(
-                task=task,
-                dataset=dataset,
-                **experiment_params
-            )
-            
-            # Save results
-            dataset_metadata = {
-                "task": task,
-                "dataset": dataset,
-                "timestamp": datetime.now().isoformat(),
-                "n_methods_no_hpo": len(results['NO_HPO']),
-                "n_methods_hpo": len(results['HPO']),
-                "methods": list(results['NO_HPO'].keys()),
-            }
-            
-            storage.save_dataset_results(
-                dataset=dataset,
-                results=results,
-                metadata=dataset_metadata,
-                task=task,
-                overwrite=True
-            )
-            
-            completed_datasets.append(f"{task}/{dataset}")
-            logger.info(f"[DONE] Completed: {dataset}")
-            
-        except Exception as e:
-            logger.error(f"[FAIL] Failed: {dataset}", exc_info=True)
-            failed_datasets.append((f"{task}/{dataset}", str(e)))
-    
-    # Summary
-    logger.info("\n" + "="*80)
-    logger.info("RUN COMPLETE")
-    logger.info("="*80)
-    logger.info(f"Completed: {len(completed_datasets)}")
-    logger.info(f"Skipped: {len(skipped_datasets)}")
-    logger.info(f"Failed: {len(failed_datasets)}")
-    
-    if failed_datasets:
-        logger.info("\nFailed datasets:")
-        for ds, error in failed_datasets:
-            logger.info(f"  [X] {ds}: {error}")
-    
-    logger.info(f"\nResults saved to: {experiment_path}")
-    logger.info("="*80)
+        for attempt in range(max_retries):
+            try:
+                # Ensure directory exists
+                result_file.parent.mkdir(parents=True, exist_ok=True)
+                
+                # Determine file mode
+                if result_file.exists():
+                    mode = 'r+b'  # Read and write existing
+                else:
+                    mode = 'w+b'  # Create new
+                
+                with open(result_file, mode) as f:
+                    # ========================================
+                    # EXCLUSIVE LOCK - blocks other processes
+                    # ========================================
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    
+                    try:
+                        # Load existing results (or create new structure)
+                        if result_file.exists() and f.seek(0, 2) > 0:  # Check file size
+                            f.seek(0)
+                            results = pickle.load(f)
+                        else:
+                            results = {'NO_HPO': {}, 'HPO': {}}
+                        
+                        # Double-check not already written (race condition safety)
+                        if hpo_mode in results and method in results[hpo_mode]:
+                            logger.info("Results already written by another process, skipping save")
+                            return
+                        
+                        # Add our results
+                        results[hpo_mode][method] = method_results
+                        
+                        # Write back to file
+                        f.seek(0)
+                        f.truncate()
+                        pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+                        f.flush()
+                        
+                        logger.info("Results saved successfully")
+                        
+                    finally:
+                        # UNLOCK
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+                # Success - break retry loop
+                break
+                
+            except (IOError, OSError) as e:
+                if attempt < max_retries - 1:
+                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    logger.warning(f"File lock failed (attempt {attempt+1}/{max_retries}), "
+                                 f"waiting {wait_time:.1f}s: {e}")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"Failed to acquire file lock after {max_retries} attempts")
+                    raise RuntimeError(
+                        f"Could not save results after {max_retries} attempts. "
+                        f"File may be corrupted: {result_file}"
+                    ) from e
+        
+        logger.info(f"Task completed successfully")
+        print(f"[DONE] {dataset}/{method}/{hpo_mode}")
+        
+    except Exception as e:
+        logger.error(f"Task failed with error: {e}", exc_info=True)
+        print(f"[FAIL] {dataset}/{method}/{hpo_mode}: {str(e)}")
+        raise
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Experiment 1: HPO Benchmark")
-    parser.add_argument(
-        '--dataset_idx', 
-        type=int, 
-        default=None,
-        help='Dataset index for SLURM array jobs (0-based). If not specified, runs all datasets sequentially.'
-    )
-    parser.add_argument(
-        '--no_skip',
-        action='store_true',
-        help='Re-run all datasets even if results exist'
-    )
-    parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Reduce verbosity'
-    )
+def main():
+    parser = argparse.ArgumentParser(description="Experiment 1 with file locking")
+    parser.add_argument('--task_idx', type=int, default=None,
+                        help='Task index for SLURM array')
+    parser.add_argument('--generate_tasks', action='store_true',
+                        help='Generate task lists only')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Detailed logging')
+    parser.add_argument('--experiment', type=str, default='experiment1',
+                        help='Experiment name')
     
     args = parser.parse_args()
     
-    run_experiment1(
-        experiment_name="experiment1",
-        skip_completed=not args.no_skip,
-        verbose=not args.quiet,
-        dataset_idx=args.dataset_idx
-    )
+    # Load config
+    config = load_config()
+    
+    # Generate task lists
+    all_tasks, tasks_by_type = generate_task_list(args.experiment)
+    save_task_lists(args.experiment, tasks_by_type)
+    
+    if args.generate_tasks:
+        print("Task lists generated. Submit SLURM jobs to run.")
+        return
+    
+    # Determine which tasks to run
+    if args.task_idx is not None:
+        # SLURM array mode: run ONE task
+        if args.task_idx < 0 or args.task_idx >= len(all_tasks):
+            print(f"ERROR: task_idx {args.task_idx} out of range")
+            sys.exit(1)
+        
+        tasks_to_run = [all_tasks[args.task_idx]]
+        print(f"\n[SLURM] Running task {args.task_idx}/{len(all_tasks)}")
+    else:
+        # Sequential mode: run all tasks (for testing)
+        tasks_to_run = all_tasks
+        print(f"\n[SEQUENTIAL] Running all {len(all_tasks)} tasks")
+    
+    # Execute tasks
+    for task in tasks_to_run:
+        run_single_task(task, args.experiment, config, args.verbose)
+
+
+if __name__ == "__main__":
+    main()
