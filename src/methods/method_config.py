@@ -2,16 +2,20 @@
 TALENT Method Configuration and Preprocessing Requirements
 
 This module provides a centralized configuration system for all TALENT methods,
-defining their categorization, execution requirements, and preprocessing policies.
+defining their categorization, preprocessing policies, and architectural requirements.
+
+NOTE: GPU vs CPU execution categorization is defined in Experiment1_Setup.py,
+      as it's experiment-specific rather than a fundamental method property.
 
 Organization:
-    1. Method Categorization (by execution environment and architecture)
+    1. Method Categorization (by architecture and optimization needs)
     2. Output Format Requirements (logits vs probabilities)
     3. Preprocessing Requirements (categorical, numerical, normalization)
     4. Helper Functions (policy application logic)
+    5. Validation & Sanity Checks
 
 Usage:
-    from src.methods.method_config import GPU_METHODS, CPU_METHODS
+    from src.methods.method_config import NO_HPO_METHODS, DEEP_METHODS
     from src.methods.method_config import apply_preprocessing_policies
 """
 
@@ -23,54 +27,8 @@ from dataclasses import dataclass
 MethodName = str
 MethodSet = ty.Set[MethodName]
 
-
 # ======================================================================================
-#                    SECTION 1: METHOD CATEGORIZATION BY EXECUTION
-# ======================================================================================
-
-# CPU-only methods - Run efficiently on CPU, no GPU acceleration available
-CPU_METHODS: MethodSet = {
-    # Traditional ML models (no GPU support)
-    'RandomForest', 'LogReg', 'LinearRegression',
-    'knn', 'svm', 'NaiveBayes', 'NCM',
-    
-    # Tree-based gradient boosting
-    'xgboost', 'catboost', 'lightgbm',
-    
-    # Baseline models
-    'dummy',
-}
-
-# GPU methods - Require GPU or have GPU acceleration
-GPU_METHODS: MethodSet = {
-
-    
-    # Basic neural architectures
-    'mlp', 'resnet',
-    
-    # Attention-based transformers
-    'ftt', 'saint', 'tabtransformer', 'tabptm', 'trompt',
-    
-    # Specialized deep learning
-    'tabnet', 'node', 'tabr', 'grownet',
-    
-    # Advanced architectures
-    'autoint', 'snn', 'danets', 'tabcaps', 'dcn2',
-    'tangos', 'ptarl', 'switchtab', 'dnnr',
-    
-    # Modern architectures
-    'modernNCA', 'hyperfast', 'bishop', 'realmlp',
-    'protogate', 'mlp_plr', 'excelformer', 'grande',
-    'amformer', 'tabm', 't2gformer', 'tabautopnpnet',
-    'tabicl', 'limix', 'mitra',
-    
-    # Foundation models (can run on CPU but much faster on GPU)
-    'tabpfn', 'tabpfn_v2', 'tabpfn_real',
-}
-
-
-# ======================================================================================
-#                    SECTION 2: METHOD CATEGORIZATION BY ARCHITECTURE
+#                    SECTION 1: METHOD CATEGORIZATION BY ARCHITECTURE
 # ======================================================================================
 
 # Deep learning methods - Neural network architectures
@@ -122,7 +80,7 @@ NO_HPO_METHODS: MethodSet = {
 
 
 # ======================================================================================
-#                    SECTION 3: OUTPUT FORMAT REQUIREMENTS
+#                    SECTION 2: OUTPUT FORMAT REQUIREMENTS
 # ======================================================================================
 
 # Methods that return raw logits (need softmax for probabilities)
@@ -161,7 +119,7 @@ PROBABILITY_METHODS: MethodSet = {
 
 
 # ======================================================================================
-#                    SECTION 4: PREPROCESSING REQUIREMENTS
+#                    SECTION 3: PREPROCESSING REQUIREMENTS
 # ======================================================================================
 
 @dataclass(frozen=True)
@@ -260,7 +218,7 @@ METHOD_ROW_LIMITS: ty.Dict[MethodName, int] = {
 
 
 # ======================================================================================
-#                    SECTION 5: VALIDATION & HELPER FUNCTIONS
+#                    SECTION 4: VALIDATION & HELPER FUNCTIONS
 # ======================================================================================
 
 # Sentinel values indicating "missing" or "not specified"
@@ -465,7 +423,7 @@ def apply_method_row_limit(
 
 
 # ======================================================================================
-#                    SECTION 6: VALIDATION & SANITY CHECKS
+#                    SECTION 5: VALIDATION & SANITY CHECKS
 # ======================================================================================
 
 def validate_configuration() -> None:
@@ -473,23 +431,16 @@ def validate_configuration() -> None:
     Validate that the configuration is internally consistent.
     
     Checks:
-    - No overlap between GPU and CPU methods
-    - All methods are categorized
+    - All methods are categorized (deep vs classical)
     - Logit and probability methods don't overlap
+    - All methods have output type defined
     - Required preprocessing sets are disjoint where expected
     
     Raises:
         AssertionError: If configuration is inconsistent
     """
-    # Check GPU vs CPU separation
-    overlap = GPU_METHODS & CPU_METHODS
-    assert not overlap, f"Methods in both GPU and CPU: {overlap}"
-    
     # Check all methods are categorized
-    all_methods = GPU_METHODS | CPU_METHODS
-    deep_and_classical = DEEP_METHODS | CLASSICAL_METHODS
-    assert all_methods == deep_and_classical, \
-        f"Mismatch between GPU/CPU and DEEP/CLASSICAL: {all_methods ^ deep_and_classical}"
+    all_methods = DEEP_METHODS | CLASSICAL_METHODS
     
     # Check logit vs probability methods cover all methods
     output_methods = LOGIT_METHODS | PROBABILITY_METHODS
@@ -519,9 +470,7 @@ if __name__ == "__main__":
     print("\n" + "="*70)
     print("METHOD CONFIGURATION SUMMARY")
     print("="*70)
-    print(f"Total methods: {len(GPU_METHODS | CPU_METHODS)}")
-    print(f"  GPU methods: {len(GPU_METHODS)}")
-    print(f"  CPU methods: {len(CPU_METHODS)}")
+    print(f"Total methods: {len(DEEP_METHODS | CLASSICAL_METHODS)}")
     print(f"  Deep learning: {len(DEEP_METHODS)}")
     print(f"  Classical: {len(CLASSICAL_METHODS)}")
     print(f"  No-HPO methods: {len(NO_HPO_METHODS)}")

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 #SBATCH --job-name=exp1_gpu
 #SBATCH --partition=gpu_a100
 #SBATCH --cluster=wice          
@@ -13,31 +13,24 @@
 #SBATCH --mail-user=andreas.goethals@kuleuven.be
 #SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.err
-#SBATCH --array=PLACEHOLDER
+#SBATCH --array=0-32%16
 
-export PYTHONUNBUFFERED=1
-export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
+# Load modules
+module purge
+module load Python/3.10.8-GCCcore-12.2.0
+module load CUDA/11.7.0
+
+# Activate environment
 source activate TabPFNCredit
 
-cd $VSC_DATA/TabPFNCredit
+echo "=========================================="
+echo "GPU JOB"
+echo "=========================================="
+echo "Job ID:       $SLURM_JOB_ID"
+echo "Array ID:     $SLURM_ARRAY_TASK_ID"
+echo "Node:         $SLURMD_NODENAME"
+echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "=========================================="
 
-mkdir -p results/experiment1/logs/slurm
-
-TASK_LIST="results/experiment1/task_list_gpu.json"
-
-if [ ! -f "$TASK_LIST" ]; then
-    echo "ERROR: GPU task list not found"
-    exit 1
-fi
-
-echo "=== GPU Task $SLURM_ARRAY_TASK_ID started at $(date) ==="
-echo "Job ID: $SLURM_JOB_ID, Array Task: $SLURM_ARRAY_TASK_ID"
-nvidia-smi --query-gpu=name,memory.total --format=csv
-
-python -u scripts/Experiment1/Experiment1.py \
-    --task_idx=$SLURM_ARRAY_TASK_ID \
-    --verbose
-
-EXIT_CODE=$?
-echo "=== Task completed at $(date) with exit code $EXIT_CODE ==="
-exit $EXIT_CODE
+# Run GPU orchestrator
+python scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose

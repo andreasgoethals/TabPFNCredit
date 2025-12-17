@@ -1,208 +1,363 @@
 #!/usr/bin/env python3
 """
-Setup script: Generate task lists and configure SLURM array jobs.
+Setup Script: Generate SLURM scripts with correct array sizes
 
-This script prepares Experiment 1 for execution by:
-1. Generating all task combinations (dataset × method × HPO mode)
-2. Separating tasks into GPU and CPU groups
-3. Updating SLURM scripts with correct array ranges
-4. Providing execution instructions
+This script:
+1. Defines GPU vs CPU method categorization
+2. Reads enabled methods and datasets from config
+3. Counts GPU and CPU tasks
+4. COMPLETELY REWRITES SLURM scripts with correct array ranges
+5. Provides instructions for submission
 
-The script respects NO_HPO_METHODS and only generates NO_HPO tasks
-for methods that don't benefit from hyperparameter tuning.
+GPU/CPU Categorization:
+- GPU methods: Deep learning architectures requiring GPU acceleration
+- CPU methods: Tree boosting + classical ML (efficient on CPU)
 """
 
 import sys
 from pathlib import Path
 
-# Setup project paths
+# Setup paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-# Import experiment functions
-sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "Experiment1"))
-from Experiment1 import generate_task_list, save_task_lists
+from src.utils.config_reader import load_config
+from src.methods.method_config import NO_HPO_METHODS
+
+# ======================================================================================
+#                    GPU vs CPU METHOD CATEGORIZATION
+# ======================================================================================
+
+# GPU Methods - Neural network architectures requiring GPU acceleration
+GPU_METHODS = {
+    # Tree-based gradient boosting 
+    'xgboost', 'catboost', 'lightgbm',
+    
+    # Basic neural architectures
+    'mlp', 'resnet',
+    
+    # Attention-based transformers
+    'ftt', 'saint', 'tabtransformer', 'tabptm', 'trompt',
+    
+    # Specialized deep learning
+    'tabnet', 'node', 'tabr', 'grownet',
+    
+    # Advanced architectures
+    'autoint', 'snn', 'danets', 'tabcaps', 'dcn2',
+    'tangos', 'ptarl', 'switchtab', 'dnnr',
+    
+    # Modern architectures
+    'modernNCA', 'hyperfast', 'bishop', 'realmlp',
+    'protogate', 'mlp_plr', 'excelformer', 'grande',
+    'amformer', 'tabm', 't2gformer', 'tabautopnpnet',
+    'tabicl', 'limix', 'mitra',
+    
+    # Foundation models
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real',
+}
+
+# CPU Methods - Tree boosting + classical ML (efficient on CPU, no GPU needed)
+CPU_METHODS = {
+
+    
+    # Traditional ML models
+    'RandomForest', 'LogReg', 'LinearRegression',
+    'knn', 'svm', 'NaiveBayes', 'NCM',
+    
+    # Baseline models
+    'dummy',
+}
 
 
-def update_slurm_script(script_path, n_tasks, max_concurrent):
-    """
-    Update SLURM script with correct array range.
+# ======================================================================================
+#                    SLURM SCRIPT TEMPLATES
+# ======================================================================================
+
+def generate_gpu_slurm_script(n_tasks, max_concurrent):
+    """Generate complete GPU SLURM script content."""
     
-    Replaces the placeholder "#SBATCH --array=PLACEHOLDER" with actual
-    array directive based on number of tasks.
-    
-    Args:
-        script_path: Path to SLURM script file
-        n_tasks: Number of tasks to run
-        max_concurrent: Maximum concurrent array jobs
-    """
-    
-    if not script_path.exists():
-        print(f"⚠️  WARNING: {script_path} not found")
-        return
-    
-    with open(script_path, 'r') as f:
-        content = f.read()
-    
-    # Create array directive
     if n_tasks == 0:
-        array_directive = "#SBATCH --array=0"
-        print(f"⚠️  WARNING: {script_path.name} has 0 tasks")
+        array_range = "0"
     else:
         array_range = f"0-{n_tasks-1}%{max_concurrent}"
-        array_directive = f"#SBATCH --array={array_range}"
     
-    # Replace placeholder
-    if "#SBATCH --array=PLACEHOLDER" not in content:
-        print(f"⚠️  WARNING: No placeholder found in {script_path.name}")
-        return
-    
-    content = content.replace(
-        "#SBATCH --array=PLACEHOLDER",
-        array_directive
-    )
-    
-    with open(script_path, 'w') as f:
-        f.write(content)
-    
-    print(f"✓ Updated {script_path.name}: {array_directive}")
+    return f"""#!/bin/bash
+#SBATCH --job-name=exp1_gpu
+#SBATCH --partition=gpu_a100
+#SBATCH --cluster=wice          
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --gpus-per-node=1
+#SBATCH --mem=40G
+#SBATCH --time=40:00:00
+#SBATCH --account=lp_verbekelab
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=andreas.goethals@kuleuven.be
+#SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.out
+#SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.err
+#SBATCH --array={array_range}
+
+# Load modules
+module purge
+module load Python/3.10.8-GCCcore-12.2.0
+module load CUDA/11.7.0
+
+# Activate environment
+source activate TabPFNCredit
+
+echo "=========================================="
+echo "GPU JOB"
+echo "=========================================="
+echo "Job ID:       $SLURM_JOB_ID"
+echo "Array ID:     $SLURM_ARRAY_TASK_ID"
+echo "Node:         $SLURMD_NODENAME"
+echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "=========================================="
+
+# Run GPU orchestrator
+python scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+"""
 
 
-def print_method_summary(tasks_by_type):
-    """Print summary of tasks by method and execution type."""
+def generate_cpu_slurm_script(n_tasks, max_concurrent):
+    """Generate complete CPU SLURM script content."""
     
-    from collections import defaultdict
+    if n_tasks == 0:
+        array_range = "0"
+    else:
+        array_range = f"0-{n_tasks-1}%{max_concurrent}"
     
-    # Count tasks by method
-    method_counts = defaultdict(lambda: {'NO_HPO': 0, 'HPO': 0, 'total': 0})
+    return f"""#!/bin/bash
+#SBATCH --job-name=exp1_cpu
+#SBATCH --cluster=genius             
+#SBATCH --partition=batch
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=36
+#SBATCH --mem=90G
+#SBATCH --time=12:00:00
+#SBATCH --account=lp_verbekelab
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-user=andreas.goethals@kuleuven.be
+#SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --array={array_range}
+
+# Load modules
+module purge
+module load Python/3.10.8-GCCcore-12.2.0
+
+# Activate environment
+source activate TabPFNCredit
+
+echo "=========================================="
+echo "CPU JOB"
+echo "=========================================="
+echo "Job ID:       $SLURM_JOB_ID"
+echo "Array ID:     $SLURM_ARRAY_TASK_ID"
+echo "Node:         $SLURMD_NODENAME"
+echo "=========================================="
+
+# Run CPU orchestrator
+python scripts/Experiment1/Experiment1_CPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+"""
+
+
+# ======================================================================================
+#                    TASK COUNTING AND SLURM GENERATION
+# ======================================================================================
+
+def count_tasks(methods, datasets):
+    """Count total tasks for given methods and datasets."""
+    count = 0
+    for dataset in datasets:
+        for method in methods:
+            if method in NO_HPO_METHODS:
+                count += 1  # Only NO_HPO
+            else:
+                count += 2  # NO_HPO + HPO
+    return count
+
+
+def write_slurm_script(script_path, content, job_type):
+    """
+    Write SLURM script, completely overwriting any existing file.
     
-    for task in tasks_by_type['all']:
-        method = task['method']
-        hpo_mode = task['hpo_mode']
-        method_counts[method][hpo_mode] += 1
-        method_counts[method]['total'] += 1
+    Args:
+        script_path: Path to SLURM script
+        content: Complete script content to write
+        job_type: 'GPU' or 'CPU' for logging
+    """
     
-    # Separate GPU and CPU methods
-    gpu_methods = sorted([m for m in method_counts.keys() 
-                         if any(t['method'] == m and t['is_gpu_method'] 
-                               for t in tasks_by_type['all'])])
-    cpu_methods = sorted([m for m in method_counts.keys() 
-                         if any(t['method'] == m and not t['is_gpu_method'] 
-                               for t in tasks_by_type['all'])])
+    try:
+        # Ensure directory exists
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write complete script
+        with open(script_path, 'w', newline='\n') as f:  # Force Unix line endings
+            f.write(content)
+        
+        # Make executable
+        script_path.chmod(0o755)
+        
+        print(f"✓ {script_path.name}: Written successfully")
+        return True
+        
+    except Exception as e:
+        print(f"❌ ERROR writing {script_path.name}: {e}")
+        return False
+
+
+def print_method_summary(gpu_methods, cpu_methods, pd_datasets, lgd_datasets):
+    """Print summary of methods and datasets."""
     
     print(f"\n{'='*70}")
-    print("METHOD BREAKDOWN")
+    print("CONFIGURATION SUMMARY")
     print(f"{'='*70}")
     
-    if gpu_methods:
-        print(f"\nGPU Methods ({len(gpu_methods)}):")
-        print(f"  {'Method':<20} {'NO_HPO':>8} {'HPO':>8} {'Total':>8}")
-        print(f"  {'-'*20} {'-'*8} {'-'*8} {'-'*8}")
-        for method in gpu_methods:
-            counts = method_counts[method]
-            print(f"  {method:<20} {counts['NO_HPO']:>8} {counts['HPO']:>8} {counts['total']:>8}")
+    print(f"\nDatasets:")
+    print(f"  PD:  {', '.join(pd_datasets)}")
+    print(f"  LGD: {', '.join(lgd_datasets)}")
     
-    if cpu_methods:
-        print(f"\nCPU Methods ({len(cpu_methods)}):")
-        print(f"  {'Method':<20} {'NO_HPO':>8} {'HPO':>8} {'Total':>8}")
-        print(f"  {'-'*20} {'-'*8} {'-'*8} {'-'*8}")
-        for method in cpu_methods:
-            counts = method_counts[method]
-            print(f"  {method:<20} {counts['NO_HPO']:>8} {counts['HPO']:>8} {counts['total']:>8}")
+    print(f"\nGPU Methods ({len(gpu_methods)}):")
+    for i, method in enumerate(sorted(gpu_methods), 1):
+        hpo_str = "NO_HPO only" if method in NO_HPO_METHODS else "NO_HPO + HPO"
+        print(f"  {i:2d}. {method:<20} ({hpo_str})")
+    
+    print(f"\nCPU Methods ({len(cpu_methods)}):")
+    for i, method in enumerate(sorted(cpu_methods), 1):
+        hpo_str = "NO_HPO only" if method in NO_HPO_METHODS else "NO_HPO + HPO"
+        print(f"  {i:2d}. {method:<20} ({hpo_str})")
     
     print(f"{'='*70}\n")
 
 
 def main():
-    """Main setup routine."""
-    
     experiment_name = "experiment1"
     
     print(f"\n{'='*70}")
     print("EXPERIMENT 1 SETUP")
     print(f"{'='*70}\n")
     
-    # Generate task lists
-    print("Generating task lists...")
-    all_tasks, tasks_by_type = generate_task_list(experiment_name)
-    save_task_lists(experiment_name, tasks_by_type)
+    # Load config
+    config = load_config()
     
-    # Get task counts
-    n_gpu = len(tasks_by_type['gpu'])
-    n_cpu = len(tasks_by_type['cpu'])
-    n_total = len(tasks_by_type['all'])
+    # Get enabled datasets
+    pd_datasets = list(config['datasets']['pd'].keys())
+    lgd_datasets = list(config['datasets']['lgd'].keys())
+    all_datasets = pd_datasets + lgd_datasets
     
-    # Print method breakdown
-    print_method_summary(tasks_by_type)
+    if not all_datasets:
+        print("❌ ERROR: No datasets enabled in config")
+        sys.exit(1)
     
-    # Determine concurrency limits
-    # VSC has ~16-32 A100 GPUs per partition, but we limit to avoid overwhelming
-    max_gpu_concurrent = min(16, n_gpu) if n_gpu > 0 else 1
+    # Get enabled methods (filtered by GPU/CPU)
+    all_pd_methods = list(config['methods']['pd'].keys())
+    all_lgd_methods = list(config['methods']['lgd'].keys())
     
-    # CPU nodes are more abundant, but still limit concurrent jobs
-    max_cpu_concurrent = min(64, n_cpu) if n_cpu > 0 else 1
+    gpu_pd_methods = [m for m in all_pd_methods if m in GPU_METHODS]
+    gpu_lgd_methods = [m for m in all_lgd_methods if m in GPU_METHODS]
+    
+    cpu_pd_methods = [m for m in all_pd_methods if m in CPU_METHODS]
+    cpu_lgd_methods = [m for m in all_lgd_methods if m in CPU_METHODS]
+    
+    # Get unique method names
+    gpu_methods = set(gpu_pd_methods + gpu_lgd_methods)
+    cpu_methods = set(cpu_pd_methods + cpu_lgd_methods)
+    
+    if not gpu_methods and not cpu_methods:
+        print("❌ ERROR: No methods enabled in config")
+        sys.exit(1)
+    
+    # Print summary
+    print_method_summary(gpu_methods, cpu_methods, pd_datasets, lgd_datasets)
+    
+    # Count tasks
+    n_gpu_tasks = (
+        count_tasks(gpu_pd_methods, pd_datasets) +
+        count_tasks(gpu_lgd_methods, lgd_datasets)
+    )
+    
+    n_cpu_tasks = (
+        count_tasks(cpu_pd_methods, pd_datasets) +
+        count_tasks(cpu_lgd_methods, lgd_datasets)
+    )
+    
+    # Determine concurrency
+    max_gpu_concurrent = min(16, n_gpu_tasks) if n_gpu_tasks > 0 else 1
+    max_cpu_concurrent = min(64, n_cpu_tasks) if n_cpu_tasks > 0 else 1
     
     print(f"{'='*70}")
-    print("SLURM CONFIGURATION")
+    print("TASK COUNTS")
     print(f"{'='*70}")
-    print(f"Total tasks:      {n_total:4d}")
-    print(f"  GPU tasks:      {n_gpu:4d} (max {max_gpu_concurrent} concurrent)")
-    print(f"  CPU tasks:      {n_cpu:4d} (max {max_cpu_concurrent} concurrent)")
+    print(f"GPU tasks:  {n_gpu_tasks:4d} (max {max_gpu_concurrent} concurrent)")
+    print(f"CPU tasks:  {n_cpu_tasks:4d} (max {max_cpu_concurrent} concurrent)")
+    print(f"Total:      {n_gpu_tasks + n_cpu_tasks:4d}")
     print(f"{'='*70}\n")
     
-    # Update SLURM scripts
-    print("Updating SLURM scripts...")
+    # Generate SLURM scripts
+    print("Generating SLURM scripts...")
     scripts_dir = PROJECT_ROOT / "scripts" / "Experiment1"
     
-    update_slurm_script(
+    # Generate GPU script
+    gpu_content = generate_gpu_slurm_script(n_gpu_tasks, max_gpu_concurrent)
+    gpu_success = write_slurm_script(
         scripts_dir / "Experiment1_GPU.slurm",
-        n_gpu,
-        max_gpu_concurrent
+        gpu_content,
+        "GPU"
     )
     
-    update_slurm_script(
+    # Generate CPU script
+    cpu_content = generate_cpu_slurm_script(n_cpu_tasks, max_cpu_concurrent)
+    cpu_success = write_slurm_script(
         scripts_dir / "Experiment1_CPU.slurm",
-        n_cpu,
-        max_cpu_concurrent
+        cpu_content,
+        "CPU"
     )
+    
+    if not gpu_success or not cpu_success:
+        print("\n❌ SETUP FAILED")
+        sys.exit(1)
     
     print(f"\n{'='*70}")
     print("✅ SETUP COMPLETE")
     print(f"{'='*70}\n")
     
-    # Provide execution instructions
+    # Provide instructions
     print("📋 Next Steps:\n")
     
-    if n_gpu > 0:
+    if n_gpu_tasks > 0:
         print(f"  1. Submit GPU jobs:")
         print(f"     sbatch scripts/Experiment1/Experiment1_GPU.slurm")
-        print(f"     ({n_gpu} tasks, up to {max_gpu_concurrent} concurrent)\n")
+        print(f"     ({n_gpu_tasks} tasks, up to {max_gpu_concurrent} concurrent)\n")
     else:
-        print(f"  1. No GPU tasks to run\n")
+        print(f"  1. No GPU jobs to submit\n")
     
-    if n_cpu > 0:
+    if n_cpu_tasks > 0:
         print(f"  2. Submit CPU jobs:")
         print(f"     sbatch scripts/Experiment1/Experiment1_CPU.slurm")
-        print(f"     ({n_cpu} tasks, up to {max_cpu_concurrent} concurrent)\n")
+        print(f"     ({n_cpu_tasks} tasks, up to {max_cpu_concurrent} concurrent)\n")
     else:
-        print(f"  2. No CPU tasks to run\n")
+        print(f"  2. No CPU jobs to submit\n")
     
-    print(f"  3. Monitor execution:")
-    print(f"     squeue -u $USER              # Check job status")
-    print(f"     watch -n 5 'squeue -u $USER' # Auto-refresh every 5s")
-    print(f"     ls results/experiment1/pd/*.pkl | wc -l  # Count results\n")
+    print(f"  3. Monitor:")
+    print(f"     squeue -u $USER")
+    print(f"     watch -n 5 'squeue -u $USER'\n")
     
-    print(f"  4. Check logs:")
-    print(f"     tail -f results/experiment1/logs/slurm/gpu_*.out")
-    print(f"     tail -f results/experiment1/logs/slurm/cpu_*.out")
-    print(f"     cat results/experiment1/logs/errors.log  # All failures\n")
+    print(f"  4. Check results:")
+    print(f"     ls results/experiment1/pd/*.pkl | wc -l")
+    print(f"     ls results/experiment1/lgd/*.pkl | wc -l\n")
     
     print(f"{'='*70}\n")
     
-    # Provide test command
+    # Test command
     print("🧪 Test Single Task (before submitting all):\n")
-    print(f"  python scripts/Experiment1/Experiment1.py --task_idx=0 --verbose\n")
-    print(f"{'='*70}\n")
+    if n_gpu_tasks > 0:
+        print(f"  GPU: python scripts/Experiment1/Experiment1_GPU.py --array_id=0 --verbose")
+    if n_cpu_tasks > 0:
+        print(f"  CPU: python scripts/Experiment1/Experiment1_CPU.py --array_id=0 --verbose")
+    print(f"\n{'='*70}\n")
 
 
 if __name__ == "__main__":
