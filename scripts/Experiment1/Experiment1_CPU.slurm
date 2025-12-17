@@ -1,25 +1,19 @@
 #!/bin/bash
 #SBATCH --job-name=exp1_cpu
-#SBATCH --cluster=genius             
-#SBATCH --partition=batch
-#SBATCH --nodes=1
+#SBATCH --output=results/experiment1/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --time=24:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=36
-#SBATCH --mem=90G
-#SBATCH --time=12:00:00
-#SBATCH --account=lp_verbekelab
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-user=andreas.goethals@kuleuven.be
-#SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=20G
+#SBATCH --partition=batch
 #SBATCH --array=0-17%18
 
-# Load modules
-module purge
-module load Python/3.10.8-GCCcore-12.2.0
+# Load conda from your installation
+source $HOME/miniconda3/etc/profile.d/conda.sh
 
 # Activate environment
-source activate TabPFNCredit
+conda activate TabPFNCredit
 
 echo "=========================================="
 echo "CPU JOB"
@@ -27,6 +21,8 @@ echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
+echo "Python:       $(which python)"
+echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run CPU orchestrator
