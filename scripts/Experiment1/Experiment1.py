@@ -114,19 +114,46 @@ def run_single_task(task, experiment_name, config, verbose=False):
     Uses file locking for safe concurrent writes.
     """
     
-    # Extract task parameters FIRST
+    # Extract task parameters
     task_idx = task['task_idx']
     dataset = task['dataset']
     method = task['method']
     task_type = task['task']
     hpo_mode = task['hpo_mode']
+    tune = (hpo_mode == 'HPO')
     
-    # Print banner at start
+    # Initialize storage handler and get experiment path
+    storage = StorageHandler(experiment_name)
+    experiment_path = storage.get_experiment_path()
+    
+    # Setup logging
+    log_dir = experiment_path / "logs" / "tasks"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{dataset}_{method}_{hpo_mode}.log"
+    
+    logging.basicConfig(
+        level=logging.INFO if verbose else logging.WARNING,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    logger = logging.getLogger(__name__)
+    
+    # Print banner
     print(f"\n{'='*70}")
     print(f"TASK {task_idx}: {dataset} | {method} | {hpo_mode}")
     print(f"{'='*70}")
+    print(f"Job ID: {os.environ.get('SLURM_JOB_ID', 'N/A')}")
+    print(f"Array Task ID: {os.environ.get('SLURM_ARRAY_TASK_ID', 'N/A')}")
+    print(f"Node: {os.environ.get('SLURMD_NODENAME', 'N/A')}")
+    print(f"{'='*70}\n")
     
-    # Result file for this dataset
+    logger.info(f"Starting task: {dataset}/{method}/{hpo_mode}")
+    print(f"[START] {dataset}/{method}/{hpo_mode}")
+    
+    # Check if already completed
     result_file = experiment_path / task_type / f"{dataset}.pkl"
     
     # ==========================================
