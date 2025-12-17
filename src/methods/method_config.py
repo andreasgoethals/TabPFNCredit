@@ -34,15 +34,16 @@ CPU_METHODS: MethodSet = {
     'RandomForest', 'LogReg', 'LinearRegression',
     'knn', 'svm', 'NaiveBayes', 'NCM',
     
+    # Tree-based gradient boosting
+    'xgboost', 'catboost', 'lightgbm',
+    
     # Baseline models
     'dummy',
 }
 
 # GPU methods - Require GPU or have GPU acceleration
 GPU_METHODS: MethodSet = {
-    # Tree-based gradient boosting (GPU-accelerated)
-    # These have GPU implementations and should run on GPU nodes
-    'xgboost', 'catboost', 'lightgbm',
+
     
     # Basic neural architectures
     'mlp', 'resnet',
