@@ -28,10 +28,8 @@ from src.methods.method_config import NO_HPO_METHODS
 #                    GPU vs CPU METHOD CATEGORIZATION
 # ======================================================================================
 
-# GPU Methods - Neural network architectures requiring GPU acceleration
+# GPU Methods - Neural architectures + tree boosting (run on GPU nodes)
 GPU_METHODS = {
-
-    
     # Basic neural architectures
     'mlp', 'resnet',
     
@@ -53,15 +51,13 @@ GPU_METHODS = {
     
     # Foundation models
     'tabpfn', 'tabpfn_v2', 'tabpfn_real',
+    
+    # Tree boosting (run on GPU nodes for compatibility)
+    'xgboost', 'catboost', 'lightgbm',
 }
 
-# CPU Methods - Tree boosting + classical ML (efficient on CPU, no GPU needed)
+# CPU Methods - Only classical ML (no tree boosting)
 CPU_METHODS = {
-
-    
-    # Tree boosting methods
-    'xgboost', 'lightgbm', 'catboost', 
-    
     # Traditional ML models
     'RandomForest', 'LogReg', 'LinearRegression',
     'knn', 'svm', 'NaiveBayes', 'NCM',

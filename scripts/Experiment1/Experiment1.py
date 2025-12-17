@@ -168,20 +168,7 @@ def run_single_method(dataset, method, task_type, hpo_mode,
     # ==========================================
     cleanup_corrupted_caches()
     
-    # ==========================================
-    # FORCE CPU MODE (for tree boosting on CPU)
-    # ==========================================
-    if method in {'catboost', 'lightgbm', 'xgboost'}:
-        # Check if we're on CPU node (no GPU visible)
-        is_cpu_node = (
-            'CUDA_VISIBLE_DEVICES' not in os.environ or 
-            os.environ.get('CUDA_VISIBLE_DEVICES') == ''
-        )
-        
-        if is_cpu_node:
-            env_updates = force_cpu_mode_for_method(method, logger)
-            logger.info(f"Forced CPU mode: {env_updates}")
-    
+
     # ==========================================
     # CHECK IF ALREADY COMPLETED
     # ==========================================

@@ -13,7 +13,7 @@
 #SBATCH --mail-user=andreas.goethals@kuleuven.be
 #SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.err
-#SBATCH --array=0-20%16
+#SBATCH --array=0-32%16
 
 # Load modules
 module purge
