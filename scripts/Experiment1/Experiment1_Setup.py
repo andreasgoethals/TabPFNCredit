@@ -81,6 +81,7 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
     
     return f"""#!/bin/bash
 #SBATCH --job-name=exp1_gpu
+#SBATCH --cluster="wice"
 #SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/gpu_%A_%a.err
 #SBATCH --time=71:00:00
@@ -123,6 +124,7 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
     
     return f"""#!/bin/bash
 #SBATCH --job-name=exp1_cpu
+#SBATCH --cluster="genius"
 #SBATCH --output=results/experiment1/logs/slurm/cpu_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/cpu_%A_%a.err
 #SBATCH --time=24:00:00
