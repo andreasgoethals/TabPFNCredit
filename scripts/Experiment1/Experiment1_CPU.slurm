@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=exp1_cpu
 #SBATCH --cluster=genius             
-#SBATCH --partition=Skylake
+#SBATCH --partition=batch
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=36
