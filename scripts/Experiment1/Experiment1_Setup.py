@@ -83,6 +83,7 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --job-name=exp1_gpu
 #SBATCH --cluster="wice"
 #SBATCH --account="lp_verbekelab" 
+#SBATCH --nodes="1" 
 #SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/gpu_%A_%a.err
 #SBATCH --time=71:00:00
