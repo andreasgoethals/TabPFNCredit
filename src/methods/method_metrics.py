@@ -13,8 +13,43 @@ Can be imported independently for use in analysis notebooks.
 """
 
 from __future__ import annotations
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 import numpy as np
+
+
+def find_optimal_threshold_f1(
+    y_true: np.ndarray,
+    y_prob: np.ndarray,
+    n_thresholds: int = 100
+) -> Tuple[float, float]:
+    """
+    Find the optimal probability threshold that maximizes F1 score.
+    
+    Args:
+        y_true: Ground truth binary labels (0 or 1), shape (n_samples,)
+        y_prob: Predicted probabilities for positive class, shape (n_samples,)
+        n_thresholds: Number of thresholds to test (default: 100)
+        
+    Returns:
+        Tuple of (optimal_threshold, best_f1_score)
+    """
+    from sklearn.metrics import f1_score
+    
+    # Test thresholds from 0.01 to 0.99
+    thresholds = np.linspace(0.01, 0.99, n_thresholds)
+    f1_scores = []
+    
+    for threshold in thresholds:
+        y_pred_temp = (y_prob >= threshold).astype(int)
+        f1 = f1_score(y_true, y_pred_temp, zero_division=0)
+        f1_scores.append(f1)
+    
+    # Find threshold with maximum F1
+    best_idx = np.argmax(f1_scores)
+    optimal_threshold = thresholds[best_idx]
+    best_f1 = f1_scores[best_idx]
+    
+    return float(optimal_threshold), float(best_f1)
 
 
 def calculate_pd_metrics(
@@ -29,11 +64,18 @@ def calculate_pd_metrics(
     Metrics are divided into probability-based (require y_prob) and prediction-based
     (require y_pred) categories.
     
+    IMPORTANT: If y_prob is provided, the function will:
+    1. Find the optimal threshold that maximizes F1 score
+    2. Use that threshold to generate optimized binary predictions
+    3. Calculate Accuracy, Precision, Recall, and F1 using the optimized predictions
+    4. Return the optimal threshold in the metrics dictionary
+    
     Args:
         y_true: Ground truth binary labels (0 or 1), shape (n_samples,)
         y_prob: Predicted probabilities for positive class (0.0 to 1.0), shape (n_samples,)
                 Can be None if method doesn't produce probabilities
         y_pred: Predicted binary labels (0 or 1), shape (n_samples,)
+                NOTE: This is ignored if y_prob is provided (optimal threshold is used instead)
         
     Returns:
         Dictionary mapping metric names to float values. NaN is used for metrics
@@ -48,12 +90,13 @@ def calculate_pd_metrics(
         - Brier: Brier score (lower is better, measures calibration)
         - LogLoss: Log loss / cross-entropy (lower is better)
         
-        Prediction-based (require y_pred):
+        Prediction-based (with F1-optimized threshold if y_prob provided):
+        - Optimal_Threshold: Threshold that maximizes F1 (only if y_prob provided)
         - Accuracy: Overall accuracy (higher is better)
         - Balanced_Accuracy: Balanced accuracy (higher is better, handles imbalance)
-        - F1: F1 score (higher is better)
-        - Precision: Precision (higher is better)
-        - Recall: Recall / Sensitivity / TPR (higher is better)
+        - F1: F1 score (higher is better) - OPTIMIZED
+        - Precision: Precision (higher is better) - using optimal threshold
+        - Recall: Recall / Sensitivity / TPR (higher is better) - using optimal threshold
         - MCC: Matthews Correlation Coefficient (higher is better, -1 to 1)
     """
     from sklearn.metrics import (
@@ -73,6 +116,26 @@ def calculate_pd_metrics(
     
     # Check if we have both classes
     has_both_classes = len(np.unique(y_true)) > 1
+    
+    # ==========================================================================
+    # THRESHOLD OPTIMIZATION (if y_prob is provided)
+    # ==========================================================================
+    
+    if y_prob is not None and has_both_classes:
+        # Find optimal threshold that maximizes F1
+        optimal_threshold, _ = find_optimal_threshold_f1(y_true, y_prob)
+        
+        # Generate optimized predictions using optimal threshold
+        y_pred_optimized = (y_prob >= optimal_threshold).astype(int)
+        
+        # Store optimal threshold in metrics
+        metrics['Optimal_Threshold'] = optimal_threshold
+        
+        # Use optimized predictions for all prediction-based metrics
+        y_pred = y_pred_optimized
+    else:
+        # No optimization possible, use provided y_pred
+        metrics['Optimal_Threshold'] = np.nan
     
     # ==========================================================================
     # Probability-based metrics (require y_prob)
@@ -135,7 +198,7 @@ def calculate_pd_metrics(
         metrics['LogLoss'] = np.nan
     
     # ==========================================================================
-    # Prediction-based metrics (require y_pred)
+    # Prediction-based metrics (using F1-optimized threshold if available)
     # ==========================================================================
     
     # Accuracy
@@ -144,13 +207,13 @@ def calculate_pd_metrics(
     # Balanced Accuracy (handles class imbalance)
     metrics['Balanced_Accuracy'] = float(balanced_accuracy_score(y_true, y_pred))
     
-    # F1 Score
+    # F1 Score (optimized if y_prob was provided)
     metrics['F1'] = float(f1_score(y_true, y_pred, zero_division=0))
     
-    # Precision
+    # Precision (using optimal threshold if y_prob was provided)
     metrics['Precision'] = float(precision_score(y_true, y_pred, zero_division=0))
     
-    # Recall (Sensitivity, True Positive Rate)
+    # Recall (Sensitivity, True Positive Rate) (using optimal threshold if y_prob was provided)
     metrics['Recall'] = float(recall_score(y_true, y_pred, zero_division=0))
     
     # MCC (Matthews Correlation Coefficient) - robust to class imbalance
