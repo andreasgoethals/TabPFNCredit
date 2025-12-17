@@ -30,8 +30,7 @@ from src.methods.method_config import NO_HPO_METHODS
 
 # GPU Methods - Neural network architectures requiring GPU acceleration
 GPU_METHODS = {
-    # Tree-based gradient boosting 
-    'xgboost', 'catboost', 'lightgbm',
+
     
     # Basic neural architectures
     'mlp', 'resnet',
@@ -59,6 +58,9 @@ GPU_METHODS = {
 # CPU Methods - Tree boosting + classical ML (efficient on CPU, no GPU needed)
 CPU_METHODS = {
 
+    
+    # Tree boosting methods
+    'xgboost', 'lightgbm', 'catboost', 
     
     # Traditional ML models
     'RandomForest', 'LogReg', 'LinearRegression',
