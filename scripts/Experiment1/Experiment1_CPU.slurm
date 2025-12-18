@@ -14,7 +14,7 @@
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Setup conda from $VSC_DATA (correct path)
+# Setup conda from $VSC_DATA
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
 

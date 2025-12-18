@@ -97,9 +97,12 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Setup conda from $VSC_DATA (correct path)
+# Setup conda from $VSC_DATA
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
+
+# USE CONDA'S C++ LIBRARIES (fixes GLIBCXX issue for faiss-gpu)
+export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
 
 # Navigate to project
 cd $VSC_DATA/TabPFNCredit
@@ -144,7 +147,7 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Setup conda from $VSC_DATA (correct path)
+# Setup conda from $VSC_DATA
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 

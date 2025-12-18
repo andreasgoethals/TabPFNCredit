@@ -890,9 +890,9 @@ def run_talent_method(
         else:
             base_config_dir = Path(config_base_dir) / "config_hpo"
         
-        
-        # Each method gets its own subdirectory to prevent race conditions
-        dataset_config_dir = base_config_dir  / task.lower() / dataset / method
+        # Each method gets its own subdirectory, separated by HPO mode to prevent race conditions
+        hpo_subdir = "HPO" if tune else "NO_HPO"
+        dataset_config_dir = base_config_dir / task.lower() / dataset / method / hpo_subdir
         dataset_config_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint_tmp_dir = Path(tempfile.mkdtemp(prefix=f"talent_ckpt_{dataset}_{method}_"))

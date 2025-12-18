@@ -1,24 +1,27 @@
 #!/bin/bash
-#SBATCH --job-name=exp1_gpu_test
-#SBATCH --cluster="genius"
+#SBATCH --job-name=exp1_gpu
+#SBATCH --cluster="wice"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --nodes=1
+#SBATCH --nodes="1" 
 #SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=00:30:00
+#SBATCH --time=71:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=10G
-#SBATCH --partition=gpu_p100
+#SBATCH --mem=45G
+#SBATCH --partition=gpu_a100
 #SBATCH --array=0-32%16
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Setup conda from $VSC_DATA (correct path)
+# Setup conda from $VSC_DATA
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
+
+# USE CONDA'S C++ LIBRARIES (fixes GLIBCXX issue for faiss-gpu)
+export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
 
 # Navigate to project
 cd $VSC_DATA/TabPFNCredit
@@ -36,6 +39,3 @@ echo "=========================================="
 
 # Run GPU orchestrator
 python -u scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
-
-
-
