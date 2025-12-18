@@ -2,14 +2,8 @@
 """
 Experiment 1: Core execution logic for TALENT benchmarking
 
-This module provides shared execution logic used by both GPU and CPU orchestrators.
-Handles training, file locking, result storage, and error handling.
-
-Key Features:
-- Safe concurrent writes with file locking
-- Automatic cache cleanup
-- CPU mode forcing for tree boosting
-- NO_HPO result duplication to HPO key for consistency
+Orchestrates method execution with proper error handling and validation.
+Supports both GPU and CPU method execution with clear separation.
 """
 
 import os
@@ -17,7 +11,6 @@ import sys
 import pickle
 import fcntl
 import time
-import shutil
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -32,87 +25,21 @@ from src.methods.method_runner import run_talent_method
 from src.methods.method_config import NO_HPO_METHODS
 
 
-def cleanup_corrupted_caches():
-    """
-    Clean up potentially corrupted cache files.
-    Prevents pickle truncation errors from concurrent access.
-    """
-    cache_patterns = [
-        '/tmp/talent_*',
-        Path.home() / '.cache' / 'talent*',
-    ]
-    
-    cleaned = []
-    for pattern in cache_patterns:
-        if isinstance(pattern, str):
-            import glob
-            for cache_dir in glob.glob(pattern):
-                try:
-                    if os.path.isdir(cache_dir):
-                        shutil.rmtree(cache_dir)
-                    else:
-                        os.remove(cache_dir)
-                    cleaned.append(cache_dir)
-                except Exception:
-                    pass
-        else:
-            for cache_dir in pattern.parent.glob(pattern.name):
-                try:
-                    if cache_dir.is_dir():
-                        shutil.rmtree(cache_dir)
-                    else:
-                        cache_dir.unlink()
-                    cleaned.append(str(cache_dir))
-                except Exception:
-                    pass
-    
-    if cleaned:
-        print(f"[CLEANUP] Removed {len(cleaned)} corrupted cache(s)")
-    
-    return len(cleaned)
-
-
-def force_cpu_mode_for_method(method, logger):
-    """
-    Force CPU mode for tree boosting methods on CPU nodes.
-    Prevents CUDA errors when methods try to auto-detect GPU.
-    """
-    env_updates = {}
-    
-    if method == 'catboost':
-        env_updates['CATBOOST_TASK_TYPE'] = 'CPU'
-        os.environ['CUDA_VISIBLE_DEVICES'] = ''  # Hide all GPUs
-        logger.info("Environment: CATBOOST_TASK_TYPE=CPU, CUDA_VISIBLE_DEVICES=''")
-    
-    elif method == 'lightgbm':
-        env_updates['LIGHTGBM_DEVICE'] = 'cpu'
-        logger.info("Environment: LIGHTGBM_DEVICE=cpu")
-    
-    elif method == 'xgboost':
-        env_updates['XGBOOST_TREE_METHOD'] = 'hist'
-        logger.info("Environment: XGBOOST_TREE_METHOD=hist")
-    
-    for key, value in env_updates.items():
-        os.environ[key] = value
-    
-    return env_updates
-
-
-def run_single_method(dataset, method, task_type, hpo_mode, 
-                      config, experiment_name='experiment1', verbose=False):
+def run_single_method(
+    dataset: str,
+    method: str, 
+    task_type: str,
+    hpo_mode: str,
+    config: dict,
+    experiment_name: str = 'experiment1',
+    verbose: bool = False
+):
     """
     Execute ONE method on ONE dataset with ONE HPO mode.
     
-    This is the core execution function called by both GPU and CPU orchestrators.
-    Uses file locking to safely write results to shared files.
-    
-    For methods in NO_HPO_METHODS:
-    - Results are saved to both NO_HPO and HPO keys
-    - This ensures downstream analysis always finds results in both places
-    
     Args:
         dataset: Dataset name (e.g., '0009.german')
-        method: Method name (e.g., 'xgboost', 'tabpfn')
+        method: Method name (e.g., 'xgboost', 'LogReg')
         task_type: Task type ('pd' or 'lgd')
         hpo_mode: HPO mode ('NO_HPO' or 'HPO')
         config: Configuration dictionary
@@ -127,19 +54,43 @@ def run_single_method(dataset, method, task_type, hpo_mode,
     experiment_path = storage.get_experiment_path()
     
     # ==========================================
+    # ENSURE ALL DIRECTORIES EXIST
+    # ==========================================
+    experiment_path.mkdir(parents=True, exist_ok=True)
+    (experiment_path / "pd").mkdir(exist_ok=True)
+    (experiment_path / "lgd").mkdir(exist_ok=True)
+    (experiment_path / "logs").mkdir(exist_ok=True)
+    
+    # Create config_hpo directories with proper structure
+    config_hpo_base = experiment_path / "config_hpo"
+    config_hpo_base.mkdir(exist_ok=True)
+    (config_hpo_base / "pd").mkdir(exist_ok=True)
+    (config_hpo_base / "lgd").mkdir(exist_ok=True)
+    
+    # Create dataset-specific config directory
+    dataset_config_dir = config_hpo_base / task_type / dataset
+    dataset_config_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Set proper permissions (VSC-specific)
+    try:
+        dataset_config_dir.chmod(0o755)
+    except Exception:
+        pass
+    
+    # ==========================================
     # SETUP LOGGING
     # ==========================================
     log_dir = experiment_path / "logs" / task_type
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{dataset}.log"
+    log_file = log_dir / f"{dataset}_{method}_{hpo_mode}.log"
     
-    logger_name = f"{experiment_name}.{dataset}.{method}.{hpo_mode}"
-    logger = logging.getLogger(logger_name)
+    logger = logging.getLogger(f"{experiment_name}.{dataset}.{method}.{hpo_mode}")
     logger.setLevel(logging.INFO if verbose else logging.WARNING)
     logger.handlers.clear()
     
-    log_format = f'%(asctime)s - [{method}/{hpo_mode}] - %(levelname)s - %(message)s'
-    formatter = logging.Formatter(log_format)
+    formatter = logging.Formatter(
+        f'%(asctime)s - [{method}/{hpo_mode}] - %(levelname)s - %(message)s'
+    )
     
     file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
     file_handler.setFormatter(formatter)
@@ -156,19 +107,18 @@ def run_single_method(dataset, method, task_type, hpo_mode,
     print(f"\n{'='*70}")
     print(f"{dataset} | {method} | {hpo_mode}")
     print(f"{'='*70}")
-    print(f"Node:     {os.environ.get('SLURMD_NODENAME', 'N/A')}")
-    print(f"Job ID:   {os.environ.get('SLURM_JOB_ID', 'N/A')}")
-    print(f"Array ID: {os.environ.get('SLURM_ARRAY_TASK_ID', 'N/A')}")
+    print(f"Node:       {os.environ.get('SLURMD_NODENAME', 'LOCAL')}")
+    print(f"Job ID:     {os.environ.get('SLURM_JOB_ID', 'N/A')}")
+    print(f"Array ID:   {os.environ.get('SLURM_ARRAY_TASK_ID', 'N/A')}")
+    print(f"Config dir: {dataset_config_dir}")
+    print(f"Log file:   {log_file}")
     print(f"{'='*70}\n")
     
     logger.info(f"Starting on node {os.environ.get('SLURMD_NODENAME', 'unknown')}")
+    logger.info(f"Config directory: {dataset_config_dir}")
+    logger.info(f"Config dir exists: {dataset_config_dir.exists()}")
+    logger.info(f"Config dir writable: {os.access(dataset_config_dir, os.W_OK)}")
     
-    # ==========================================
-    # CACHE CLEANUP
-    # ==========================================
-    cleanup_corrupted_caches()
-    
-
     # ==========================================
     # CHECK IF ALREADY COMPLETED
     # ==========================================
@@ -211,23 +161,50 @@ def run_single_method(dataset, method, task_type, hpo_mode,
         'tune': tune,
         'config_base_dir': experiment_path,
         'verbose': verbose,
+        'clean_temp_dir': True,  # Clean up temp dirs after completion
     }
     
     try:
         # ==========================================
-        # TRAINING
+        # TRAINING & PREDICTION
         # ==========================================
         logger.info("Training started")
-        print(f"[START] {dataset}/{method}/{hpo_mode}")
+        print(f"[TRAIN] {dataset}/{method}/{hpo_mode}")
         
+        t_start = time.time()
         method_results = run_talent_method(**experiment_params)
+        t_total = time.time() - t_start
         
-        logger.info("Training completed successfully")
+        logger.info(f"Training completed in {t_total:.1f}s")
+        
+        # ==========================================
+        # VALIDATE RESULTS
+        # ==========================================
+        if not method_results or len(method_results) == 0:
+            raise RuntimeError("run_talent_method returned empty results")
+        
+        # Check that we got results for all folds
+        expected_folds = config['split']['cv_splits']
+        if len(method_results) != expected_folds:
+            logger.warning(
+                f"Expected {expected_folds} folds, got {len(method_results)}"
+            )
+        
+        # Validate each fold has required fields
+        for fold_id, fold_results in method_results.items():
+            required_fields = ['y_true', 'y_pred', 'metrics', 'train_time']
+            missing = [f for f in required_fields if f not in fold_results]
+            if missing:
+                raise RuntimeError(
+                    f"Fold {fold_id} missing required fields: {missing}"
+                )
+        
+        logger.info(f"Results validated: {len(method_results)} folds")
         
         # ==========================================
         # SAVE RESULTS (with file locking)
         # ==========================================
-        logger.info("Saving results (acquiring file lock)")
+        logger.info("Saving results")
         
         max_retries = 10
         retry_delay = 0.5
@@ -239,9 +216,11 @@ def run_single_method(dataset, method, task_type, hpo_mode,
                 mode = 'r+b' if result_file.exists() else 'w+b'
                 
                 with open(result_file, mode) as f:
+                    # Acquire exclusive lock
                     fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                     
                     try:
+                        # Load existing results
                         if mode == 'r+b':
                             try:
                                 f.seek(0)
@@ -252,32 +231,24 @@ def run_single_method(dataset, method, task_type, hpo_mode,
                         else:
                             results = {'NO_HPO': {}, 'HPO': {}}
                         
-                        if hpo_mode in results and method in results[hpo_mode]:
-                            logger.info("Already written by another process")
-                            return
+                        # Ensure structure exists
+                        if hpo_mode not in results:
+                            results[hpo_mode] = {}
                         
-                        # Ensure both keys exist
-                        if 'NO_HPO' not in results:
-                            results['NO_HPO'] = {}
-                        if 'HPO' not in results:
-                            results['HPO'] = {}
+                        # Store results
+                        results[hpo_mode][method] = method_results
                         
-                        # ==========================================
-                        # SPECIAL HANDLING FOR NO_HPO METHODS
-                        # ==========================================
-                        if method in NO_HPO_METHODS:
-                            # For NO_HPO methods, save to BOTH keys
-                            results['NO_HPO'][method] = method_results
+                        # For NO_HPO methods, duplicate to HPO key for consistency
+                        if method in NO_HPO_METHODS and hpo_mode == 'NO_HPO':
+                            if 'HPO' not in results:
+                                results['HPO'] = {}
                             results['HPO'][method] = method_results
-                            logger.info(f"NO_HPO method: duplicated results to both NO_HPO and HPO")
-                        else:
-                            # Normal methods: save to specified key
-                            results[hpo_mode][method] = method_results
+                            logger.info(f"Duplicated NO_HPO results to HPO key for {method}")
                         
-                        # Write back to file
+                        # Write back
                         f.seek(0)
                         f.truncate()
-                        pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+                        pickle.dump(results, protocol=pickle.HIGHEST_PROTOCOL, file=f)
                         f.flush()
                         os.fsync(f.fileno())
                         
@@ -286,16 +257,18 @@ def run_single_method(dataset, method, task_type, hpo_mode,
                     finally:
                         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
                 
-                break
+                break  # Success!
                 
             except (IOError, OSError, BlockingIOError) as e:
                 if attempt < max_retries - 1:
                     wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(f"Lock failed (attempt {attempt+1}/{max_retries}), "
-                                 f"waiting {wait_time:.1f}s")
+                    logger.warning(
+                        f"Lock failed (attempt {attempt+1}/{max_retries}), "
+                        f"waiting {wait_time:.1f}s"
+                    )
                     time.sleep(wait_time)
                 else:
-                    logger.error(f"Failed after {max_retries} attempts")
+                    logger.error(f"Failed to save after {max_retries} attempts")
                     raise RuntimeError(f"Could not save results: {result_file}") from e
         
         logger.info("Task completed successfully")
@@ -305,7 +278,10 @@ def run_single_method(dataset, method, task_type, hpo_mode,
         logger.error(f"Task failed: {e}", exc_info=True)
         print(f"[FAIL] {dataset}/{method}/{hpo_mode}: {str(e)}")
         
+        # Log to consolidated error file
         error_log = experiment_path / "logs" / "errors.log"
+        error_log.parent.mkdir(exist_ok=True)
+        
         with open(error_log, 'a') as ef:
             ef.write(f"\n{'='*70}\n")
             ef.write(f"FAILED: {dataset}/{method}/{hpo_mode}\n")
