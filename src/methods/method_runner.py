@@ -890,7 +890,7 @@ def run_talent_method(
         else:
             base_config_dir = Path(config_base_dir) / "config_hpo"
         
-        dataset_config_dir = base_config_dir / task.lower() / dataset
+        dataset_config_dir = base_config_dir / "config_hpo" / task.lower() / dataset / method
         dataset_config_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint_tmp_dir = Path(tempfile.mkdtemp(prefix=f"talent_ckpt_{dataset}_{method}_"))

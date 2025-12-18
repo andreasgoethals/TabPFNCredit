@@ -67,9 +67,7 @@ def run_single_method(
     (config_hpo_base / "pd").mkdir(exist_ok=True)
     (config_hpo_base / "lgd").mkdir(exist_ok=True)
     
-    # Create dataset-specific config directory
-    dataset_config_dir = config_hpo_base / task_type / dataset
-    dataset_config_dir.mkdir(parents=True, exist_ok=True)
+
     
     # Set proper permissions (VSC-specific)
     try:
