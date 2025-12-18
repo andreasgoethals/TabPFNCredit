@@ -5,10 +5,8 @@
 #   pip install -r requirements_vsc.txt
 # ============================================
 
-# PyTorch matching TALENT's requirements
 --extra-index-url https://download.pytorch.org/whl/cu118
 torch==2.5.1+cu118
-torchvision==0.17.2+cu118
+torchvision==0.20.1+cu118
 
-# Base packages (includes all TALENT dependencies)
 -r requirements.txt
