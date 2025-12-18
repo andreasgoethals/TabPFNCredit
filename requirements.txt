@@ -21,7 +21,7 @@ einops==0.8.0
 qhoptim==1.1.0
 category_encoders==2.6.3
 dill
-faiss-cpu>=1.8.0
+faiss-cpu==1.13.1
 
 # ============================================
 # Gradient Boosting Libraries
