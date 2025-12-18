@@ -1,17 +1,16 @@
 #!/bin/bash
-#SBATCH --job-name=exp1_gpu
+#SBATCH --job-name=exp1_gpu_test
 #SBATCH --cluster="wice"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --nodes="1" 
+#SBATCH --nodes=1
 #SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=00:05:00
+#SBATCH --time=00:30:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=2
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=45G
-#SBATCH --partition=gpu_a100
-#SBATCH --array=0-32%16
+#SBATCH --mem=10G
+#SBATCH --partition=gpu_p100
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
