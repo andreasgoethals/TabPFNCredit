@@ -1,3 +1,4 @@
+
 #!/bin/bash
 #SBATCH --job-name=exp1_gpu_test
 #SBATCH --cluster="genius"
@@ -11,6 +12,7 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=10G
 #SBATCH --partition=gpu_p100
+#SBATCH --array=0-32%16
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
@@ -35,3 +37,6 @@ echo "=========================================="
 
 # Run GPU orchestrator
 python -u scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+
+
+
