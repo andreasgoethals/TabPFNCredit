@@ -11,11 +11,15 @@
 #SBATCH --partition=batch
 #SBATCH --array=0-17%18
 
-# Load conda from your installation
-source $HOME/miniconda3/etc/profile.d/conda.sh
+# Force unbuffered I/O
+export PYTHONUNBUFFERED=1
 
-# Activate environment
-conda activate TabPFNCredit
+# Setup conda from $VSC_DATA (correct path)
+export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
+source activate TabPFNCredit
+
+# Navigate to project
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
 echo "CPU JOB"
@@ -28,4 +32,4 @@ echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run CPU orchestrator
-python scripts/Experiment1/Experiment1_CPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+python -u scripts/Experiment1/Experiment1_CPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose

@@ -13,11 +13,15 @@
 #SBATCH --partition=gpu_a100
 #SBATCH --array=0-32%16
 
-# Load conda from your installation
-source $HOME/miniconda3/etc/profile.d/conda.sh
+# Force unbuffered I/O
+export PYTHONUNBUFFERED=1
 
-# Activate environment
-conda activate TabPFNCredit
+# Setup conda from $VSC_DATA (correct path)
+export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
+source activate TabPFNCredit
+
+# Navigate to project
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
 echo "GPU JOB"
@@ -31,4 +35,4 @@ echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run GPU orchestrator
-python scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+python -u scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
