@@ -1,9 +1,9 @@
 # VSC Supercomputer (V100/P100 GPUs with CUDA 11.8)
 --extra-index-url https://download.pytorch.org/whl/cu118
 
-# PyTorch 2.6.0 + Torchvision 0.21.0 (Compatible with Python 3.13)
-torch==2.6.0+cu118
-torchvision==0.21.0+cu118
+# PyTorch 2.0.1 (Matches TALENT Docs & Your Local Setup)
+torch==2.0.1+cu118
+torchvision==0.15.2+cu118
 
 # Base packages
 -r requirements.txt
