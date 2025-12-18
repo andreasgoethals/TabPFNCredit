@@ -1,4 +1,3 @@
-
 #!/bin/bash
 #SBATCH --job-name=exp1_gpu_test
 #SBATCH --cluster="genius"
