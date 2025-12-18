@@ -108,14 +108,10 @@ def run_single_method(
     print(f"Node:       {os.environ.get('SLURMD_NODENAME', 'LOCAL')}")
     print(f"Job ID:     {os.environ.get('SLURM_JOB_ID', 'N/A')}")
     print(f"Array ID:   {os.environ.get('SLURM_ARRAY_TASK_ID', 'N/A')}")
-    print(f"Config dir: {dataset_config_dir}")
     print(f"Log file:   {log_file}")
     print(f"{'='*70}\n")
     
     logger.info(f"Starting on node {os.environ.get('SLURMD_NODENAME', 'unknown')}")
-    logger.info(f"Config directory: {dataset_config_dir}")
-    logger.info(f"Config dir exists: {dataset_config_dir.exists()}")
-    logger.info(f"Config dir writable: {os.access(dataset_config_dir, os.W_OK)}")
     
     # ==========================================
     # CHECK IF ALREADY COMPLETED
