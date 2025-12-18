@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=exp1_gpu_test
-#SBATCH --cluster="wice"
+#SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --nodes=1
 #SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
