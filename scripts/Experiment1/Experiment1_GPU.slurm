@@ -5,7 +5,7 @@
 #SBATCH --nodes="1" 
 #SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=71:00:00
+#SBATCH --time=00:05:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
