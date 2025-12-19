@@ -21,6 +21,10 @@ einops==0.8.0
 qhoptim==1.1.0
 category_encoders==2.6.3
 dill
+msgpack
+msgpack_numpy
+torchmetrics
+pytorch_lightning
 
 
 # ============================================
@@ -34,7 +38,7 @@ catboost==1.2.8
 # TALENT Framework (Custom Branch - PR #90)
 # Includes probability support fix for classical methods
 # ============================================
-TALENT @ git+https://github.com/andreasgoethals/TALENT.git@feature/probability-support-classical-methods
+TALENT @ git+https://github.com/LAMDA-Tabular/TALENT
 
 # ============================================
 # Hyperparameter Optimization

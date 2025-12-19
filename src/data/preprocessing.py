@@ -16,6 +16,8 @@ Outputs (unsplit):
     info: dict             -> metadata
 
 No CV or train/val/test splitting here — handled later.
+Statistical preprocessing (PCA, outlier removal, constant columns) happens
+after splitting in data_feeder.py to prevent data leakage.
 """
 
 from __future__ import annotations
@@ -59,7 +61,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # 1. Load cached version if available
     # ----------------------------------------------------------
     if (dataset_dir / "y.npy").exists():
-        logger.info(f" Using cached dataset: {dataset_dir}")
+        logger.info(f"  Using cached dataset: {dataset_dir.name}")
         N = np.load(dataset_dir / "N.npy") if (dataset_dir / "N.npy").exists() else None
         C = np.load(dataset_dir / "C.npy") if (dataset_dir / "C.npy").exists() else None
         y = np.load(dataset_dir / "y.npy")
@@ -70,10 +72,9 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # ----------------------------------------------------------
     # 2. Preprocess from raw
     # ----------------------------------------------------------
-    logger.info(f" Preprocessing {dataset} ({task}) from raw files...")
+    logger.info(f"  Preprocessing {dataset} ({task}) from raw files...")
 
-    # Delegate dataset-specific cleaning
-    # raw_dir=None lets preprocess_dataset_specific load paths from config
+    # Delegate dataset-specific cleaning (no statistical operations that cause leakage)
     df, target_col, cat_cols, num_cols = preprocess_dataset_specific(task, dataset, raw_dir=None)
 
     # ----------------------------------------------------------
@@ -95,7 +96,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
         C = None
 
     # ----------------------------------------------------------
-    # 3. Build metadata dictionary (extended but non-invasive)
+    # 3. Build metadata dictionary
     # ----------------------------------------------------------
     info = {
         "dataset_name": dataset,
@@ -118,14 +119,17 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     with open(dataset_dir / "info.json", "w") as f:
         json.dump(info, f, indent=4)
 
-    logger.info(f"Processed dataset cached at: {dataset_dir} in TALENT format.")
+    logger.info(f"  Cached preprocessed dataset: {dataset_dir.name}")
     return N, C, y, info
 
 
 def preprocess_dataset(task: str, dataset: str):
     """
     Entry point: preprocess or load dataset and return unsplit TALENT Level-0 arrays.
+    
     No cross-validation or splitting here.
+    No statistical preprocessing (PCA, outlier removal, constant columns) - 
+    those operations happen after splitting in data_feeder.py to prevent leakage.
     """
     if task not in {"pd", "lgd"}:
         raise ValueError("Task must be 'pd' or 'lgd'.")

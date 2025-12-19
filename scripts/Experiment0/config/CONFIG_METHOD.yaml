@@ -1,0 +1,124 @@
+# ============================================================
+# CONFIG_METHOD.yaml
+# ============================================================
+# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks. 
+# - Set each method to true to include it in the benchmark. 
+# - Set to true to exclude it. 
+# This configuration file uses TALENT's canonical model names.
+# ============================================================
+
+methods:
+
+  # ----------------------------------------------------------
+  # Probability of Default (PD) – Classification Methods
+  # ----------------------------------------------------------
+  pd:
+    # -----------------------------
+    # Classical Machine Learning
+    # -----------------------------
+    catboost: true        # CatBoost
+    knn: true             # K-Nearest Neighbors
+    lightgbm: true        # LightGBM
+    LogReg: true          # Logistic Regression
+    NaiveBayes: true      # Naive Bayes
+    RandomForest: true    # Random Forest
+    svm: true             # Support Vector Machine
+    xgboost: true         # Extreme Gradient Boosting
+    NCM: true             # Nearest Class Mean
+    dummy: true           # Dummy baseline classifier
+
+    # -----------------------------
+    # Deep / Neural / Transformer-based Methods
+    # -----------------------------
+    mlp: true              # Multilayer Perceptron
+    tabnet: true           # TabNet
+    tabpfn: true           # TabPFN v1 (classification)
+    tabpfn_v2: true        # TabPFN v2 (classification) 
+    tabpfn_real: true     # TabPFN Real 
+    resnet: true          # ResNet
+    ftt: true             # Feature Tokenizer Transformer
+    node: true            # Neural Oblivious Decision Ensembles
+    saint: true           # SAINT (Self-Attention and Intersample Attention Transformer)
+    tabtransformer: true  # TabTransformer
+    autoint: true         # AutoInt
+    danets: true          # DANets
+    snn: true             # Self-Normalizing Neural Networks
+    dcn2: true            # Deep & Cross Network v2
+    tabcaps: true         # TabCaps
+    tangos: true          # TANGOS
+    ptarl: true           # PTARL
+    switchtab: true       # SwitchTab
+    dnnr: false            # DNNR
+    modernNCA: true       # ModernNCA
+    hyperfast: true       # HyperFast
+    bishop: true          # BISHOP
+    realmlp: true         # RealMLP
+    protogate: true       # ProtoGate
+    mlp_plr: true         # MLP-PLR
+    excelformer: true     # ExcelFormer
+    grande: true          # GRANDE
+    amformer: true        # AMFormer
+    tabptm: true          # TabPTM
+    trompt: true          # TROMPT
+    tabm: true            # TabM
+    t2gformer: true       # T2G-Former
+    tabautopnpnet: true   # TabAuto-PNPNet
+    tabicl: true          # TabICL
+    grownet: true         # GrowNet
+    tabr: true             # TabR
+    limix: true           # LiMiX (NEW)
+    mitra: true           # MITRA (NEW)
+
+  # ----------------------------------------------------------
+  # Loss Given Default (LGD) – Regression Methods
+  # ----------------------------------------------------------
+  lgd:
+    # -----------------------------
+    # Classical Machine Learning
+    # -----------------------------
+    catboost: true         # CatBoost
+    knn: true              # K-Nearest Neighbors
+    lightgbm: true         # LightGBM
+    LinearRegression: true # Linear Regression
+    RandomForest: true     # Random Forest
+    xgboost: true          # Extreme Gradient Boosting
+    svm: true              # Support Vector Machine
+
+    # -----------------------------
+    # Deep / Neural / Transformer-based Methods
+    # -----------------------------
+    mlp: true              # Multilayer Perceptron
+    tabnet: true           # TabNet
+    tabpfn_v2: true        # TabPFN v2 (supports regression)
+    resnet: true          # ResNet
+    ftt: true             # Feature Tokenizer Transformer
+    node: true            # Neural Oblivious Decision Ensembles
+    saint: true           # SAINT
+    tabtransformer: true  # TabTransformer
+    autoint: true         # AutoInt
+    danets: true          # DANets
+    snn: true             # Self-Normalizing Neural Networks
+    dcn2: true            # Deep & Cross Network v2
+    tabcaps: true         # TabCaps
+    tangos: true          # TANGOS
+    ptarl: true           # PTARL
+    switchtab: true       # SwitchTab
+    dnnr: false            # DNNR
+    modernNCA: true       # ModernNCA
+    hyperfast: true       # HyperFast
+    bishop: true          # BISHOP
+    realmlp: true         # RealMLP
+    protogate: true       # ProtoGate
+    mlp_plr: true         # MLP-PLR
+    excelformer: true     # ExcelFormer
+    grande: true          # GRANDE
+    amformer: true        # AMFormer
+    tabptm: true          # TabPTM
+    trompt: true          # TROMPT
+    tabm: true            # TabM
+    t2gformer: true       # T2G-Former
+    tabautopnpnet: true   # TabAuto-PNPNet
+    tabicl: true          # TabICL
+    grownet: true         # GrowNet
+    limix: true           # LiMiX 
+    mitra: true           # MITRA 
