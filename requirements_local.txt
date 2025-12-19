@@ -1,22 +1,9 @@
 # ============================================
 # Local Machine (Blackwell GPU - sm_120)
 # ============================================
-# Blackwell support coming in CUDA 12.8/13.0
-# For now: CPU mode or nightly builds
-#
-# Install with:
-#   pip install -r requirements_local.txt
-#
-# Run with CPU mode:
-#   $env:CUDA_VISIBLE_DEVICES=""; python script.py
-# ============================================
+faiss-cpu==1.13.1
 
 # PyTorch - CPU version for now
-# When cu128 is available, replace with:
-# --extra-index-url https://download.pytorch.org/whl/nightly/cu128
-# --pre
-# torch
-# torchvision
 torch
 torchvision
 
