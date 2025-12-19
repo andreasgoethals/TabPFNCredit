@@ -251,11 +251,12 @@ class DataFeeder:
     def _remove_outliers_post_split(
         self,
         N_train: Optional[np.ndarray],
+        C_train: Optional[np.ndarray],  # ← ADD THIS
         y_train: np.ndarray,
         percentile_threshold: float = OUTLIER_PERCENTILE_THRESHOLD,
         magnitude_multiplier: float = OUTLIER_MAGNITUDE_MULTIPLIER,
         min_rows: int = MIN_ROWS_FOR_OUTLIER_DETECTION
-    ) -> Tuple[Optional[np.ndarray], np.ndarray, int]:
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], np.ndarray, int]:  # ← UPDATE RETURN TYPE
         """
         Remove extreme outliers from TRAINING data only, using training statistics.
         
@@ -268,11 +269,12 @@ class DataFeeder:
         Returns
         -------
         N_train : array with outlier rows removed
+        C_train : array with outlier rows removed (same rows as N_train)
         y_train : target with outlier rows removed
         n_removed : number of rows removed
         """
         if N_train is None or len(N_train) < min_rows:
-            return N_train, y_train, 0
+            return N_train, C_train, y_train, 0  # ← RETURN C_train
         
         outlier_mask = np.zeros(len(N_train), dtype=bool)
         
@@ -310,6 +312,7 @@ class DataFeeder:
         
         if n_removed > 0:
             N_train = N_train[~outlier_mask]
+            C_train = C_train[~outlier_mask] if C_train is not None else None  # ← FIX: Filter C_train too!
             y_train = y_train[~outlier_mask]
             pct_removed = n_removed / (n_removed + len(N_train)) * 100
             logger.info(
@@ -317,7 +320,7 @@ class DataFeeder:
                 f"({pct_removed:.2f}%)"
             )
         
-        return N_train, y_train, n_removed
+        return N_train, C_train, y_train, n_removed  # ← RETURN C_train
 
     def _apply_pca_post_split(
         self,
@@ -440,19 +443,10 @@ class DataFeeder:
         y_train: np.ndarray,
         fold_id: int
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
-               Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
-               np.ndarray]:
+            Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
+            np.ndarray]:
         """
         Apply all post-split preprocessing steps for a single fold.
-        
-        Steps:
-        1. Drop near-constant columns (based on training data)
-        2. Remove extreme outliers (from training data only)
-        3. Apply PCA dimensionality reduction (fit on training, transform all)
-        
-        Returns
-        -------
-        Preprocessed N_train, N_val, N_test, C_train, C_val, C_test, y_train
         """
         logger.info(f"  Fold {fold_id}: Applying post-split preprocessing...")
         
@@ -464,20 +458,88 @@ class DataFeeder:
         
         # Step 2: Remove extreme outliers (from training only)
         if self.remove_outliers and N_train is not None:
-            N_train, y_train, _ = self._remove_outliers_post_split(N_train, y_train)
+            N_train, C_train, y_train, _ = self._remove_outliers_post_split(
+                N_train, C_train, y_train  # ← PASS C_train
+            )
         
         # Step 3: Apply PCA if needed
         if self.apply_pca and N_train is not None:
             total_features = (N_train.shape[1] if N_train is not None else 0) + \
-                           (C_train.shape[1] if C_train is not None else 0)
+                        (C_train.shape[1] if C_train is not None else 0)
             
             if total_features > MAX_FEATURES_THRESHOLD:
                 N_train, N_val, N_test, C_train, C_val, C_test = \
                     self._apply_pca_post_split(
                         N_train, N_val, N_test, C_train, C_val, C_test
                     )
+            else:
+                N_train, N_val, N_test = self._winsorize_features_post_split(
+                    N_train, N_val, N_test
+                )
         
         return N_train, N_val, N_test, C_train, C_val, C_test, y_train
+    
+    def _winsorize_features_post_split(
+        self,
+        N_train: Optional[np.ndarray],
+        N_val: Optional[np.ndarray],
+        N_test: Optional[np.ndarray],
+        winsorize_limits: Tuple[float, float] = (0.01, 0.99)
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Winsorize extreme values in val/test sets using TRAINING percentiles.
+        
+        This protects against extreme outliers without removing test samples.
+        Training set is NOT modified (outliers already removed separately).
+        
+        Parameters
+        ----------
+        winsorize_limits : tuple
+            (lower, upper) percentiles for clipping (default: 1%, 99%)
+        
+        Returns
+        -------
+        N_train, N_val, N_test : arrays with val/test features clipped
+        """
+        if N_train is None:
+            return N_train, N_val, N_test
+        
+        n_clipped_val = 0
+        n_clipped_test = 0
+        
+        for col_idx in range(N_train.shape[1]):
+            col_data_train = N_train[:, col_idx]
+            valid_mask = ~np.isnan(col_data_train)
+            valid_data = col_data_train[valid_mask]
+            
+            if len(valid_data) < 20:
+                continue
+            
+            # Calculate percentiles from TRAINING data only
+            lower_bound = np.percentile(valid_data, winsorize_limits[0] * 100)
+            upper_bound = np.percentile(valid_data, winsorize_limits[1] * 100)
+            
+            # Clip val and test (NOT train - already had outliers removed)
+            if N_val is not None:
+                n_below = (N_val[:, col_idx] < lower_bound).sum()
+                n_above = (N_val[:, col_idx] > upper_bound).sum()
+                n_clipped_val += n_below + n_above
+                N_val[:, col_idx] = np.clip(N_val[:, col_idx], lower_bound, upper_bound)
+            
+            if N_test is not None:
+                n_below = (N_test[:, col_idx] < lower_bound).sum()
+                n_above = (N_test[:, col_idx] > upper_bound).sum()
+                n_clipped_test += n_below + n_above
+                N_test[:, col_idx] = np.clip(N_test[:, col_idx], lower_bound, upper_bound)
+        
+        if n_clipped_val > 0 or n_clipped_test > 0:
+            logger.info(
+                f"    Winsorized features: {n_clipped_val} values in val, "
+                f"{n_clipped_test} values in test "
+                f"to [{winsorize_limits[0]*100:.1f}%, {winsorize_limits[1]*100:.1f}%] percentiles"
+            )
+        
+        return N_train, N_val, N_test
 
     # =========================================================================
     # MAIN ENTRY POINT

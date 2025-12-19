@@ -25,6 +25,8 @@ msgpack
 msgpack_numpy
 torchmetrics
 pytorch_lightning
+einx
+safetensors
 
 
 # ============================================

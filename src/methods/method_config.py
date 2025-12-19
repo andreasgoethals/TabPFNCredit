@@ -148,7 +148,7 @@ REQUIRES_CAT_INDICES: MethodSet = {
     # Transformers with embedding layers
     'amformer', 'autoint', 'bishop', 'dcn2', 'ftt', 'grande',
     'grownet', 'hyperfast', 'ptarl', 'realmlp', 'saint', 'snn',
-    't2gformer', 'tabm', 'tabtransformer', 'trompt',
+    't2gformer', 'tabm', 'tabtransformer', 'trompt','tabicl','limix','mitra',
     
     # Tree-based methods with native categorical support
     'catboost',
@@ -183,9 +183,9 @@ TABPFN_VARIANTS: MethodSet = {
 
 # Methods requiring normalization='none' (expect raw scale)
 REQUIRES_NO_NORMALIZATION: MethodSet = {
-    'hyperfast', 'tabicl',
+    'hyperfast', 'tabicl','limix',
     # TabPFN variants
-    'tabpfn', 'tabpfn_v2', 'tabpfn_real',
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real','mitra',
 }
 
 # Methods requiring normalization='standard' (z-score normalization)

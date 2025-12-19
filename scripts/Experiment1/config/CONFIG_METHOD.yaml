@@ -48,7 +48,6 @@ methods:
     tangos: false          # TANGOS
     ptarl: false           # PTARL
     switchtab: false       # SwitchTab
-    dnnr: false            # DNNR
     modernNCA: false       # ModernNCA
     hyperfast: false       # HyperFast
     bishop: false          # BISHOP
@@ -99,7 +98,6 @@ methods:
     danets: false          # DANets
     snn: false             # Self-Normalizing Neural Networks
     dcn2: false            # Deep & Cross Network v2
-    tabcaps: false         # TabCaps
     tangos: false          # TANGOS
     ptarl: false           # PTARL
     switchtab: false       # SwitchTab
