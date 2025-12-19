@@ -81,7 +81,7 @@ def main():
     args = parser.parse_args()
     
     # Load config
-    config = load_config()
+    config = load_config("Experiment1")
     
     # Build GPU task list
     gpu_tasks = build_gpu_task_list(config)

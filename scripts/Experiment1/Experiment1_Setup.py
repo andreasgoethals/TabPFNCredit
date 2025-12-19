@@ -246,7 +246,7 @@ def main():
     print(f"{'='*70}\n")
     
     # Load config
-    config = load_config()
+    config = load_config("Experiment1")
     
     # Get enabled datasets
     pd_datasets = list(config['datasets']['pd'].keys())

@@ -81,7 +81,7 @@ def main():
     args = parser.parse_args()
     
     # Load config
-    config = load_config()
+    config = load_config("Experiment1")
     
     # Build CPU task list
     cpu_tasks = build_cpu_task_list(config)
