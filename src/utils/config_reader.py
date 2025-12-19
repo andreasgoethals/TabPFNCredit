@@ -22,9 +22,11 @@ def get_config_dir(experiment_name: str) -> Path:
         
     return config_dir
 
-def _load_experiment1_config(config_dir: Path) -> Dict[str, Any]:
+
+def _load_standard_config(config_dir: Path) -> Dict[str, Any]:
     """
-    Specific loading logic for Experiment1.
+    Standard loading logic for experiments using the same 3-file structure.
+    Works for: Experiment0, Experiment1
     Expects: CONFIG_DATA.yaml, CONFIG_METHOD.yaml, CONFIG_EXPERIMENT.yaml
     """
     try:
@@ -39,11 +41,11 @@ def _load_experiment1_config(config_dir: Path) -> Dict[str, Any]:
             
     except FileNotFoundError as e:
         raise FileNotFoundError(
-            f"Missing required YAML config file for Experiment1 in {config_dir}.\n"
+            f"Missing required YAML config file in {config_dir}.\n"
             f"Error: {e}"
         )
 
-    # Experiment1 specific merging logic
+    # Standard merging logic
     config = {
         "split": data_config["split"],
         "paths": data_config["paths"],
@@ -67,13 +69,14 @@ def _load_experiment1_config(config_dir: Path) -> Dict[str, Any]:
     }
     return config
 
+
 def load_config(experiment_name: str) -> Dict[str, Any]:
     """
     Dispatcher: Load configuration based on the experiment name.
     Different experiments can have different loading logic.
     """
     if not experiment_name:
-        raise ValueError("experiment_name must be provided (e.g., 'Experiment1')")
+        raise ValueError("experiment_name must be provided (e.g., 'Experiment0', 'Experiment1')")
 
     config_dir = get_config_dir(experiment_name)
     
@@ -81,25 +84,26 @@ def load_config(experiment_name: str) -> Dict[str, Any]:
     # DISPATCHER LOGIC PER EXPERIMENT
     # =========================================================
     
-    if experiment_name == "Experiment1":
-        return _load_experiment1_config(config_dir)
-        
-    elif experiment_name == "Experiment0":
-        # Placeholder for future logic
-        pass 
+    if experiment_name in ["Experiment0", "Experiment1"]:
+        # Both use standard 3-file structure
+        return _load_standard_config(config_dir)
         
     elif experiment_name == "Experiment2":
         # Placeholder for future logic
-        pass
+        raise NotImplementedError(f"Config loading logic for '{experiment_name}' is not implemented yet.")
         
     else:
         # Fallback or error for unknown experiments
-        raise NotImplementedError(f"Config loading logic for '{experiment_name}' is not implemented yet.")
+        raise NotImplementedError(f"Unknown experiment '{experiment_name}'. No loading logic defined.")
+
 
 if __name__ == "__main__":
     # Test
-    try:
-        cfg = load_config("Experiment1")
-        print("Experiment1 config loaded successfully.")
-    except Exception as e:
-        print(f"Error: {e}")
+    for exp in ["Experiment0", "Experiment1"]:
+        try:
+            cfg = load_config(exp)
+            print(f"✓ {exp} config loaded successfully.")
+        except FileNotFoundError:
+            print(f"✗ {exp} config not found (directory doesn't exist yet)")
+        except Exception as e:
+            print(f"✗ {exp} error: {e}")

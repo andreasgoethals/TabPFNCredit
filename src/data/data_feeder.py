@@ -484,7 +484,7 @@ class DataFeeder:
         N_train: Optional[np.ndarray],
         N_val: Optional[np.ndarray],
         N_test: Optional[np.ndarray],
-        winsorize_limits: Tuple[float, float] = (0.01, 0.99)
+        winsorize_limits: Tuple[float, float] = (0.001, 0.999)
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Winsorize extreme values in val/test sets using TRAINING percentiles.

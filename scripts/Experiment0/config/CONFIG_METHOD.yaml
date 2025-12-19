@@ -1,0 +1,164 @@
+# Experiment0: Method Validation Run
+# ALL methods enabled to test which ones work
+
+methods:
+  pd:
+    # ============================================
+    # CLASSICAL METHODS (CPU)
+    # ============================================
+    RandomForest: true
+    LogReg: true
+    knn: true
+    svm: true
+    NaiveBayes: true
+    NCM: true
+    dummy: true
+    
+    # ============================================
+    # TREE BOOSTING (GPU)
+    # ============================================
+    xgboost: true
+    catboost: true
+    lightgbm: true
+    
+    # ============================================
+    # BASIC NEURAL (GPU)
+    # ============================================
+    mlp: true
+    resnet: true
+    
+    # ============================================
+    # ATTENTION TRANSFORMERS (GPU)
+    # ============================================
+    ftt: true
+    saint: true
+    tabtransformer: true
+    tabptm: true
+    trompt: true
+    
+    # ============================================
+    # SPECIALIZED DEEP LEARNING (GPU)
+    # ============================================
+    tabnet: true
+    node: true
+    tabr: true
+    grownet: true
+    
+    # ============================================
+    # ADVANCED ARCHITECTURES (GPU)
+    # ============================================
+    autoint: true
+    snn: true
+    danets: true
+    tabcaps: true
+    dcn2: true
+    tangos: true
+    ptarl: true
+    switchtab: true
+    dnnr: false
+    
+    # ============================================
+    # MODERN ARCHITECTURES (GPU)
+    # ============================================
+    modernNCA: true
+    hyperfast: false
+    bishop: true
+    realmlp: true
+    protogate: true
+    mlp_plr: true
+    excelformer: true
+    grande: true
+    amformer: true
+    tabm: true
+    t2gformer: true
+    tabautopnpnet: true
+    tabicl: true
+    limix: true
+    mitra: true
+    
+    # ============================================
+    # FOUNDATION MODELS (GPU)
+    # ============================================
+    tabpfn: true
+    tabpfn_v2: true
+    tabpfn_real: false
+  
+  lgd:
+    # ============================================
+    # CLASSICAL METHODS (CPU)
+    # ============================================
+    RandomForest: true
+    LinearRegression: true
+    knn: true
+    svm: true
+    NCM: true
+    dummy: true
+    
+    # ============================================
+    # TREE BOOSTING (GPU)
+    # ============================================
+    xgboost: true
+    catboost: true
+    lightgbm: true
+    grownet: true
+    
+    # ============================================
+    # BASIC NEURAL (GPU)
+    # ============================================
+    mlp: true
+    resnet: true
+    
+    # ============================================
+    # ATTENTION TRANSFORMERS (GPU)
+    # ============================================
+    ftt: true
+    saint: true
+    tabtransformer: true
+    tabptm: true
+    trompt: true
+    
+    # ============================================
+    # SPECIALIZED DEEP LEARNING (GPU)
+    # ============================================
+    tabnet: true
+    node: true
+    tabr: true
+    
+    # ============================================
+    # ADVANCED ARCHITECTURES (GPU)
+    # ============================================
+    autoint: true
+    snn: true
+    danets: true
+    tabcaps: true
+    dcn2: true
+    tangos: true
+    ptarl: true
+    switchtab: true
+    dnnr: false
+    
+    # ============================================
+    # MODERN ARCHITECTURES (GPU)
+    # ============================================
+    modernNCA: true
+    hyperfast: false
+    bishop: true
+    realmlp: true
+    protogate: true
+    mlp_plr: true
+    excelformer: true
+    grande: true
+    amformer: true
+    tabm: true
+    t2gformer: true
+    tabautopnpnet: true
+    tabicl: true
+    limix: true
+    mitra: true
+    
+    # ============================================
+    # FOUNDATION MODELS (GPU)
+    # ============================================
+    tabpfn: true
+    tabpfn_v2: true
+    tabpfn_real: false
