@@ -2,8 +2,8 @@
 #SBATCH --job-name=exp1_cpu
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=results/experiment1/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -14,15 +14,19 @@
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Setup conda from $VSC_DATA
-export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
-source activate TabPFNCredit
+# Load required modules
+module purge
+module load Python/3.11.3-GCCcore-12.3.0
+module load SciPy-bundle/2023.07-gfbf-2023a
+
+# Activate venv
+source ${VSC_DATA}/TabPFNCredit_venv/bin/activate
 
 # Navigate to project
-cd $VSC_DATA/TabPFNCredit
+cd ${VSC_DATA}/TabPFNCredit
 
 echo "=========================================="
-echo "CPU JOB"
+echo "EXPERIMENT 1 - CPU JOB"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"

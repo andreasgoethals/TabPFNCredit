@@ -3,13 +3,13 @@
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --nodes="1" 
-#SBATCH --output=results/experiment0/logs/slurm/gpu_%A_%a.out
-#SBATCH --error=results/experiment0/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=00:59:00
+#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment0/logs/slurm/gpu_%A_%a.out
+#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment0/logs/slurm/gpu_%A_%a.err
+#SBATCH --time=01:30:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=40G
+#SBATCH --mem=32G
 #SBATCH --partition=gpu_p100
 #SBATCH --array=0-185%16
 
@@ -22,11 +22,11 @@ module load Python/3.11.3-GCCcore-12.3.0
 module load SciPy-bundle/2023.07-gfbf-2023a
 module load CUDA/11.7.0
 
-# Activate venv (NOT conda!)
+# Activate venv
 source ${VSC_DATA}/TabPFNCredit_venv/bin/activate
 
 # Navigate to project
-cd $VSC_DATA/TabPFNCredit
+cd ${VSC_DATA}/TabPFNCredit
 
 echo "=========================================="
 echo "EXPERIMENT 0 - GPU VALIDATION"
