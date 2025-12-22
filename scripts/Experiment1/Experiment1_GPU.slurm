@@ -16,13 +16,9 @@
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Load required modules (don't purge!)
-module load Python/3.11.3-GCCcore-12.3.0
-module load SciPy-bundle/2023.07-gfbf-2023a
-module load CUDA/11.7.0
-
-# Activate venv
-source ${VSC_DATA}/TabPFNCredit_venv/bin/activate
+# Setup conda from $VSC_DATA
+export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
+source activate TabPFNCredit
 
 # Navigate to project root
 cd ${VSC_DATA}/TabPFNCredit
@@ -35,6 +31,7 @@ echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Python:       $(which python)"
+echo "Conda env:    $CONDA_DEFAULT_ENV"
 echo "=========================================="
 
 # Run GPU orchestrator
