@@ -84,8 +84,8 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --nodes="1" 
-#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.out
-#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment1/logs/slurm/gpu_%A_%a.err
+#SBATCH --output=../../results/experiment1/logs/slurm/gpu_%A_%a.out
+#SBATCH --error=../../results/experiment1/logs/slurm/gpu_%A_%a.err
 #SBATCH --time=04:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
@@ -106,7 +106,7 @@ module load CUDA/11.7.0
 # Activate venv
 source ${{VSC_DATA}}/TabPFNCredit_venv/bin/activate
 
-# Navigate to project
+# Navigate to project root
 cd ${{VSC_DATA}}/TabPFNCredit
 
 echo "=========================================="
@@ -116,8 +116,6 @@ echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
-echo "Python:       $(which python)"
-echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run GPU orchestrator
@@ -137,8 +135,8 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --job-name=exp1_cpu
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=../../results/experiment1/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=../../results/experiment1/logs/slurm/cpu_%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -157,7 +155,7 @@ module load SciPy-bundle/2023.07-gfbf-2023a
 # Activate venv
 source ${{VSC_DATA}}/TabPFNCredit_venv/bin/activate
 
-# Navigate to project
+# Navigate to project root
 cd ${{VSC_DATA}}/TabPFNCredit
 
 echo "=========================================="
@@ -166,8 +164,6 @@ echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
-echo "Python:       $(which python)"
-echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run CPU orchestrator
