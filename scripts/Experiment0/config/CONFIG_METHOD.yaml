@@ -33,7 +33,7 @@ methods:
     ftt: true
     saint: true
     tabtransformer: true
-    tabptm: true
+    tabptm: false
     trompt: true
     
     # ============================================
@@ -67,14 +67,14 @@ methods:
     protogate: true
     mlp_plr: true
     excelformer: true
-    grande: true
+    grande: false
     amformer: true
     tabm: true
     t2gformer: true
     tabautopnpnet: true
     tabicl: true
-    limix: true
-    mitra: true
+    limix: false
+    mitra: false
     
     # ============================================
     # FOUNDATION MODELS (GPU)
@@ -114,7 +114,7 @@ methods:
     ftt: true
     saint: true
     tabtransformer: true
-    tabptm: true
+    tabptm: false
     trompt: true
     
     # ============================================
@@ -144,17 +144,16 @@ methods:
     hyperfast: false
     bishop: true
     realmlp: true
-    protogate: true
+    protogate: false
     mlp_plr: true
     excelformer: true
-    grande: true
+    grande: false
     amformer: true
     tabm: true
     t2gformer: true
-    tabautopnpnet: true
-    tabicl: true
-    limix: true
-    mitra: true
+    tabautopnpnet: false
+    limix: false
+    mitra: false
     
     # ============================================
     # FOUNDATION MODELS (GPU)
