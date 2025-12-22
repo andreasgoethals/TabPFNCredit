@@ -38,7 +38,7 @@ methods:
     resnet: true          # ResNet
     ftt: true             # Feature Tokenizer Transformer
     node: true            # Neural Oblivious Decision Ensembles
-    saint: true           # SAINT (Self-Attention and Intersample Attention Transformer)
+    saint: false           # SAINT (Self-Attention and Intersample Attention Transformer)
     tabtransformer: true  # TabTransformer
     autoint: true         # AutoInt
     danets: true          # DANets
@@ -58,7 +58,7 @@ methods:
     grande: false          # GRANDE
     amformer: true        # AMFormer
     tabptm: false          # TabPTM
-    trompt: true          # TROMPT
+    trompt: false          # TROMPT
     tabm: true            # TabM
     t2gformer: true       # T2G-Former
     tabautopnpnet: false   # TabAuto-PNPNet
@@ -92,7 +92,7 @@ methods:
     resnet: true          # ResNet
     ftt: true             # Feature Tokenizer Transformer
     node: true            # Neural Oblivious Decision Ensembles
-    saint: true           # SAINT
+    saint: false           # SAINT
     tabtransformer: true  # TabTransformer
     autoint: true         # AutoInt
     danets: true          # DANets
@@ -110,7 +110,7 @@ methods:
     grande: false          # GRANDE
     amformer: true        # AMFormer
     tabptm: false          # TabPTM
-    trompt: true          # TROMPT
+    trompt: false          # TROMPT
     tabm: true            # TabM
     t2gformer: true       # T2G-Former
     tabautopnpnet: false   # TabAuto-PNPNet
