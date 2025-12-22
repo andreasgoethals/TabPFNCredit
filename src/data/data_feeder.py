@@ -571,9 +571,21 @@ class DataFeeder:
 
         # 3️⃣ THEN optionally limit number of rows (applied to already-resampled data)
         if self.row_limit is not None:
+            # Shuffle first to avoid bias (e.g., taking only oldest records if data is sorted)
+            # We re-initialize the RNG here to ensure this shuffle is reproducible 
+            # regardless of whether _apply_sampling() was executed previously.
+            rng = np.random.default_rng(self.seed)
+            perm_idx = rng.permutation(len(y))
+            
+            N = N[perm_idx] if N is not None else None
+            C = C[perm_idx] if C is not None else None
+            y = y[perm_idx]
+
+            # Apply the row limit
             N = N[: self.row_limit] if N is not None else None
             C = C[: self.row_limit] if C is not None else None
             y = y[: self.row_limit]
+
 
         stratify = self.task == "pd"
         folds: Dict[int, Tuple[Tuple[dict, dict, dict], Dict]] = {}

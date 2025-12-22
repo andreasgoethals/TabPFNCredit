@@ -11,7 +11,7 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=32G
 #SBATCH --partition=gpu_p100
-#SBATCH --array=0-194%16
+#SBATCH --array=0-191%16
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
