@@ -97,8 +97,7 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Load required modules
-module purge
+# Load required modules (don't purge!)
 module load Python/3.11.3-GCCcore-12.3.0
 module load SciPy-bundle/2023.07-gfbf-2023a
 module load CUDA/11.7.0
@@ -116,6 +115,7 @@ echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "Python:       $(which python)"
 echo "=========================================="
 
 # Run GPU orchestrator
@@ -147,8 +147,7 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Load required modules
-module purge
+# Load required modules (don't purge!)
 module load Python/3.11.3-GCCcore-12.3.0
 module load SciPy-bundle/2023.07-gfbf-2023a
 
@@ -164,6 +163,7 @@ echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
+echo "Python:       $(which python)"
 echo "=========================================="
 
 # Run CPU orchestrator
