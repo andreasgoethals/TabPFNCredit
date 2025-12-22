@@ -61,7 +61,7 @@ methods:
     trompt: true          # TROMPT
     tabm: true            # TabM
     t2gformer: true       # T2G-Former
-    tabautopnpnet: true   # TabAuto-PNPNet
+    tabautopnpnet: false   # TabAuto-PNPNet
     tabicl: true          # TabICL
     grownet: true         # GrowNet
     tabr: true             # TabR
@@ -107,7 +107,7 @@ methods:
     realmlp: true         # RealMLP
     mlp_plr: true         # MLP-PLR
     excelformer: true     # ExcelFormer
-    grande: true          # GRANDE
+    grande: false          # GRANDE
     amformer: true        # AMFormer
     tabptm: false          # TabPTM
     trompt: true          # TROMPT

@@ -1,10 +1,31 @@
-# VSC Supercomputer (V100/P100 GPUs with CUDA 11.8)
+# ============================================
+# VSC Supercomputer Requirements
+# KU Leuven HPC (P100/V100 GPUs with CUDA 11.8)
+# ============================================
+
+# PyTorch Index for CUDA 11.8 builds
 --extra-index-url https://download.pytorch.org/whl/cu118
 
-faiss-gpu
-# PyTorch 2.0.1 (Matches TALENT Docs & Your Local Setup)
+# ============================================
+# PyTorch with CUDA 11.8
+# ============================================
 torch==2.0.1+cu118
 torchvision==0.15.2+cu118
+torchaudio==2.0.2+cu118
 
-# Base packages
+# ============================================
+# Base TabPFNCredit Requirements
+# ============================================
+annoy==1.17.3   
 -r requirements.txt
+
+# ============================================
+# NOTE: faiss-gpu Installation
+# ============================================
+# faiss-gpu is provided by VSC system modules
+# Load with: module load SciPy-bundle/2023.07-gfbf-2023a
+# DO NOT install via pip - it will fail!
+# The system module includes faiss with GPU support
+
+
+

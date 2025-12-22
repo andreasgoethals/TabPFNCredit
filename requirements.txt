@@ -15,14 +15,14 @@ pyarrow>=14.0.0
 # ============================================
 # TALENT Framework Dependencies
 # ============================================
-# annoy==1.17.3
+                
 delu==0.0.23
 einops==0.8.0
 qhoptim==1.1.0
 category_encoders==2.6.3
 dill
-msgpack
-msgpack_numpy
+msgpack>=1.0.5                   # ← Added version pin
+msgpack-numpy>=0.4.8             # ← FIXED: hyphen not underscore
 torchmetrics
 pytorch_lightning
 einx
