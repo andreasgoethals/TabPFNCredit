@@ -1062,14 +1062,72 @@ def run_talent_method(
                         if train_time is None:
                             train_time = time.time() - t0
                         
+                        # Get predictions for all splits
                         output = model.predict((N, C, y), info, model_name=args.evaluate_option)
                     
-                    # Parse output - we only need predictions
+                    # Parse output - extract predictions
                     predictions_raw = _parse_prediction_output(output)
                     
-                    # Convert to numpy arrays
+                    # ======================================================================
+                    # EXTRACT PREDICTIONS FOR VALIDATION AND TEST SETS
+                    # ======================================================================
+                    
+                    # TALENT's predict() returns predictions for all splits in various formats
+                    # We need to handle: dict, tuple, or single array
+                    
+                    if isinstance(predictions_raw, dict):
+                        # Format: {'train': ..., 'val': ..., 'test': ...}
+                        val_pred_raw = predictions_raw.get('val')
+                        test_pred_raw = predictions_raw['test']
+                        
+                    elif isinstance(predictions_raw, (tuple, list)) and len(predictions_raw) == 3:
+                        # Format: (train_preds, val_preds, test_preds)
+                        val_pred_raw = predictions_raw[1]
+                        test_pred_raw = predictions_raw[2]
+                        
+                    else:
+                        # Fallback: Assume single array is test predictions only
+                        # We'll need to get validation predictions separately
+                        test_pred_raw = predictions_raw
+                        
+                        # Try to get validation predictions by predicting on val split only
+                        try:
+                            N_val_only = {'train': N['train'], 'val': N['val'], 'test': N['val']}
+                            C_val_only = {'train': C['train'], 'val': C['val'], 'test': C['val']} if C is not None else None
+                            y_val_only = {'train': y['train'], 'val': y['val'], 'test': y['val']}
+                            
+                            with _suppress_all_output(True):
+                                val_output = model.predict((N_val_only, C_val_only, y_val_only), info, model_name=args.evaluate_option)
+                            val_pred_raw = _parse_prediction_output(val_output)
+                            
+                            # If dict/tuple format, extract the 'test' key (which we set to val data)
+                            if isinstance(val_pred_raw, dict):
+                                val_pred_raw = val_pred_raw['test']
+                            elif isinstance(val_pred_raw, (tuple, list)):
+                                val_pred_raw = val_pred_raw[2]
+                                
+                        except Exception as e:
+                            if verbose:
+                                print(f"\n[WARNING] Could not get validation predictions: {e}")
+                                print(f"[WARNING] Threshold will be optimized on test set (data leakage)")
+                            val_pred_raw = None
+                    
+                    # ======================================================================
+                    # CONVERT TO NUMPY AND EXTRACT PROBABILITIES
+                    # ======================================================================
+                    
+                    # Validation set (for threshold optimization)
+                    if val_pred_raw is not None:
+                        val_y_true_np = _ensure_numpy_array(y["val"])
+                        val_y_pred_raw_np = _ensure_numpy_array(val_pred_raw)
+                        val_y_prob_np = _extract_class_probabilities(val_y_pred_raw_np, method, is_regression) if not is_regression else None
+                    else:
+                        val_y_true_np = None
+                        val_y_prob_np = None
+                    
+                    # Test set (for final evaluation)
                     y_true_np = _ensure_numpy_array(y["test"])
-                    y_pred_raw_np = _ensure_numpy_array(predictions_raw)
+                    y_pred_raw_np = _ensure_numpy_array(test_pred_raw)
                     
                     # Initialize clipping counters
                     n_clipped_below = 0
@@ -1089,7 +1147,7 @@ def run_talent_method(
                             if pct_clipped > 5:
                                 print(f"[WARNING] High clipping rate may indicate model issues")
                         
-                        # Calculate our own metrics
+                        # Calculate regression metrics
                         metrics = calculate_lgd_metrics(y_true_np, y_pred_np)
                         
                     else:
@@ -1097,12 +1155,26 @@ def run_talent_method(
                         y_prob_np = _extract_class_probabilities(y_pred_raw_np, method, is_regression)
                         y_pred_np = _extract_binary_predictions(y_pred_raw_np, y_prob_np)
                         
-                        # Calculate our own metrics
-                        metrics = calculate_pd_metrics(y_true_np, y_prob_np, y_pred_np)
+                        # ✅ FIX: Pass validation data for threshold optimization
+                        metrics = calculate_pd_metrics(
+                            y_true=y_true_np,
+                            y_prob=y_prob_np,
+                            y_pred=y_pred_np,
+                            val_y_true=val_y_true_np,    # ← NEW: Validation labels
+                            val_y_prob=val_y_prob_np     # ← NEW: Validation probabilities
+                        )
+                        
+                        # Log threshold source for transparency
+                        if verbose:
+                            threshold_used = metrics.get('Optimal_Threshold', 0.5)
+                            if val_y_true_np is not None:
+                                print(f"\n[THRESHOLD] Optimized on validation set: {threshold_used:.4f}")
+                            else:
+                                print(f"\n[THRESHOLD] WARNING: Optimized on test set (data leakage): {threshold_used:.4f}")
                     
-                    # Store results in new structure
+                    # Store results
                     results[fold_id] = {
-                        # Core predictions (in requested order)
+                        # Core predictions
                         "y_true": y_true_np,
                         "y_prob": y_prob_np,
                         "y_pred": y_pred_np,
@@ -1110,10 +1182,14 @@ def run_talent_method(
                         # Raw predictions for debugging
                         "y_pred_raw": y_pred_raw_np,
                         
-                        # Our calculated metrics
+                        # Validation data (for threshold verification)
+                        "val_y_true": val_y_true_np,
+                        "val_y_prob": val_y_prob_np,
+                        
+                        # Metrics
                         "metrics": metrics,
                         
-                        # Clipping diagnostics (LGD only, 0 for PD)
+                        # Clipping diagnostics
                         "n_clipped_below": n_clipped_below,
                         "n_clipped_above": n_clipped_above,
                         
@@ -1134,7 +1210,7 @@ def run_talent_method(
                         for metric_name, metric_value in metrics.items():
                             if not np.isnan(metric_value):
                                 print(f"  {metric_name}: {metric_value:.4f}")
-            
+
                 except Exception as e:
                     if verbose:
                         print(f"\nError during training: {e}")
