@@ -72,7 +72,7 @@ CPU_METHODS = {
 # ======================================================================================
 
 def generate_gpu_slurm_script(n_tasks, max_concurrent):
-    """Generate GPU SLURM script for Experiment1."""
+    """Generate complete GPU SLURM script content."""
     
     if n_tasks == 0:
         array_range = "0"
@@ -84,13 +84,13 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --nodes="1" 
-#SBATCH --output=../../results/experiment1/logs/slurm/gpu_%A_%a.out
-#SBATCH --error=../../results/experiment1/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=04:00:00
+#SBATCH --output=results/experiment1/logs/slurm/gpu_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/gpu_%A_%a.err
+#SBATCH --time=00:05:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=32G
+#SBATCH --mem=5G
 #SBATCH --partition=gpu_p100
 #SBATCH --array={array_range}
 
@@ -101,27 +101,21 @@ export PYTHONUNBUFFERED=1
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# USE CONDA'S C++ LIBRARIES (CRITICAL!)
+# USE CONDA'S C++ LIBRARIES (fixes GLIBCXX issue for faiss-gpu)
 export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
 
 # Navigate to project
-cd ${{VSC_DATA}}/TabPFNCredit
-
-# Ensure result directories exist
-mkdir -p results/experiment1/pd
-mkdir -p results/experiment1/lgd
-mkdir -p results/experiment1/logs/slurm
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 1 - GPU JOB"
+echo "GPU JOB"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Python:       $(which python)"
-echo "Conda env:    $CONDA_DEFAULT_ENV"
-echo "Working dir:  $(pwd)"
+echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run GPU orchestrator
@@ -130,7 +124,7 @@ python -u scripts/Experiment1/Experiment1_GPU.py --array_id=$SLURM_ARRAY_TASK_ID
 
 
 def generate_cpu_slurm_script(n_tasks, max_concurrent):
-    """Generate CPU SLURM script for Experiment1."""
+    """Generate complete CPU SLURM script content."""
     
     if n_tasks == 0:
         array_range = "0"
@@ -141,8 +135,8 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --job-name=exp1_cpu
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=../../results/experiment1/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=../../results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=results/experiment1/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/cpu_%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -157,26 +151,17 @@ export PYTHONUNBUFFERED=1
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# USE CONDA'S C++ LIBRARIES (CRITICAL!)
-export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
-
 # Navigate to project
-cd ${{VSC_DATA}}/TabPFNCredit
-
-# Ensure result directories exist
-mkdir -p results/experiment1/pd
-mkdir -p results/experiment1/lgd
-mkdir -p results/experiment1/logs/slurm
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 1 - CPU JOB"
+echo "CPU JOB"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "Python:       $(which python)"
-echo "Conda env:    $CONDA_DEFAULT_ENV"
-echo "Working dir:  $(pwd)"
+echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run CPU orchestrator

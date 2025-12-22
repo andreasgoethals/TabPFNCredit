@@ -2,8 +2,8 @@
 #SBATCH --job-name=exp1_cpu
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=../../results/experiment1/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=../../results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=results/experiment1/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/cpu_%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -18,26 +18,17 @@ export PYTHONUNBUFFERED=1
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
 
-# USE CONDA'S C++ LIBRARIES (CRITICAL!)
-export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
-
 # Navigate to project
-cd ${VSC_DATA}/TabPFNCredit
-
-# Ensure result directories exist
-mkdir -p results/experiment1/pd
-mkdir -p results/experiment1/lgd
-mkdir -p results/experiment1/logs/slurm
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 1 - CPU JOB"
+echo "CPU JOB"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "Python:       $(which python)"
-echo "Conda env:    $CONDA_DEFAULT_ENV"
-echo "Working dir:  $(pwd)"
+echo "Python ver:   $(python --version)"
 echo "=========================================="
 
 # Run CPU orchestrator

@@ -32,13 +32,13 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --nodes="1" 
-#SBATCH --output=../../results/experiment0/logs/slurm/gpu_%A_%a.out
-#SBATCH --error=../../results/experiment0/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=01:30:00
+#SBATCH --output=results/experiment0/logs/slurm/gpu_%A_%a.out
+#SBATCH --error=results/experiment0/logs/slurm/gpu_%A_%a.err
+#SBATCH --time=00:59:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=32G
+#SBATCH --mem=45G
 #SBATCH --partition=gpu_p100
 #SBATCH --array={array_range}
 
@@ -49,16 +49,11 @@ export PYTHONUNBUFFERED=1
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# USE CONDA'S C++ LIBRARIES (CRITICAL!)
+# USE CONDA'S C++ LIBRARIES
 export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
 
 # Navigate to project
-cd ${{VSC_DATA}}/TabPFNCredit
-
-# Ensure result directories exist
-mkdir -p results/experiment0/pd
-mkdir -p results/experiment0/lgd
-mkdir -p results/experiment0/logs/slurm
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
 echo "EXPERIMENT 0 - GPU VALIDATION"
@@ -67,9 +62,6 @@ echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
-echo "Python:       $(which python)"
-echo "Conda env:    $CONDA_DEFAULT_ENV"
-echo "Working dir:  $(pwd)"
 echo "=========================================="
 
 # Run GPU orchestrator
@@ -89,8 +81,8 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --job-name=exp0_cpu
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=../../results/experiment0/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=../../results/experiment0/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=results/experiment0/logs/slurm/cpu_%A_%a.out
+#SBATCH --error=results/experiment0/logs/slurm/cpu_%A_%a.err
 #SBATCH --time=02:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -105,16 +97,8 @@ export PYTHONUNBUFFERED=1
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# USE CONDA'S C++ LIBRARIES (CRITICAL!)
-export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
-
 # Navigate to project
-cd ${{VSC_DATA}}/TabPFNCredit
-
-# Ensure result directories exist
-mkdir -p results/experiment0/pd
-mkdir -p results/experiment0/lgd
-mkdir -p results/experiment0/logs/slurm
+cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
 echo "EXPERIMENT 0 - CPU VALIDATION"
@@ -122,9 +106,6 @@ echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
-echo "Python:       $(which python)"
-echo "Conda env:    $CONDA_DEFAULT_ENV"
-echo "Working dir:  $(pwd)"
 echo "=========================================="
 
 # Run CPU orchestrator
