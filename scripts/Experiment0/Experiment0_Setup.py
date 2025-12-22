@@ -34,7 +34,7 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --nodes="1" 
 #SBATCH --output=../../results/experiment0/logs/slurm/gpu_%A_%a.out
 #SBATCH --error=../../results/experiment0/logs/slurm/gpu_%A_%a.err
-#SBATCH --time=00:59:00
+#SBATCH --time=01:30:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
@@ -49,8 +49,16 @@ export PYTHONUNBUFFERED=1
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# Navigate to project root
+# USE CONDA'S C++ LIBRARIES (CRITICAL!)
+export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
+
+# Navigate to project
 cd ${{VSC_DATA}}/TabPFNCredit
+
+# Ensure result directories exist
+mkdir -p results/experiment0/pd
+mkdir -p results/experiment0/lgd
+mkdir -p results/experiment0/logs/slurm
 
 echo "=========================================="
 echo "EXPERIMENT 0 - GPU VALIDATION"
@@ -61,6 +69,7 @@ echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Python:       $(which python)"
 echo "Conda env:    $CONDA_DEFAULT_ENV"
+echo "Working dir:  $(pwd)"
 echo "=========================================="
 
 # Run GPU orchestrator
@@ -96,8 +105,16 @@ export PYTHONUNBUFFERED=1
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# Navigate to project root
+# USE CONDA'S C++ LIBRARIES (CRITICAL!)
+export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
+
+# Navigate to project
 cd ${{VSC_DATA}}/TabPFNCredit
+
+# Ensure result directories exist
+mkdir -p results/experiment0/pd
+mkdir -p results/experiment0/lgd
+mkdir -p results/experiment0/logs/slurm
 
 echo "=========================================="
 echo "EXPERIMENT 0 - CPU VALIDATION"
@@ -107,6 +124,7 @@ echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "Python:       $(which python)"
 echo "Conda env:    $CONDA_DEFAULT_ENV"
+echo "Working dir:  $(pwd)"
 echo "=========================================="
 
 # Run CPU orchestrator

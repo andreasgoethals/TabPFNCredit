@@ -20,8 +20,16 @@ export PYTHONUNBUFFERED=1
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
 
-# Navigate to project root
+# USE CONDA'S C++ LIBRARIES (CRITICAL!)
+export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
+
+# Navigate to project
 cd ${VSC_DATA}/TabPFNCredit
+
+# Ensure result directories exist
+mkdir -p results/experiment1/pd
+mkdir -p results/experiment1/lgd
+mkdir -p results/experiment1/logs/slurm
 
 echo "=========================================="
 echo "EXPERIMENT 1 - GPU JOB"
@@ -32,6 +40,7 @@ echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Python:       $(which python)"
 echo "Conda env:    $CONDA_DEFAULT_ENV"
+echo "Working dir:  $(pwd)"
 echo "=========================================="
 
 # Run GPU orchestrator
