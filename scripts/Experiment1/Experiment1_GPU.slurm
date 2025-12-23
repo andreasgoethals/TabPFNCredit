@@ -13,6 +13,13 @@
 #SBATCH --partition=gpu_p100
 #SBATCH --array=0-32%16
 
+# ---------------------------------------------------------
+# STAGGERED START TO PREVENT I/O CONGESTION
+# ---------------------------------------------------------
+# Sleep for a random duration between 1 and 60 seconds.
+sleep $((RANDOM % 60 + 1))
+# ---------------------------------------------------------
+
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 

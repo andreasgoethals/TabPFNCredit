@@ -25,7 +25,7 @@ from src.utils.config_reader import load_config
 from src.methods.method_config import NO_HPO_METHODS
 
 # ======================================================================================
-#                    GPU vs CPU METHOD CATEGORIZATION
+#                     GPU vs CPU METHOD CATEGORIZATION
 # ======================================================================================
 
 # GPU Methods - Neural architectures + tree boosting (run on GPU nodes)
@@ -68,7 +68,7 @@ CPU_METHODS = {
 
 
 # ======================================================================================
-#                    SLURM SCRIPT TEMPLATES
+#                     SLURM SCRIPT TEMPLATES
 # ======================================================================================
 
 def generate_gpu_slurm_script(n_tasks, max_concurrent):
@@ -93,6 +93,13 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --mem=5G
 #SBATCH --partition=gpu_p100
 #SBATCH --array={array_range}
+
+# ---------------------------------------------------------
+# STAGGERED START TO PREVENT I/O CONGESTION
+# ---------------------------------------------------------
+# Sleep for a random duration between 1 and 60 seconds.
+sleep $((RANDOM % 60 + 1))
+# ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
@@ -144,6 +151,13 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --partition=batch
 #SBATCH --array={array_range}
 
+# ---------------------------------------------------------
+# STAGGERED START TO PREVENT I/O CONGESTION
+# ---------------------------------------------------------
+# Sleep for a random duration between 1 and 60 seconds.
+sleep $((RANDOM % 60 + 1))
+# ---------------------------------------------------------
+
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
@@ -170,7 +184,7 @@ python -u scripts/Experiment1/Experiment1_CPU.py --array_id=$SLURM_ARRAY_TASK_ID
 
 
 # ======================================================================================
-#                    TASK COUNTING AND SLURM GENERATION
+#                     TASK COUNTING AND SLURM GENERATION
 # ======================================================================================
 
 def count_tasks(methods, datasets):

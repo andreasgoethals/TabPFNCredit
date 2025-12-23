@@ -11,6 +11,13 @@
 #SBATCH --partition=batch
 #SBATCH --array=0-17%18
 
+# ---------------------------------------------------------
+# STAGGERED START TO PREVENT I/O CONGESTION
+# ---------------------------------------------------------
+# Sleep for a random duration between 1 and 60 seconds.
+sleep $((RANDOM % 60 + 1))
+# ---------------------------------------------------------
+
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 

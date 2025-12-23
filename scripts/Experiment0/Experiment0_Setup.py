@@ -4,7 +4,6 @@ Experiment0 Setup: Generate SLURM scripts for method validation
 
 Simpler than Experiment1 - only NO_HPO mode, 2 datasets, all methods.
 """
-
 import sys
 from pathlib import Path
 
@@ -25,6 +24,8 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
     if n_tasks == 0:
         array_range = "0"
     else:
+        # Note: Ensure max_concurrent is a reasonable number (e.g., 10-20) 
+        # to avoid overloading the scheduler even with sleeps.
         array_range = f"0-{n_tasks-1}%{max_concurrent}"
     
     return f"""#!/usr/bin/bash
@@ -41,6 +42,14 @@ def generate_gpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --mem=40G
 #SBATCH --partition=gpu_p100
 #SBATCH --array={array_range}
+
+# ---------------------------------------------------------
+# STAGGERED START TO PREVENT I/O CONGESTION
+# ---------------------------------------------------------
+# Sleep for a random duration between 1 and 60 seconds.
+# This ensures jobs don't all hit the file system at the exact same millisecond.
+sleep $((RANDOM % 60 + 1))
+# ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
@@ -89,6 +98,13 @@ def generate_cpu_slurm_script(n_tasks, max_concurrent):
 #SBATCH --mem=20G
 #SBATCH --partition=batch
 #SBATCH --array={array_range}
+
+# ---------------------------------------------------------
+# STAGGERED START TO PREVENT I/O CONGESTION
+# ---------------------------------------------------------
+# Sleep for a random duration between 1 and 60 seconds.
+sleep $((RANDOM % 60 + 1))
+# ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
