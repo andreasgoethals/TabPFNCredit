@@ -8,25 +8,32 @@ and data preparation.
 Key features:
 - Supports all TALENT methods (classical ML and deep learning)
 - Handles cross-validation with proper fold isolation
-- HPO (hyperparameter optimization) support with config persistence across folds
+- Per-fold HPO: Independent hyperparameter optimization for each fold (rigorous, no data leakage)
+- File locking for safe concurrent writes (SLURM array jobs)
 - Method-specific preprocessing policy enforcement
 - Proper cleanup of temporary directories
-- Persistent config storage for accessing the HPO results later 
-- Organized config storage by task type (pd/lgd)
+- Persistent config storage organized by task type (pd/lgd)
 - Handles CUDA tensor to numpy conversion
 - Extracts probabilities from logits for classification tasks
 - Automatic row limit capping for TabPFN (10k) and PFN-v2 (50k)
 - Calculates comprehensive metrics internally (not relying on TALENT)
 - Clips LGD predictions to [0, 1] range
+- Validation set used for threshold optimization (no data leakage)
 
 Architecture notes:
 - TALENT was designed as CLI scripts, not a library, so we manipulate sys.argv
 - Each method has strict preprocessing requirements that must be satisfied
-- HPO configs are saved as {method}-tuned.json in persistent config directory
-- Configs are stored in project's 'config_hpo' folder organized by task type (pd/lgd)
+- HPO configs saved as JSON in persistent config directory
+- Configs stored in project's 'config_hpo' folder organized by task type (pd/lgd)
 - Deep learning methods return logits; classical methods return probabilities
 - TabPFN and PFN-v2 have inherent dataset size limitations
 - All metrics are calculated by us for consistency and control
+
+HPO Strategy:
+- When tune=True: Independent HPO for each fold using TALENT's built-in optimization
+- Optimizes on validation loss (TALENT's default)
+- Saves hyperparameters per fold to: config_hpo/{task}/{dataset}/{method}/HPO_PER_FOLD/{method}-all-folds.json
+- No data leakage: Each fold's hyperparameters optimized only on that fold's train+val data
 """
 
 from __future__ import annotations
@@ -43,6 +50,8 @@ from pathlib import Path
 import tempfile
 import numpy as np
 import os
+import json
+from datetime import datetime
 
 # Suppress LightGBM warnings globally
 warnings.filterwarnings('ignore', message='No further splits with positive gain')
@@ -56,6 +65,19 @@ try:
 except ImportError:
     _HAS_TORCH = False
     torch = None  # type: ignore
+
+# File locking imports
+try:
+    import fcntl
+    HAS_FCNTL = True
+except ImportError:
+    HAS_FCNTL = False
+    # Try portalocker for Windows
+    try:
+        import portalocker
+        HAS_PORTALOCKER = True
+    except ImportError:
+        HAS_PORTALOCKER = False
 
 # TALENT core utilities
 from TALENT.model.utils import (
@@ -94,6 +116,119 @@ from src.methods.method_metrics import (
 
 # Setup logger
 logger = logging.getLogger(__name__)
+
+
+# ======================================================================================
+#                          FILE LOCKING UTILITIES
+# ======================================================================================
+
+class FileLock:
+    """
+    Cross-platform file locking context manager.
+    
+    Supports:
+    - Unix/Linux: fcntl-based locking
+    - Windows: portalocker-based locking
+    - Fallback: Warning if no locking available
+    
+    Usage:
+        with FileLock(path, timeout=30.0):
+            # Perform file operations
+            pass
+    """
+    
+    def __init__(self, filepath: Path, timeout: float = 30.0):
+        self.filepath = filepath
+        self.timeout = timeout
+        self.file_handle = None
+        self.lock_acquired = False
+    
+    def __enter__(self):
+        self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Open file for read+write, create if doesn't exist
+        self.file_handle = open(self.filepath, 'a+')
+        
+        if HAS_FCNTL:
+            # Unix/Linux: fcntl locking
+            try:
+                fcntl.flock(self.file_handle.fileno(), fcntl.LOCK_EX)
+                self.lock_acquired = True
+            except IOError as e:
+                warnings.warn(f"Could not acquire file lock: {e}")
+        
+        elif HAS_PORTALOCKER:
+            # Windows: portalocker
+            try:
+                portalocker.lock(self.file_handle, portalocker.LOCK_EX)
+                self.lock_acquired = True
+            except Exception as e:
+                warnings.warn(f"Could not acquire file lock: {e}")
+        
+        else:
+            # No locking available
+            warnings.warn(
+                "No file locking library available (fcntl or portalocker). "
+                "Concurrent writes may cause data corruption. "
+                "Install portalocker for Windows: pip install portalocker"
+            )
+        
+        return self.file_handle
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.file_handle:
+            if HAS_FCNTL and self.lock_acquired:
+                fcntl.flock(self.file_handle.fileno(), fcntl.LOCK_UN)
+            elif HAS_PORTALOCKER and self.lock_acquired:
+                portalocker.unlock(self.file_handle)
+            
+            self.file_handle.close()
+
+
+def save_fold_config_safely(
+    config_path: Path,
+    fold_id: int,
+    hyperparameters: dict,
+    n_trials: int,
+) -> None:
+    """
+    Safely save fold config to shared JSON file with file locking.
+    
+    Uses file locking to prevent race conditions when multiple processes
+    write to the same config file simultaneously.
+    
+    Args:
+        config_path: Path to shared config file
+        fold_id: Fold identifier
+        hyperparameters: Optimized hyperparameters
+        n_trials: Number of HPO trials used
+    """
+    with FileLock(config_path) as f:
+        # Read existing content
+        f.seek(0)
+        content = f.read()
+        
+        if content.strip():
+            try:
+                all_configs = json.loads(content)
+            except json.JSONDecodeError:
+                # File is corrupted, start fresh
+                all_configs = {}
+        else:
+            all_configs = {}
+        
+        # Add this fold's config
+        all_configs[f"fold_{fold_id}"] = {
+            "hyperparameters": hyperparameters,
+            "n_trials": n_trials,
+            "timestamp": datetime.now().isoformat(),
+        }
+        
+        # Write back
+        f.seek(0)
+        f.truncate()
+        f.write(json.dumps(all_configs, indent=2))
+        f.flush()
 
 
 # ======================================================================================
@@ -762,14 +897,15 @@ def run_talent_method(
     - Preprocessing policy application (with method-specific requirements)
     - Method instantiation and training
     - Cross-validation loop with proper fold isolation
-    - Optional hyperparameter optimization (HPO) on first fold, reusing config for others
-    - Persistent config storage for future reuse across runs
+    - Per-fold hyperparameter optimization (when tune=True)
+    - Persistent config storage for analysis
     - Proper cleanup of temporary directories
     - Handles CUDA tensor to numpy conversion
     - Extracts probabilities from logits for classification tasks
     - Automatic row limit enforcement for TabPFN (10k) and PFN-v2 (50k)
     - Clips LGD predictions to [0, 1] range
     - Calculates comprehensive metrics internally (not relying on TALENT)
+    - Validation set used for threshold optimization (no data leakage)
     
     Returns dictionary structure:
     ┌─────────────────────────────────────────────────────────────────────────┐
@@ -779,6 +915,8 @@ def run_talent_method(
     │ y_prob           │ np.ndarray/None   │ Class probabilities (PD only)    │
     │ y_pred           │ np.ndarray        │ Predictions (binary PD/clipped LGD)│
     │ y_pred_raw       │ np.ndarray        │ Raw unprocessed predictions      │
+    │ val_y_true       │ np.ndarray/None   │ Validation ground truth          │
+    │ val_y_prob       │ np.ndarray/None   │ Validation probabilities         │
     │ metrics          │ Dict[str, float]  │ Comprehensive metrics dict       │
     │ train_time       │ float             │ Training time in seconds         │
     │ info             │ dict              │ Dataset information              │
@@ -787,6 +925,8 @@ def run_talent_method(
     │ task             │ str               │ Task type (pd/lgd)               │
     │ fold_id          │ int               │ Fold identifier                  │
     │ used_hpo         │ bool              │ Whether HPO was used             │
+    │ hpo_config       │ dict/None         │ Hyperparameters used             │
+    │ hpo_n_trials     │ int/None          │ Number of trials                 │
     │ n_clipped_below  │ int               │ Predictions < 0 (LGD only)       │
     │ n_clipped_above  │ int               │ Predictions > 1 (LGD only)       │
     └─────────────────────────────────────────────────────────────────────────┘
@@ -808,8 +948,8 @@ def run_talent_method(
         cat_nan_policy: Categorical NaN handling
         max_epoch: Maximum training epochs (deep methods only)
         batch_size: Batch size (deep methods only)
-        tune: Whether to perform hyperparameter optimization on first fold
-        n_trials: Number of HPO trials (if tune=True)
+        tune: Whether to perform hyperparameter optimization (per-fold)
+        n_trials: Number of HPO trials per fold
         early_stopping: Whether to use early stopping (deep methods only)
         early_stopping_patience: Patience for early stopping
         evaluate_option: Which model to use for evaluation ('best-val', 'last')
@@ -825,6 +965,12 @@ def run_talent_method(
     Raises:
         ValueError: If method requirements conflict with user-specified options
         RuntimeError: If training or prediction fails
+        
+    Notes:
+        - Per-fold HPO: When tune=True, each fold gets independent hyperparameter optimization
+        - Uses TALENT's built-in HPO (optimizes on validation loss)
+        - File locking ensures safe concurrent execution (SLURM array jobs)
+        - Configs saved to: config_hpo/{task}/{dataset}/{method}/HPO_PER_FOLD/{method}-all-folds.json
     """
     
     # Log method start 
@@ -850,6 +996,10 @@ def run_talent_method(
                     print(f"\nRow limit: {row_limit:,} (method maximum for {method})")
                 else:
                     print(f"\nRow limit: {row_limit:,} (capped from {original_row_limit:,} due to {method} constraint)")
+            
+            if tune:
+                print(f"\n[HPO] Per-fold hyperparameter optimization enabled")
+                print(f"[HPO] Each fold: {n_trials} trials (optimizes on validation loss)")
         
         # Track which preprocessing options user explicitly provided
         user_specified = {
@@ -880,7 +1030,6 @@ def run_talent_method(
         
         if verbose:
             print(f"Fold IDs: {sorted(folds.keys())}")
-            print(f"First fold ID: {first_fold_id}")
         
         results: Dict[int, Dict[str, Any]] = {}
         
@@ -890,25 +1039,23 @@ def run_talent_method(
         else:
             base_config_dir = Path(config_base_dir) / "config_hpo"
         
-        # Each method gets its own subdirectory, separated by HPO mode to prevent race conditions
-        hpo_subdir = "HPO" if tune else "NO_HPO"
-        dataset_config_dir = base_config_dir / task.lower() / dataset / method / hpo_subdir
+        # Directory structure for per-fold HPO
+        if tune:
+            dataset_config_dir = base_config_dir / task.lower() / dataset / method / "HPO_PER_FOLD"
+            merged_config_path = dataset_config_dir / f"{method}-all-folds.json"
+        else:
+            dataset_config_dir = base_config_dir / task.lower() / dataset / method / "NO_HPO"
+            merged_config_path = None
+        
         dataset_config_dir.mkdir(parents=True, exist_ok=True)
         
         checkpoint_tmp_dir = Path(tempfile.mkdtemp(prefix=f"talent_ckpt_{dataset}_{method}_"))
         
         if verbose:
             print(f"\nDirectory setup:")
-            print(f"  Config directory (persistent): {dataset_config_dir}")
-            print(f"  Checkpoint directory (temp):   {checkpoint_tmp_dir}")
-            
+            print(f"  Config directory: {dataset_config_dir}")
             if tune:
-                print(f"\n[HPO] Mode: ENABLED")
-                print(f"[HPO] Fold 1: Will run HPO and save config")
-                print(f"[HPO] Fold 2+: Will load config from fold 1")
-            else:
-                print(f"\n[HPO] Mode: DISABLED")
-                print(f"[HPO] All folds: Will use TALENT's default hyperparameters")
+                print(f"  Merged config: {merged_config_path.name}")
         
         try:
             # Process each fold
@@ -1006,50 +1153,57 @@ def run_talent_method(
                 if method == 'lightgbm':
                     _fix_lightgbm_config(args)
                 
-                # HPO logic
+                # ======================================================================
+                # HPO LOGIC - PER-FOLD USING TALENT'S BUILT-IN HPO
+                # ======================================================================
+                
                 if tune:
-                    tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
-                    
-                    if fold_id == first_fold_id:
-                        if tuned_config_path.exists() and not args.retune:
-                            if verbose:
-                                print(f"\n[HPO] Existing config found: {tuned_config_path.name}")
-                                print(f"[HPO] Will load saved config (use retune=True to re-optimize)")
-                        else:
-                            if verbose:
-                                print(f"\n[HPO] Running hyperparameter optimization...")
-                                print(f"[HPO] Trials: {n_trials}")
-                                print(f"[HPO] Will save to: {tuned_config_path}")
-                    else:
-                        if verbose:
-                            print(f"\n[HPO] Loading config from fold {first_fold_id}...")
+                    if verbose:
+                        print(f"\n[HPO] Running optimization for Fold {fold_id}")
+                        print(f"[HPO] Optimizing on validation loss (TALENT default)")
+                        print(f"[HPO] Trials: {n_trials}")
                     
                     try:
                         train_val_data = (N, C, y)
                         
+                        # Use TALENT's proven HPO implementation
                         with _suppress_all_output(not verbose):
                             args = tune_hyper_parameters(args, opt_space, train_val_data, info)
                         
-                        if fold_id == first_fold_id:
-                            if tuned_config_path.exists():
-                                if verbose:
-                                    print(f"[HPO] Config ready: {tuned_config_path.name}")
-                            else:
-                                raise RuntimeError(f"HPO failed to save config to {tuned_config_path}")
-                        else:
-                            if verbose:
-                                print(f"[HPO] Config loaded successfully")
-                                
+                        # Extract hyperparameters from args
+                        fold_hyperparams = args.config.get('model', {}).copy()
+                        
+                        # TALENT may save a default config file - remove it to avoid confusion
+                        talent_default_path = Path(args.save_path) / f"{method}-tuned.json"
+                        if talent_default_path.exists():
+                            try:
+                                talent_default_path.unlink()
+                            except:
+                                pass
+                        
+                        # Save to shared file with locking
+                        save_fold_config_safely(
+                            config_path=merged_config_path,
+                            fold_id=fold_id,
+                            hyperparameters=fold_hyperparams,
+                            n_trials=n_trials,
+                        )
+                        
+                        if verbose:
+                            print(f"[HPO] Config saved (fold {fold_id})")
+                            print(f"[HPO] Best hyperparameters: {fold_hyperparams}")
+                    
                     except Exception as e:
                         if verbose:
                             print(f"[HPO] Error: {e}")
+                            import traceback
+                            traceback.print_exc()
                         raise
                 
                 else:
                     if verbose and fold_id == first_fold_id:
                         print(f"\n[DEFAULT] Using TALENT's default hyperparameters")
-                        print(f"[DEFAULT] Location: .venv/.../TALENT/configs/default/{method}.json")
-                        print(f"[DEFAULT] Saved configs in config_hpo/ are ignored when tune=False")
+                        print(f"[DEFAULT] No hyperparameter optimization")
                 
                 # Train model
                 try:
@@ -1155,13 +1309,13 @@ def run_talent_method(
                         y_prob_np = _extract_class_probabilities(y_pred_raw_np, method, is_regression)
                         y_pred_np = _extract_binary_predictions(y_pred_raw_np, y_prob_np)
                         
-                        # ✅ FIX: Pass validation data for threshold optimization
+                        # Pass validation data for threshold optimization
                         metrics = calculate_pd_metrics(
                             y_true=y_true_np,
                             y_prob=y_prob_np,
                             y_pred=y_pred_np,
-                            val_y_true=val_y_true_np,    # ← Validation labels
-                            val_y_prob=val_y_prob_np     # ← Validation probabilities
+                            val_y_true=val_y_true_np,
+                            val_y_prob=val_y_prob_np
                         )
                         
                         # Log threshold source for transparency
@@ -1202,7 +1356,9 @@ def run_talent_method(
                         "dataset": dataset,
                         "task": task,
                         "fold_id": fold_id,
-                        "used_hpo": fold_id == first_fold_id and tune,
+                        "used_hpo": tune,
+                        "hpo_config": args.config.get('model', {}).copy() if tune else None,
+                        "hpo_n_trials": n_trials if tune else None,
                     }
                     
                     if verbose:
@@ -1224,10 +1380,9 @@ def run_talent_method(
             print(f"\n{'='*70}")
             print(f"Completed {len(results)} folds for {method}")
             if tune:
-                tuned_config_path = dataset_config_dir / f"{method}-tuned.json"
-                print(f"\n[HPO] Config saved: {tuned_config_path}")
-                print(f"[HPO] This config is ONLY used when tune=True")
-                print(f"[HPO] When tune=False, defaults are always used")
+                print(f"\n[HPO] All fold configs saved: {merged_config_path}")
+                print(f"[HPO] Per-fold hyperparameters optimized independently")
+                print(f"[HPO] No data leakage - each fold optimized on its own data")
             print(f"{'='*70}\n")
         
         # Log method completion 
