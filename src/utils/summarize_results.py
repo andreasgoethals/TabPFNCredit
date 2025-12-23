@@ -1,37 +1,41 @@
-# src/postprocessing/Summarize_Results.py
+# src/utils/Summarize_Results.py
 """
 Summarize Results: Aggregate all experiment results into summary CSV files.
 
 This script reads all pickle result files from an experiment folder and creates
 clean summary CSV files containing only the metrics for each fold.
 
+Works for ALL experiments (Experiment0, Experiment1, etc.) automatically.
+
 Structure:
     Input:  results/{experiment}/pd/*.pkl and results/{experiment}/lgd/*.pkl
     Output: results/{experiment}/summary/
 
 Output files:
-    - summary_pd_raw.csv:      All PD metrics per method, dataset, fold, HPO mode
-    - summary_lgd_raw.csv:     All LGD metrics per method, dataset, fold, HPO mode
-    - summary_pd_aggregated.csv:   Mean ± std across folds for PD
-    - summary_lgd_aggregated.csv:  Mean ± std across folds for LGD
-    - pivot_pd_AUC.csv:        Pivot table of AUC scores (methods × datasets)
-    - pivot_lgd_R2.csv:        Pivot table of R2 scores (methods × datasets)
+    - summary_pd_raw.csv:              All PD metrics per method, dataset, fold, HPO mode
+    - summary_lgd_raw.csv:             All LGD metrics per method, dataset, fold, HPO mode
+    - summary_pd_aggregated.csv:       Mean ± std across folds for PD
+    - summary_lgd_aggregated.csv:      Mean ± std across folds for LGD
+    - pivot_pd_{metric}_no_hpo.csv:    Pivot tables for each key PD metric (NO_HPO)
+    - pivot_pd_{metric}_hpo.csv:       Pivot tables for each key PD metric (HPO)
+    - pivot_lgd_{metric}_no_hpo.csv:   Pivot tables for each key LGD metric (NO_HPO)
+    - pivot_lgd_{metric}_hpo.csv:      Pivot tables for each key LGD metric (HPO)
 
 Usage:
-    python src/postprocessing/Summarize_Results.py
-    python src/postprocessing/Summarize_Results.py --experiment experiment1
-    python src/postprocessing/Summarize_Results.py --experiment experiment2
+    python src/utils/Summarize_Results.py
+    python src/utils/Summarize_Results.py --experiment experiment0
+    python src/utils/Summarize_Results.py --experiment experiment1
 """
 
 import sys
 import argparse
 import pickle
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Set
 import pandas as pd
 import numpy as np
 
-# Setup paths (src/postprocessing/ -> src/ -> project root)
+# Setup paths (src/utils/ -> src/ -> project root)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
@@ -40,20 +44,16 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # CONFIGURATION
 # =============================================================================
 
-# Metrics to extract for PD (classification) tasks
-PD_METRICS = [
-    'AUC', 'Gini', 'KS', 'Brier', 'LogLoss',
-    'Accuracy', 'Balanced_Accuracy', 'F1', 'Precision', 'Recall', 'MCC',
-    'Avg_Precision', 'Avg_Recall'
-]
+# Key metrics to create pivot tables for (in priority order)
+PD_KEY_METRICS = ['AUC', 'F1']
+LGD_KEY_METRICS = ['R2']
 
-# Metrics to extract for LGD (regression) tasks
-LGD_METRICS = [
-    'R2', 'RMSE', 'MAE', 'MSE', 'MAPE', 'Correlation', 'Spearman'
+# Fields that are always numeric but not metrics
+NON_METRIC_FIELDS = [
+    'fold_id', 'n_num_features', 'n_cat_features',
+    'train_time', 'n_clipped_below', 'n_clipped_above',
+    'Optimal_Threshold'
 ]
-
-# Additional fields to extract
-EXTRA_FIELDS = ['train_time', 'n_clipped_below', 'n_clipped_above']
 
 
 # =============================================================================
@@ -66,7 +66,7 @@ def load_pickle_file(pkl_path: Path) -> Dict[str, Any]:
         with open(pkl_path, 'rb') as f:
             return pickle.load(f)
     except Exception as e:
-        print(f"  ERROR loading {pkl_path.name}: {e}")
+        print(f"    ⚠️  ERROR loading {pkl_path.name}: {e}")
         return {}
 
 
@@ -91,16 +91,21 @@ def extract_fold_data(
         'fold_id': fold_id,
     }
     
-    # Extract metrics
+    # Extract ALL metrics (don't hardcode which ones)
     metrics = fold_results.get('metrics', {})
     if isinstance(metrics, dict):
         for key, value in metrics.items():
-            row[key] = value
+            # Convert numpy types to Python native types
+            if isinstance(value, (np.integer, np.floating)):
+                row[key] = float(value) if np.isfinite(value) else np.nan
+            else:
+                row[key] = value
     
-    # Extract extra fields
-    for field in EXTRA_FIELDS:
+    # Extract other numeric fields
+    for field in ['train_time', 'n_clipped_below', 'n_clipped_above']:
         if field in fold_results:
-            row[field] = fold_results[field]
+            value = fold_results[field]
+            row[field] = float(value) if isinstance(value, (int, float, np.number)) else np.nan
     
     # Extract info fields
     info = fold_results.get('info', {})
@@ -119,17 +124,46 @@ def process_dataset_results(
     """
     Process results for a single dataset.
     
+    Handles two different pickle structures:
+    1. Experiment0: {method_name: {fold_id: {...}}}
+    2. Experiment1: {hpo_mode: {method_name: {fold_id: {...}}}}
+    
     Returns a list of dictionaries, one per (method, fold, hpo_mode) combination.
     """
     rows = []
     
-    for hpo_mode in ['NO_HPO', 'HPO']:
-        if hpo_mode not in results:
-            continue
-        
-        hpo_results = results[hpo_mode]
-        
-        for method_name, method_results in hpo_results.items():
+    # Detect structure: Check if top-level keys are HPO modes or method names
+    top_keys = set(results.keys())
+    has_hpo_structure = 'NO_HPO' in top_keys or 'HPO' in top_keys
+    
+    if has_hpo_structure:
+        # Experiment1 structure: {hpo_mode: {method: {fold: {...}}}}
+        for hpo_mode in ['NO_HPO', 'HPO']:
+            if hpo_mode not in results:
+                continue
+            
+            hpo_results = results[hpo_mode]
+            
+            for method_name, method_results in hpo_results.items():
+                if not isinstance(method_results, dict):
+                    continue
+                
+                for fold_id, fold_data in method_results.items():
+                    if not isinstance(fold_data, dict):
+                        continue
+                    
+                    try:
+                        row = extract_fold_data(
+                            fold_data, method_name, dataset, task, hpo_mode, fold_id
+                        )
+                        rows.append(row)
+                    except Exception as e:
+                        print(f"      ⚠️  Error extracting {method_name} fold {fold_id} ({hpo_mode}): {e}")
+    
+    else:
+        # Experiment0 structure: {method: {fold: {...}}}
+        # Treat as NO_HPO by default
+        for method_name, method_results in results.items():
             if not isinstance(method_results, dict):
                 continue
             
@@ -137,10 +171,13 @@ def process_dataset_results(
                 if not isinstance(fold_data, dict):
                     continue
                 
-                row = extract_fold_data(
-                    fold_data, method_name, dataset, task, hpo_mode, fold_id
-                )
-                rows.append(row)
+                try:
+                    row = extract_fold_data(
+                        fold_data, method_name, dataset, task, 'NO_HPO', fold_id
+                    )
+                    rows.append(row)
+                except Exception as e:
+                    print(f"      ⚠️  Error extracting {method_name} fold {fold_id}: {e}")
     
     return rows
 
@@ -159,16 +196,16 @@ def load_task_results(experiment_dir: Path, task: str) -> pd.DataFrame:
     task_dir = experiment_dir / task.lower()
     
     if not task_dir.exists():
-        print(f"  Directory not found: {task_dir}")
+        print(f"  📁 Directory not found: {task_dir}")
         return pd.DataFrame()
     
     pkl_files = list(task_dir.glob("*.pkl"))
     
     if not pkl_files:
-        print(f"  No pickle files found in {task_dir}")
+        print(f"  📁 No pickle files found in {task_dir}")
         return pd.DataFrame()
     
-    print(f"  Found {len(pkl_files)} dataset files")
+    print(f"  📁 Found {len(pkl_files)} dataset files")
     
     all_rows = []
     
@@ -181,21 +218,56 @@ def load_task_results(experiment_dir: Path, task: str) -> pd.DataFrame:
         
         rows = process_dataset_results(results, dataset_name, task)
         all_rows.extend(rows)
-        print(f"    {dataset_name}: {len(rows)} fold results")
+        
+        if rows:
+            n_methods = len(set(r['method'] for r in rows))
+            n_folds = len(set(r['fold_id'] for r in rows))
+            hpo_modes = set(r['hpo_mode'] for r in rows)
+            print(f"    ✓ {dataset_name}: {len(rows)} results ({n_methods} methods, {n_folds} folds, {hpo_modes})")
+        else:
+            print(f"    ⚠️  {dataset_name}: No valid results")
     
     if not all_rows:
         return pd.DataFrame()
     
-    return pd.DataFrame(all_rows)
+    df = pd.DataFrame(all_rows)
+    
+    # Ensure numeric columns are properly typed
+    for col in df.columns:
+        if col not in ['method', 'dataset', 'task', 'hpo_mode']:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    return df
 
 
-def aggregate_results(df: pd.DataFrame, task: str) -> pd.DataFrame:
+def identify_metric_columns(df: pd.DataFrame) -> List[str]:
+    """
+    Identify which columns are metrics (numeric columns that aren't metadata).
+    
+    Args:
+        df: Raw DataFrame
+        
+    Returns:
+        List of metric column names
+    """
+    if df.empty:
+        return []
+    
+    # Get all numeric columns
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+    
+    # Exclude non-metric fields
+    metric_cols = [c for c in numeric_cols if c not in NON_METRIC_FIELDS]
+    
+    return sorted(metric_cols)
+
+
+def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
     """
     Aggregate fold results: compute mean ± std for each (method, dataset, hpo_mode).
     
     Args:
         df: Raw DataFrame with per-fold results
-        task: 'pd' or 'lgd'
         
     Returns:
         Aggregated DataFrame
@@ -203,22 +275,21 @@ def aggregate_results(df: pd.DataFrame, task: str) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame()
     
-    # Define which columns to aggregate
-    metrics = PD_METRICS if task == 'pd' else LGD_METRICS
-    numeric_cols = [c for c in df.columns if c in metrics or c in EXTRA_FIELDS]
+    # Identify metric columns dynamically
+    metric_cols = identify_metric_columns(df)
+    
+    # Also include other numeric fields
+    numeric_cols = metric_cols + ['train_time', 'n_clipped_below', 'n_clipped_above']
+    numeric_cols = [c for c in numeric_cols if c in df.columns]
     
     # Group by method, dataset, hpo_mode
-    group_cols = ['method', 'dataset', 'hpo_mode']
+    group_cols = ['method', 'dataset', 'hpo_mode', 'task']
     
     agg_rows = []
     
-    for (method, dataset, hpo_mode), group in df.groupby(group_cols):
-        row = {
-            'method': method,
-            'dataset': dataset,
-            'hpo_mode': hpo_mode,
-            'n_folds': len(group),
-        }
+    for group_keys, group in df.groupby(group_cols):
+        row = dict(zip(group_cols, group_keys))
+        row['n_folds'] = len(group)
         
         for col in numeric_cols:
             if col in group.columns:
@@ -226,9 +297,13 @@ def aggregate_results(df: pd.DataFrame, task: str) -> pd.DataFrame:
                 if len(values) > 0:
                     row[f'{col}_mean'] = values.mean()
                     row[f'{col}_std'] = values.std()
+                    row[f'{col}_min'] = values.min()
+                    row[f'{col}_max'] = values.max()
                 else:
                     row[f'{col}_mean'] = np.nan
                     row[f'{col}_std'] = np.nan
+                    row[f'{col}_min'] = np.nan
+                    row[f'{col}_max'] = np.nan
         
         agg_rows.append(row)
     
@@ -238,7 +313,8 @@ def aggregate_results(df: pd.DataFrame, task: str) -> pd.DataFrame:
 def create_pivot_table(
     agg_df: pd.DataFrame,
     metric: str,
-    hpo_mode: str = 'NO_HPO'
+    hpo_mode: str,
+    show_std: bool = True
 ) -> pd.DataFrame:
     """
     Create a pivot table: methods (rows) × datasets (columns).
@@ -247,6 +323,7 @@ def create_pivot_table(
         agg_df: Aggregated DataFrame
         metric: Metric to pivot (e.g., 'AUC', 'R2')
         hpo_mode: 'NO_HPO' or 'HPO'
+        show_std: If True, show "mean ± std", else just mean
         
     Returns:
         Pivot DataFrame
@@ -266,20 +343,34 @@ def create_pivot_table(
     if df.empty:
         return pd.DataFrame()
     
-    # Create formatted string: mean ± std
-    df['value'] = df.apply(
-        lambda row: f"{row[mean_col]:.4f} ± {row[std_col]:.4f}"
-        if pd.notna(row[mean_col]) and pd.notna(row[std_col])
-        else "",
-        axis=1
-    )
+    # Create formatted string
+    if show_std and std_col in df.columns:
+        df['value'] = df.apply(
+            lambda row: f"{row[mean_col]:.4f} ± {row[std_col]:.4f}"
+            if pd.notna(row[mean_col]) and pd.notna(row[std_col])
+            else (f"{row[mean_col]:.4f}" if pd.notna(row[mean_col]) else ""),
+            axis=1
+        )
+    else:
+        df['value'] = df.apply(
+            lambda row: f"{row[mean_col]:.4f}" if pd.notna(row[mean_col]) else "",
+            axis=1
+        )
     
     # Pivot
     pivot = df.pivot(index='method', columns='dataset', values='value')
     
-    # Add mean column (average across datasets)
+    # Add summary statistics
     mean_values = df.groupby('method')[mean_col].mean()
-    pivot['AVERAGE'] = pivot.index.map(lambda m: f"{mean_values.get(m, np.nan):.4f}")
+    pivot['MEAN'] = pivot.index.map(lambda m: f"{mean_values.get(m, np.nan):.4f}")
+    
+    # Count datasets per method
+    counts = df.groupby('method')['dataset'].count()
+    pivot['N_DATASETS'] = pivot.index.map(lambda m: counts.get(m, 0))
+    
+    # Sort by mean performance (descending for most metrics)
+    sort_ascending = metric in ['RMSE', 'MAE', 'MSE', 'LogLoss', 'Brier', 'MAPE']
+    pivot = pivot.sort_values('MEAN', ascending=sort_ascending, key=lambda x: pd.to_numeric(x, errors='coerce'))
     
     return pivot
 
@@ -293,7 +384,7 @@ def summarize_results(experiment: str = "experiment1") -> None:
     Main function to summarize all experiment results.
     
     Args:
-        experiment: Name of experiment folder (e.g., 'experiment1')
+        experiment: Name of experiment folder (e.g., 'experiment0', 'experiment1')
     """
     
     # Determine paths
@@ -301,61 +392,111 @@ def summarize_results(experiment: str = "experiment1") -> None:
     experiment_dir = results_dir / experiment
     summary_dir = experiment_dir / "summary"
     
-    print("=" * 70)
-    print(f" SUMMARIZING RESULTS: {experiment}")
-    print("=" * 70)
+    print("=" * 80)
+    print(f"  SUMMARIZING RESULTS: {experiment.upper()}")
+    print("=" * 80)
     
     if not experiment_dir.exists():
-        print(f"\nERROR: Experiment directory not found: {experiment_dir}")
+        print(f"\n❌ ERROR: Experiment directory not found: {experiment_dir}")
         sys.exit(1)
     
-    print(f"\nExperiment directory: {experiment_dir}")
+    print(f"\n📂 Experiment directory: {experiment_dir}")
     
     # Create summary directory
     summary_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Summary output: {summary_dir}")
+    print(f"📂 Summary output: {summary_dir}")
     
     # Process each task
+    all_tasks_summary = {}
+    
     for task in ['pd', 'lgd']:
-        print(f"\n{'-' * 50}")
-        print(f" {task.upper()} RESULTS")
-        print(f"{'-' * 50}")
+        print(f"\n{'-' * 80}")
+        print(f"  {task.upper()} RESULTS")
+        print(f"{'-' * 80}")
         
         # Load raw results
         raw_df = load_task_results(experiment_dir, task)
         
         if raw_df.empty:
-            print(f"  No results found for {task.upper()}")
+            print(f"  ⚠️  No results found for {task.upper()}")
             continue
+        
+        # Print summary statistics
+        n_methods = raw_df['method'].nunique()
+        n_datasets = raw_df['dataset'].nunique()
+        n_folds_total = len(raw_df)
+        hpo_modes = sorted(raw_df['hpo_mode'].unique())
+        
+        print(f"\n  📊 Summary:")
+        print(f"     - Methods: {n_methods}")
+        print(f"     - Datasets: {n_datasets}")
+        print(f"     - Total fold results: {n_folds_total}")
+        print(f"     - HPO modes: {hpo_modes}")
+        
+        # Identify available metrics
+        available_metrics = identify_metric_columns(raw_df)
+        print(f"     - Metrics available: {len(available_metrics)}")
+        if available_metrics:
+            print(f"       {', '.join(available_metrics[:10])}{'...' if len(available_metrics) > 10 else ''}")
         
         # Save raw results (all folds)
         raw_file = summary_dir / f"summary_{task}_raw.csv"
         raw_df.to_csv(raw_file, index=False, float_format='%.6f')
-        print(f"\n  Saved: {raw_file.name} ({len(raw_df)} rows)")
+        print(f"\n  ✅ Saved: {raw_file.name} ({len(raw_df)} rows)")
         
         # Aggregate results
-        agg_df = aggregate_results(raw_df, task)
+        agg_df = aggregate_results(raw_df)
         
         if not agg_df.empty:
             agg_file = summary_dir / f"summary_{task}_aggregated.csv"
             agg_df.to_csv(agg_file, index=False, float_format='%.6f')
-            print(f"  Saved: {agg_file.name} ({len(agg_df)} rows)")
+            print(f"  ✅ Saved: {agg_file.name} ({len(agg_df)} rows)")
         
-        # Create pivot tables
-        primary_metric = 'AUC' if task == 'pd' else 'R2'
+        # Store for final summary
+        all_tasks_summary[task] = {
+            'n_methods': n_methods,
+            'n_datasets': n_datasets,
+            'n_results': n_folds_total,
+            'metrics': available_metrics
+        }
         
-        for hpo_mode in ['NO_HPO', 'HPO']:
-            pivot_df = create_pivot_table(agg_df, primary_metric, hpo_mode)
-            
-            if not pivot_df.empty:
-                pivot_file = summary_dir / f"pivot_{task}_{primary_metric}_{hpo_mode.lower()}.csv"
-                pivot_df.to_csv(pivot_file)
-                print(f"  Saved: {pivot_file.name}")
+        # Create pivot tables for key metrics
+        key_metrics = PD_KEY_METRICS if task == 'pd' else LGD_KEY_METRICS
+        
+        # Filter to only metrics that actually exist
+        key_metrics = [m for m in key_metrics if m in available_metrics]
+        
+        if not key_metrics:
+            print(f"\n  ⚠️  No key metrics found for {task.upper()}")
+            continue
+        
+        print(f"\n  📈 Creating pivot tables for: {', '.join(key_metrics)}")
+        
+        for hpo_mode in hpo_modes:
+            print(f"\n    {hpo_mode}:")
+            for metric in key_metrics:
+                pivot_df = create_pivot_table(agg_df, metric, hpo_mode)
+                
+                if not pivot_df.empty:
+                    hpo_suffix = hpo_mode.lower()
+                    pivot_file = summary_dir / f"pivot_{task}_{metric}_{hpo_suffix}.csv"
+                    pivot_df.to_csv(pivot_file)
+                    print(f"      ✓ {pivot_file.name} ({len(pivot_df)} methods × {len(pivot_df.columns)-2} datasets)")
     
-    print(f"\n{'=' * 70}")
-    print(" DONE!")
-    print(f"{'=' * 70}")
-    print(f"\nSummary files saved to: {summary_dir}")
+    # Final summary
+    print(f"\n{'=' * 80}")
+    print("  ✅ SUMMARY COMPLETE!")
+    print(f"{'=' * 80}")
+    
+    for task, summary in all_tasks_summary.items():
+        print(f"\n  {task.upper()}:")
+        print(f"    - {summary['n_methods']} methods")
+        print(f"    - {summary['n_datasets']} datasets")
+        print(f"    - {summary['n_results']} total results")
+        print(f"    - {len(summary['metrics'])} metrics")
+    
+    print(f"\n  📂 All files saved to: {summary_dir}")
+    print(f"{'=' * 80}\n")
 
 
 def main():
@@ -364,9 +505,10 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    python src/postprocessing/Summarize_Results.py
-    python src/postprocessing/Summarize_Results.py --experiment experiment1
-    python src/postprocessing/Summarize_Results.py -e experiment2
+    python src/utils/Summarize_Results.py
+    python src/utils/Summarize_Results.py --experiment experiment0
+    python src/utils/Summarize_Results.py --experiment experiment1
+    python src/utils/Summarize_Results.py -e experiment2
         """
     )
     
@@ -378,7 +520,17 @@ Examples:
     )
     
     args = parser.parse_args()
-    summarize_results(experiment=args.experiment)
+    
+    try:
+        summarize_results(experiment=args.experiment)
+    except KeyboardInterrupt:
+        print("\n\n⚠️  Interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n\n❌ ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":

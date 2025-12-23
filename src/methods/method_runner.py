@@ -1160,8 +1160,8 @@ def run_talent_method(
                             y_true=y_true_np,
                             y_prob=y_prob_np,
                             y_pred=y_pred_np,
-                            val_y_true=val_y_true_np,    # ← NEW: Validation labels
-                            val_y_prob=val_y_prob_np     # ← NEW: Validation probabilities
+                            val_y_true=val_y_true_np,    # ← Validation labels
+                            val_y_prob=val_y_prob_np     # ← Validation probabilities
                         )
                         
                         # Log threshold source for transparency
