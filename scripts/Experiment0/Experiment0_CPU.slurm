@@ -9,7 +9,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=20G
 #SBATCH --partition=batch
-#SBATCH --array=0-32%32
+#SBATCH --array=0-61%32
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
