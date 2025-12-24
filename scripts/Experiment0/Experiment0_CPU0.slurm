@@ -1,9 +1,9 @@
 #!/usr/bin/bash
-#SBATCH --job-name=exp0_cpu
+#SBATCH --job-name=exp0_cpu0
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=results/experiment0/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=results/experiment0/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=results/experiment0/logs/slurm/cpu0_%A_%a.out
+#SBATCH --error=results/experiment0/logs/slurm/cpu0_%A_%a.err
 #SBATCH --time=02:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -12,9 +12,10 @@
 #SBATCH --array=0-132%32
 
 # ---------------------------------------------------------
+# BATCH 0: Tasks 0-132
+# ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------
-# Sleep for a random duration between 1 and 60 seconds.
 sleep $((RANDOM % 60 + 1))
 # ---------------------------------------------------------
 
@@ -29,12 +30,17 @@ source activate TabPFNCredit
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 0 - CPU VALIDATION"
+echo "EXPERIMENT 0 - CPU VALIDATION - BATCH 0"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
+echo "Batch:        0"
+echo "Task offset:  0"
 echo "Node:         $SLURMD_NODENAME"
 echo "=========================================="
 
-# Run CPU orchestrator
-python -u scripts/Experiment0/Experiment0_CPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+# Calculate global task ID from batch offset
+GLOBAL_TASK_ID=$((SLURM_ARRAY_TASK_ID + 0))
+
+# Run CPU orchestrator with global task ID
+python -u scripts/Experiment0/Experiment0_CPU.py --array_id=$GLOBAL_TASK_ID --verbose
