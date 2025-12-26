@@ -20,7 +20,7 @@
 split:
   test_size: 0.2      # Fraction of full data reserved for testing, only used if CV splits = 1
   val_size: 0.2       # Fraction of train data used for validation
-  cv_splits: 2        # Number of cross-validation folds (1 = no CV)
+  cv_splits: 5        # Number of cross-validation folds (1 = no CV)
   seed: 42            # Random seed for reproducibility
   row_limit: null      # Max number of rows to load from each dataset (null = all rows)
 #                       This is the total number of rows before any test/train or cv split.
@@ -39,34 +39,34 @@ paths:
 # ------------------------------------------------------------
 dataset_pd:
   # Enable or disable datasets here.
-  0001.gmsc: false               # Give Me Some Credit dataset
-  0002.taiwan_creditcard: false # Taiwan Credit Card dataset
-  0003.vehicle_loan: false
-  0004.lendingclub: false
-  0005.case_study: false
-  0006.myhom: false
-  0007.hackerearth: false
-  0008.cobranded: false
+  0001.gmsc: true               # Give Me Some Credit dataset
+  0002.taiwan_creditcard: true # Taiwan Credit Card dataset
+  0003.vehicle_loan: true
+  0004.lendingclub: true
+  0005.case_study: true
+  0006.myhom: true
+  0007.hackerearth: true
+  0008.cobranded: true
   0009.german: true
-  0010.bank_status: false
-  0011.thomas: false
-  0012.loan_default: false
-  0013.home_credit: false
-  0014.hmeq: false
-  0015.algorithmwatch: false
+  0010.bank_status: true
+  0011.thomas: true
+  0012.loan_default: true
+  0013.home_credit: true
+  0014.hmeq: true
+  0015.algorithmwatch: true
 
 # ------------------------------------------------------------
 # Loss Given Default (LGD) datasets
 # ------------------------------------------------------------
 dataset_lgd:
   # These datasets correspond to LGD regression tasks.
-  0001.heloc: false
-  0002.loss2: false
-  0003.axa: false
+  0001.heloc: true
+  0002.loss2: true
+  0003.axa: true
   0004.base_model: true
-  0005.base_modelisation: false
-  0006.lgd_freddie: false
-  0007.lgd_lendingclub: false
+  0005.base_modelisation: true
+  0006.lgd_freddie: true
+  0007.lgd_lendingclub: true
 
 
 

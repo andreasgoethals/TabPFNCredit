@@ -1,20 +1,21 @@
 #!/bin/bash
-#SBATCH --job-name=exp1_cpu
+#SBATCH --job-name=exp1_cpu0
 #SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --output=results/experiment1/logs/slurm/cpu_%A_%a.out
-#SBATCH --error=results/experiment1/logs/slurm/cpu_%A_%a.err
+#SBATCH --output=results/experiment1/logs/slurm/cpu0_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/cpu0_%A_%a.err
 #SBATCH --time=24:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=20G
+#SBATCH --mem=40G
 #SBATCH --partition=batch
-#SBATCH --array=0-17%18
+#SBATCH --array=0-213%32
 
+# ---------------------------------------------------------
+# BATCH 0: Tasks 0-213
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------
-# Sleep for a random duration between 1 and 60 seconds.
 sleep $((RANDOM % 60 + 1))
 # ---------------------------------------------------------
 
@@ -29,14 +30,17 @@ source activate TabPFNCredit
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "CPU JOB"
+echo "EXPERIMENT 1 - CPU - BATCH 0"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
+echo "Batch:        0"
+echo "Task offset:  0"
 echo "Node:         $SLURMD_NODENAME"
-echo "Python:       $(which python)"
-echo "Python ver:   $(python --version)"
 echo "=========================================="
 
-# Run CPU orchestrator
-python -u scripts/Experiment1/Experiment1_CPU.py --array_id=$SLURM_ARRAY_TASK_ID --verbose
+# Calculate global task ID from batch offset
+GLOBAL_TASK_ID=$((SLURM_ARRAY_TASK_ID + 0))
+
+# Run CPU orchestrator with global task ID
+python -u scripts/Experiment1/Experiment1_CPU.py --array_id=$GLOBAL_TASK_ID --verbose

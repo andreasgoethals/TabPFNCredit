@@ -35,38 +35,38 @@ methods:
     tabpfn: true           # TabPFN v1 (classification)
     tabpfn_v2: true        # TabPFN v2 (classification) 
     tabpfn_real: false     # TabPFN Real 
-    resnet: true          # ResNet
+    resnet: false          # ResNet
     ftt: true             # Feature Tokenizer Transformer
     node: false            # Neural Oblivious Decision Ensembles
     saint: false           # SAINT (Self-Attention and Intersample Attention Transformer)
     tabtransformer: false  # TabTransformer
-    autoint: false         # AutoInt
-    danets: false          # DANets
-    snn: false             # Self-Normalizing Neural Networks
-    dcn2: false            # Deep & Cross Network v2
+    autoint: true         # AutoInt
+    danets: true          # DANets
+    snn: true             # Self-Normalizing Neural Networks
+    dcn2: true            # Deep & Cross Network v2
     tabcaps: false         # TabCaps
-    tangos: false          # TANGOS
+    tangos: true          # TANGOS
     ptarl: false           # PTARL
-    switchtab: false       # SwitchTab
+    switchtab: true       # SwitchTab
     modernNCA: false       # ModernNCA
     hyperfast: false       # HyperFast
     bishop: false          # BISHOP
-    realmlp: false         # RealMLP
+    realmlp: true         # RealMLP
     protogate: false       # ProtoGate
-    mlp_plr: false         # MLP-PLR
-    excelformer: false     # ExcelFormer
+    mlp_plr: true         # MLP-PLR
+    excelformer: true     # ExcelFormer
     grande: false          # GRANDE
-    amformer: false        # AMFormer
+    amformer: true        # AMFormer
     tabptm: false          # TabPTM
     trompt: false          # TROMPT
-    tabm: false            # TabM
-    t2gformer: false       # T2G-Former
+    tabm: true            # TabM
+    t2gformer: true       # T2G-Former
     tabautopnpnet: false   # TabAuto-PNPNet
-    tabicl: false          # TabICL
+    tabicl: true          # TabICL
     grownet: false         # GrowNet
     tabr: true             # TabR
-    limix: false           # LiMiX (NEW)
-    mitra: false           # MITRA (NEW)
+    limix: false           # LiMiX 
+    mitra: false           # MITRA 
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -94,29 +94,26 @@ methods:
     node: false            # Neural Oblivious Decision Ensembles
     saint: false           # SAINT
     tabtransformer: false  # TabTransformer
-    autoint: false         # AutoInt
+    autoint: true         # AutoInt
     danets: false          # DANets
     snn: false             # Self-Normalizing Neural Networks
-    dcn2: false            # Deep & Cross Network v2
-    tangos: false          # TANGOS
-    ptarl: false           # PTARL
+    dcn2: true            # Deep & Cross Network v2
+    tangos: true          # TANGOS
+    ptarl: true           # PTARL
     switchtab: false       # SwitchTab
     dnnr: false            # DNNR
-    modernNCA: false       # ModernNCA
-    hyperfast: false       # HyperFast
+    modernNCA: true       # ModernNCA
     bishop: false          # BISHOP
-    realmlp: false         # RealMLP
-    protogate: false       # ProtoGate
-    mlp_plr: false         # MLP-PLR
-    excelformer: false     # ExcelFormer
+    realmlp: true         # RealMLP
+    mlp_plr: true         # MLP-PLR
+    excelformer: true     # ExcelFormer
     grande: false          # GRANDE
     amformer: false        # AMFormer
     tabptm: false          # TabPTM
     trompt: false          # TROMPT
-    tabm: false            # TabM
-    t2gformer: false       # T2G-Former
+    tabm: true            # TabM
+    t2gformer: true       # T2G-Former
     tabautopnpnet: false   # TabAuto-PNPNet
-    tabicl: false          # TabICL
     grownet: false         # GrowNet
     limix: false           # LiMiX 
     mitra: false           # MITRA 

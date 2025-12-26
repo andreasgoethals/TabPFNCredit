@@ -66,15 +66,7 @@ def run_single_method(
     config_hpo_base.mkdir(exist_ok=True)
     (config_hpo_base / "pd").mkdir(exist_ok=True)
     (config_hpo_base / "lgd").mkdir(exist_ok=True)
-    
-
-    
-    # Set proper permissions (VSC-specific)
-    try:
-        dataset_config_dir.chmod(0o755)
-    except Exception:
-        pass
-    
+        
     # ==========================================
     # SETUP LOGGING
     # ==========================================
