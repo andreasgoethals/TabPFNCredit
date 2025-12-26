@@ -72,7 +72,7 @@ CLASSICAL_METHODS: MethodSet = {
 # Methods that don't benefit from hyperparameter optimization
 NO_HPO_METHODS: MethodSet = {
     # Foundation models (pre-trained, no tuning needed)
-    'tabpfn', 'tabpfn_v2', 'tabpfn_real',
+    'tabpfn', 'tabpfn_v2', 'tabpfn_real','tabicl'
     
     # Simple baselines (no hyperparameters or already optimal)
     'dummy', 'NCM', 'NaiveBayes', 'LinearRegression',
