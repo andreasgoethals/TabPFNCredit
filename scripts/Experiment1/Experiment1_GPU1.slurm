@@ -10,7 +10,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=40G
-#SBATCH --partition=gpu_p100
+#SBATCH --partition=gpu_v100
 #SBATCH --array=0-399%16
 
 # ---------------------------------------------------------
