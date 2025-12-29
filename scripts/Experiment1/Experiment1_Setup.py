@@ -96,7 +96,7 @@ def generate_gpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=40G
+#SBATCH --mem=60G
 #SBATCH --partition=gpu_p100
 #SBATCH --array={array_range}
 
@@ -156,7 +156,7 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --output=results/experiment1/logs/slurm/cpu{batch_id}_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/cpu{batch_id}_%A_%a.err
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G

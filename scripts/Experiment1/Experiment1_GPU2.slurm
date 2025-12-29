@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=exp1_gpu2
-#SBATCH --cluster="wice"
+#SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --nodes="1" 
 #SBATCH --output=results/experiment1/logs/slurm/gpu2_%A_%a.out
@@ -9,8 +9,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=40G
-#SBATCH --partition=gpu_a100
+#SBATCH --mem=60G
+#SBATCH --partition=gpu_p100
 #SBATCH --array=0-74%16
 
 # ---------------------------------------------------------

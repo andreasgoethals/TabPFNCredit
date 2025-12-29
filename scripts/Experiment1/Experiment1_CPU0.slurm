@@ -4,15 +4,15 @@
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --output=results/experiment1/logs/slurm/cpu0_%A_%a.out
 #SBATCH --error=results/experiment1/logs/slurm/cpu0_%A_%a.err
-#SBATCH --time=24:00:00
+#SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 #SBATCH --partition=batch
-#SBATCH --array=0-213%32
+#SBATCH --array=0-228%32
 
 # ---------------------------------------------------------
-# BATCH 0: Tasks 0-213
+# BATCH 0: Tasks 0-228
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------
