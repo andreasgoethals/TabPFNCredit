@@ -96,7 +96,7 @@ def generate_gpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=60G
+#SBATCH --mem=45G
 #SBATCH --partition=gpu_p100
 #SBATCH --array={array_range}
 
