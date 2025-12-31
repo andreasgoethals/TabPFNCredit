@@ -232,7 +232,7 @@ def group_by_method(items, key_func):
 
 
 def main():
-    config = load_config()
+    config = load_config("Experiment1")
     experiment_dir = PROJECT_ROOT / "results" / "experiment1"
     
     print_section_header("EXPERIMENT 1 - COMPREHENSIVE STATUS REPORT")

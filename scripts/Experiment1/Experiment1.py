@@ -127,6 +127,92 @@ def run_single_method(
             logger.warning(f"Could not check existing results: {e}")
     
     # ==========================================
+    # HANDLE NO_HPO METHODS WITH HPO MODE
+    # ==========================================
+    # For NO_HPO methods (like TabICL), when running in HPO mode,
+    # just copy NO_HPO results to HPO key instead of actually running HPO
+    # This is because some methods (like TabICL) have hard assertions against tuning
+    
+    if method in NO_HPO_METHODS and hpo_mode == 'HPO':
+        logger.info(f"{method} is a NO_HPO method, will copy NO_HPO results to HPO")
+        print(f"[COPY] {method} is NO_HPO method - copying results from NO_HPO to HPO")
+        
+        # Check if NO_HPO results exist
+        if result_file.exists():
+            try:
+                with open(result_file, 'rb') as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_SH)
+                    try:
+                        existing_results = pickle.load(f)
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                
+                # Check if NO_HPO results exist for this method
+                if 'NO_HPO' in existing_results and method in existing_results['NO_HPO']:
+                    logger.info("Found NO_HPO results, copying to HPO")
+                    
+                    # Copy NO_HPO results to HPO with file locking
+                    max_retries = 10
+                    retry_delay = 0.5
+                    
+                    for attempt in range(max_retries):
+                        try:
+                            with open(result_file, 'r+b') as f:
+                                fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                                
+                                try:
+                                    f.seek(0)
+                                    results = pickle.load(f)
+                                    
+                                    # Ensure HPO key exists
+                                    if 'HPO' not in results:
+                                        results['HPO'] = {}
+                                    
+                                    # Copy NO_HPO results to HPO
+                                    results['HPO'][method] = results['NO_HPO'][method]
+                                    
+                                    # Write back
+                                    f.seek(0)
+                                    f.truncate()
+                                    pickle.dump(results, protocol=pickle.HIGHEST_PROTOCOL, file=f)
+                                    f.flush()
+                                    os.fsync(f.fileno())
+                                    
+                                    logger.info("Successfully copied NO_HPO results to HPO")
+                                    print(f"[DONE] {dataset}/{method}/{hpo_mode} - copied from NO_HPO")
+                                    
+                                finally:
+                                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                            
+                            return  # Success!
+                            
+                        except (IOError, OSError, BlockingIOError) as e:
+                            if attempt < max_retries - 1:
+                                wait_time = retry_delay * (2 ** attempt)
+                                logger.warning(f"Lock failed (attempt {attempt+1}/{max_retries}), waiting {wait_time:.1f}s")
+                                time.sleep(wait_time)
+                            else:
+                                raise RuntimeError(f"Could not copy results after {max_retries} attempts") from e
+                
+                else:
+                    # NO_HPO results don't exist yet
+                    logger.error(f"Cannot copy to HPO: NO_HPO results for {method} not found")
+                    print(f"[ERROR] {dataset}/{method}: NO_HPO results not found, cannot copy to HPO")
+                    print(f"[INFO] Please run {method} with NO_HPO mode first")
+                    return
+                    
+            except Exception as e:
+                logger.error(f"Error copying NO_HPO results: {e}")
+                print(f"[ERROR] {dataset}/{method}/{hpo_mode}: Failed to copy NO_HPO results")
+                raise
+        else:
+            # Result file doesn't exist at all
+            logger.error(f"Result file does not exist: {result_file}")
+            print(f"[ERROR] {dataset}/{method}: Result file not found")
+            print(f"[INFO] Please run {method} with NO_HPO mode first")
+            return
+    
+    # ==========================================
     # BUILD PARAMETERS
     # ==========================================
     experiment_params = {
@@ -147,7 +233,7 @@ def run_single_method(
         'tune': tune,
         'config_base_dir': experiment_path,
         'verbose': verbose,
-        'clean_temp_dir': True,  # Clean up temp dirs after completion
+        'clean_temp_dir': True,
     }
     
     try:
@@ -169,21 +255,15 @@ def run_single_method(
         if not method_results or len(method_results) == 0:
             raise RuntimeError("run_talent_method returned empty results")
         
-        # Check that we got results for all folds
         expected_folds = config['split']['cv_splits']
         if len(method_results) != expected_folds:
-            logger.warning(
-                f"Expected {expected_folds} folds, got {len(method_results)}"
-            )
+            logger.warning(f"Expected {expected_folds} folds, got {len(method_results)}")
         
-        # Validate each fold has required fields
         for fold_id, fold_results in method_results.items():
             required_fields = ['y_true', 'y_pred', 'metrics', 'train_time']
             missing = [f for f in required_fields if f not in fold_results]
             if missing:
-                raise RuntimeError(
-                    f"Fold {fold_id} missing required fields: {missing}"
-                )
+                raise RuntimeError(f"Fold {fold_id} missing required fields: {missing}")
         
         logger.info(f"Results validated: {len(method_results)} folds")
         
@@ -202,11 +282,9 @@ def run_single_method(
                 mode = 'r+b' if result_file.exists() else 'w+b'
                 
                 with open(result_file, mode) as f:
-                    # Acquire exclusive lock
                     fcntl.flock(f.fileno(), fcntl.LOCK_EX)
                     
                     try:
-                        # Load existing results
                         if mode == 'r+b':
                             try:
                                 f.seek(0)
@@ -248,10 +326,7 @@ def run_single_method(
             except (IOError, OSError, BlockingIOError) as e:
                 if attempt < max_retries - 1:
                     wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(
-                        f"Lock failed (attempt {attempt+1}/{max_retries}), "
-                        f"waiting {wait_time:.1f}s"
-                    )
+                    logger.warning(f"Lock failed (attempt {attempt+1}/{max_retries}), waiting {wait_time:.1f}s")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"Failed to save after {max_retries} attempts")
