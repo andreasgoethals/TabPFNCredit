@@ -232,7 +232,7 @@ def group_by_method(items, key_func):
 
 
 def main():
-    config = load_config("Experiment1")
+    config = load_config()
     experiment_dir = PROJECT_ROOT / "results" / "experiment1"
     
     print_section_header("EXPERIMENT 1 - COMPREHENSIVE STATUS REPORT")
@@ -286,6 +286,20 @@ def main():
     print(f"  CUDA out of memory:  {len(cuda_oom_missing)}")
     print(f"  Other Python errors: {len(other_error_missing)}")
     print(f"  Unknown/Not started: {len(unknown_missing)}")
+    
+    # ADD CLARIFICATION ABOUT RESOLVED ERRORS
+    if total_missing < len(timeout_keys) or total_missing < len(cuda_oom_keys):
+        all_timeout_tasks = len(timeout_keys)
+        all_cuda_oom_tasks = len(cuda_oom_keys)
+        resolved_timeouts = all_timeout_tasks - len(timeout_missing)
+        resolved_cuda = all_cuda_oom_tasks - len(cuda_oom_missing)
+        
+        print(f"\n📝 Note:")
+        if resolved_timeouts > 0:
+            print(f"   • {resolved_timeouts} timeout(s) have since completed successfully")
+        if resolved_cuda > 0:
+            print(f"   • {resolved_cuda} CUDA OOM error(s) have since completed successfully")
+        print(f"   Only showing errors for tasks that still need attention.")
     
     # ============================================================
     # SLURM TIMEOUTS
@@ -422,26 +436,17 @@ def main():
         
         if timeout_missing:
             print("\n1. Fix timeouts:")
-            timeout_methods = set(m[1] for m in timeout_missing)
-            for method in sorted(timeout_methods):
-                print(f"   - Move '{method}' to higher-tier GPU or add to NO_HPO_METHODS")
+            print("   sbatch scripts/Experiment1/Experiment1_Retry_CPU.slurm")
+            print("   sbatch scripts/Experiment1/Experiment1_Retry_GPU_A100.slurm")
+            print("   sbatch scripts/Experiment1/Experiment1_Retry_GPU_H100.slurm")
         
         if cuda_oom_missing:
             print("\n2. Fix CUDA OOM:")
-            oom_methods = set(m[1] for m in cuda_oom_missing)
-            for method in sorted(oom_methods):
-                print(f"   - Move '{method}' to GPU2 (A100) or GPU3 (H100)")
+            print("   sbatch scripts/Experiment1/Experiment1_Retry_GPU_A100.slurm")
         
         if other_error_missing:
             print("\n3. Investigate other errors:")
-            print(f"   - Check {experiment_dir / 'logs' / 'errors.log'}")
-        
-        print("\n4. Regenerate SLURM scripts:")
-        print("   python scripts/Experiment1/Experiment1_Setup.py")
-        
-        print("\n5. Resubmit jobs:")
-        print("   ./scripts/Experiment1/submit_all.sh")
-        print("   (Completed tasks will skip automatically)")
+            print(f"   cat {experiment_dir / 'logs' / 'errors.log'}")
     
     print("\n" + "=" * 70)
 
