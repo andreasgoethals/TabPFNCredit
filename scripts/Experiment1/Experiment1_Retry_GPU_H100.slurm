@@ -16,14 +16,20 @@
 # ============================================================
 # RETRY SCRIPT FOR H100 GPU (Extreme Timeout)
 # ============================================================
-# This script targets amformer which timed out on P100
-# 
-# Tasks:
-#   0: 0007.hackerearth/amformer/pd/HPO
-# ============================================================
 
-# Load conda
-source $HOME/miniconda3/etc/profile.d/conda.sh
+# Load conda - use DATA directory path
+if [ -f "$VSC_DATA/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$VSC_DATA/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+else
+    echo "ERROR: Could not find conda.sh"
+    echo "Tried: $VSC_DATA/miniconda3/etc/profile.d/conda.sh"
+    echo "Tried: $HOME/miniconda3/etc/profile.d/conda.sh"
+    exit 1
+fi
+
+# Activate environment
 conda activate TabPFNCredit
 
 echo "========================================================================"
@@ -38,6 +44,8 @@ echo "CPUs:         18"
 echo "Memory:       80GB"
 echo "Time limit:   72h"
 echo "Python:       $(which python)"
+echo "Python ver:   $(python --version)"
+echo "Conda env:    $CONDA_DEFAULT_ENV"
 echo "========================================================================"
 
 # Check GPU availability

@@ -16,20 +16,20 @@
 # ============================================================
 # RETRY SCRIPT FOR A100 GPU (CUDA OOM + Timeouts)
 # ============================================================
-# This script targets TabR (CUDA OOM) and tangos (timeout)
-# 
-# Tasks:
-#   0: 0007.hackerearth/tabr/pd/NO_HPO
-#   1: 0007.hackerearth/tabr/pd/HPO
-#   2: 0012.loan_default/tabr/pd/NO_HPO
-#   3: 0013.home_credit/tabr/pd/NO_HPO
-#   4: 0013.home_credit/tabr/pd/HPO
-#   5: 0015.algorithmwatch/tabr/pd/NO_HPO
-#   6: 0007.hackerearth/tangos/pd/HPO
-# ============================================================
 
-# Load conda
-source $HOME/miniconda3/etc/profile.d/conda.sh
+# Load conda - use DATA directory path
+if [ -f "$VSC_DATA/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$VSC_DATA/miniconda3/etc/profile.d/conda.sh"
+elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
+    source "$HOME/miniconda3/etc/profile.d/conda.sh"
+else
+    echo "ERROR: Could not find conda.sh"
+    echo "Tried: $VSC_DATA/miniconda3/etc/profile.d/conda.sh"
+    echo "Tried: $HOME/miniconda3/etc/profile.d/conda.sh"
+    exit 1
+fi
+
+# Activate environment
 conda activate TabPFNCredit
 
 echo "========================================================================"
@@ -44,6 +44,8 @@ echo "CPUs:         16"
 echo "Memory:       64GB"
 echo "Time limit:   72h"
 echo "Python:       $(which python)"
+echo "Python ver:   $(python --version)"
+echo "Conda env:    $CONDA_DEFAULT_ENV"
 echo "========================================================================"
 
 # Check GPU availability
