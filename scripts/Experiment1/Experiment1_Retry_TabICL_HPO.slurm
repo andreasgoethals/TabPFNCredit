@@ -16,29 +16,21 @@
 # ============================================================
 # RETRY SCRIPT FOR TABICL HPO (Copy NO_HPO to HPO)
 # ============================================================
-# TabICL is in NO_HPO_METHODS, so this will:
-# 1. Check if NO_HPO results exist
-# 2. Copy NO_HPO results to HPO key
-# 3. Skip actual HPO (as intended)
-#
-# We're rerunning because the previous copy didn't happen
-# due to a bug.
-# ============================================================
+# Staggered start to prevent I/O congestion
+sleep $((RANDOM % 60 + 1))
 
-# Load conda - use DATA directory path
-if [ -f "$VSC_DATA/miniconda3/etc/profile.d/conda.sh" ]; then
-    source "$VSC_DATA/miniconda3/etc/profile.d/conda.sh"
-elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-    source "$HOME/miniconda3/etc/profile.d/conda.sh"
-else
-    echo "ERROR: Could not find conda.sh"
-    echo "Tried: $VSC_DATA/miniconda3/etc/profile.d/conda.sh"
-    echo "Tried: $HOME/miniconda3/etc/profile.d/conda.sh"
-    exit 1
-fi
+# Force unbuffered I/O
+export PYTHONUNBUFFERED=1
 
-# Activate environment
-conda activate TabPFNCredit
+# Setup conda from $VSC_DATA (SAME AS WORKING SCRIPT)
+export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
+source activate TabPFNCredit
+
+# USE CONDA'S C++ LIBRARIES
+export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
+
+# Navigate to project
+cd $VSC_DATA/TabPFNCredit
 
 echo "========================================================================"
 echo "EXP1 - TABICL HPO RETRY (Copy NO_HPO to HPO)"
@@ -47,7 +39,7 @@ echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Cluster:      Genius"
 echo "Node:         $SLURMD_NODENAME"
-echo "GPU:          P100 (16GB VRAM)"
+echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "CPUs:         8"
 echo "Memory:       32GB"
 echo "Time limit:   6h"
@@ -99,13 +91,8 @@ echo "  Task:     $TASK_TYPE"
 echo "  HPO Mode: $HPO_MODE (will copy from NO_HPO)"
 echo ""
 
-# Add random delay to stagger starts
-DELAY=$((RANDOM % 60 + 1))
-echo "Sleeping ${DELAY}s to stagger job starts..."
-sleep $DELAY
-
-# Run the task - will trigger NO_HPO -> HPO copy
-python scripts/Experiment1/Experiment1_GPU.py \
+# Run the task with unbuffered output - will trigger NO_HPO -> HPO copy
+python -u scripts/Experiment1/Experiment1_GPU.py \
     --dataset="$DATASET" \
     --method="$METHOD" \
     --task_type="$TASK_TYPE" \

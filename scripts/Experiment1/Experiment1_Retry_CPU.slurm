@@ -15,23 +15,22 @@
 # ============================================================
 # RETRY SCRIPT FOR CPU TIMEOUTS
 # ============================================================
+# Staggered start to prevent I/O congestion
+sleep $((RANDOM % 60 + 1))
 
-# Load conda - use DATA directory path
-if [ -f "$VSC_DATA/miniconda3/etc/profile.d/conda.sh" ]; then
-    source "$VSC_DATA/miniconda3/etc/profile.d/conda.sh"
-elif [ -f "$HOME/miniconda3/etc/profile.d/conda.sh" ]; then
-    source "$HOME/miniconda3/etc/profile.d/conda.sh"
-else
-    echo "ERROR: Could not find conda.sh"
-    echo "Tried: $VSC_DATA/miniconda3/etc/profile.d/conda.sh"
-    echo "Tried: $HOME/miniconda3/etc/profile.d/conda.sh"
-    exit 1
-fi
+# Force unbuffered I/O
+export PYTHONUNBUFFERED=1
 
-# Activate environment
-conda activate TabPFNCredit
+# Setup conda from $VSC_DATA (SAME AS WORKING SCRIPT)
+export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
+source activate TabPFNCredit
 
-# Verify Python version
+# USE CONDA'S C++ LIBRARIES
+export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
+
+# Navigate to project
+cd $VSC_DATA/TabPFNCredit
+
 echo "========================================================================"
 echo "EXP1 - CPU RETRY (Maxed Resources)"
 echo "========================================================================"
@@ -67,13 +66,8 @@ echo "  Task:     $TASK_TYPE"
 echo "  HPO Mode: $HPO_MODE"
 echo ""
 
-# Add random delay to stagger starts
-DELAY=$((RANDOM % 60 + 1))
-echo "Sleeping ${DELAY}s to stagger job starts..."
-sleep $DELAY
-
-# Run the task
-python scripts/Experiment1/Experiment1_CPU.py \
+# Run the task with unbuffered output
+python -u scripts/Experiment1/Experiment1_CPU.py \
     --dataset="$DATASET" \
     --method="$METHOD" \
     --task_type="$TASK_TYPE" \
