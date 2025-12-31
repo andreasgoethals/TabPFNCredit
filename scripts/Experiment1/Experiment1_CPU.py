@@ -85,8 +85,8 @@ def main():
     
     args = parser.parse_args()
     
-    # Load config
-    config = load_config()
+    # Load config - FIX: Pass experiment name!
+    config = load_config("Experiment1")
     
     print(f"\n{'='*70}")
     print(f"CPU ORCHESTRATOR")
