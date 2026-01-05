@@ -3,7 +3,7 @@
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
 #SBATCH --account="lp_verbekelab" 
-#SBATCH --time=168:00:00
+#SBATCH --time=70:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
