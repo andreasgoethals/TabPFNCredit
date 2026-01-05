@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=Exp1_Miss_CPU
-#SBATCH --output=%x_%A_%a.out
-#SBATCH --error=%x_%A_%a.err
+#SBATCH --output=results/experiment1/logs/slurm/cpu0_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/cpu0_%A_%a.err
 #SBATCH --account="lp_verbekelab" 
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
