@@ -421,6 +421,20 @@ def summarize_results(experiment: str = "experiment1") -> None:
             print(f"  ⚠️  No results found for {task.upper()}")
             continue
         
+        # =================================================================
+        # FILTER OUT DUMMY METHOD
+        # =================================================================
+        n_dummy_rows = (raw_df['method'] == 'dummy').sum()
+        if n_dummy_rows > 0:
+            print(f"\n  🗑️  Removing 'dummy' method: {n_dummy_rows} results excluded")
+            raw_df = raw_df[raw_df['method'] != 'dummy'].reset_index(drop=True)
+        
+        # Check if we still have data after filtering
+        if raw_df.empty:
+            print(f"  ⚠️  No results remaining after filtering dummy method")
+            continue
+        # =================================================================
+        
         # Print summary statistics
         n_methods = raw_df['method'].nunique()
         n_datasets = raw_df['dataset'].nunique()
