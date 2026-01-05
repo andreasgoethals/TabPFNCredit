@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=Exp1_Miss_GPU
-#SBATCH --output=%x_%A_%a.out
-#SBATCH --error=%x_%A_%a.err
+#SBATCH --cluster="genius"
 #SBATCH --account="lp_verbekelab" 
+#SBATCH --nodes="1" 
+#SBATCH --output=results/experiment1/logs/slurm/gpu0_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/gpu0_%A_%a.err
 #SBATCH --time=70:00:00
-#SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=64000M
-#SBATCH --cluster=genius
-#SBATCH --partition=gpu_v100_long
 #SBATCH --gpus-per-node=1
+#SBATCH --mem=45G
+#SBATCH --partition=gpu_p100
 #SBATCH --array=0-33%8
 
 # ============================================================================
