@@ -9,7 +9,7 @@
 #SBATCH --mem=40G
 #SBATCH --time=69:00:00
 #SBATCH --partition=gpu_p100
-#SBATCH --array=0-8
+#SBATCH --array=0
 
 # --- LOG PATHS (Absolute) ---
 #SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/retry_%A_%a.out
@@ -47,15 +47,7 @@ echo "=========================================="
 # ---------------------------------------------------------
 # Format: "dataset method task hpo_mode"
 TASKS=(
-    "0013.home_credit amformer pd HPO"
-    "0005.base_modelisation catboost lgd HPO"
-    "0005.base_modelisation catboost lgd NO_HPO"
-    "0007.hackerearth tabicl pd HPO"
-    "0013.home_credit tabicl pd HPO"
-    "0007.hackerearth tabicl pd NO_HPO"
     "0013.home_credit tabicl pd NO_HPO"
-    "0007.hackerearth tangos pd HPO"
-    "0013.home_credit tangos pd HPO"
 )
 
 # Extract task info based on Array ID
@@ -70,6 +62,7 @@ echo "[CONFIG] Dataset:   ${DATASET}"
 echo "[CONFIG] Method:    ${METHOD}"
 echo "[CONFIG] Task:      ${TASK_TYPE}"
 echo "[CONFIG] HPO Mode:  ${HPO_MODE}"
+echo "[CONFIG] Row Limit: 50000"
 echo ""
 
 # ---------------------------------------------------------
@@ -90,6 +83,7 @@ python -u scripts/Experiment1/Experiment1_GPU.py \
     --dataset "${DATASET}" \
     --method "${METHOD}" \
     --task_type "${TASK_TYPE}" \
-    --hpo_mode "${HPO_MODE}"
+    --hpo_mode "${HPO_MODE}" \
+    --row_limit 50000
 
 echo "Done."
