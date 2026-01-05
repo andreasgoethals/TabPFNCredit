@@ -4,20 +4,25 @@
 #SBATCH --account="lp_verbekelab"
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=40G
 #SBATCH --time=69:00:00
 #SBATCH --partition=gpu_p100
 #SBATCH --array=0-8
 
-# --- UPDATED LOG PATHS (Absolute path to project root) ---
+# --- LOG PATHS (Absolute) ---
 #SBATCH --output=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/retry_%A_%a.out
 #SBATCH --error=/data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/retry_%A_%a.err
 
 # ---------------------------------------------------------
 # SETUP
 # ---------------------------------------------------------
+set -e
+
+# Stagger starts slightly to reduce IO contention
+sleep $((RANDOM % 30 + 1))
+
 export PYTHONUNBUFFERED=1
 
 # Setup conda
@@ -31,118 +36,60 @@ export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRAR
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "RETRYING FAILURES WITH ROW_LIMIT=100k"
+echo "RETRYING FAILURES"
 echo "Job ID:   $SLURM_JOB_ID"
 echo "Array ID: $SLURM_ARRAY_TASK_ID"
 echo "Node:     $SLURMD_NODENAME"
-echo "Log Path: /data/leuven/383/vsc38338/TabPFNCredit/results/experiment1/logs/slurm/"
 echo "=========================================="
 
 # ---------------------------------------------------------
-# PYTHON ORCHESTRATOR
+# DEFINE TASKS
 # ---------------------------------------------------------
-python -u - <<EOF
-import sys
-import os
-import logging
+# Format: "dataset method task hpo_mode"
+TASKS=(
+    "0013.home_credit amformer pd HPO"
+    "0005.base_modelisation catboost lgd HPO"
+    "0005.base_modelisation catboost lgd NO_HPO"
+    "0007.hackerearth tabicl pd HPO"
+    "0013.home_credit tabicl pd HPO"
+    "0007.hackerearth tabicl pd NO_HPO"
+    "0013.home_credit tabicl pd NO_HPO"
+    "0007.hackerearth tangos pd HPO"
+    "0013.home_credit tangos pd HPO"
+)
 
-# Ensure project root is in path
-sys.path.insert(0, os.getcwd())
+# Extract task info based on Array ID
+TASK_INFO=(${TASKS[$SLURM_ARRAY_TASK_ID]})
+DATASET=${TASK_INFO[0]}
+METHOD=${TASK_INFO[1]}
+TASK_TYPE=${TASK_INFO[2]}
+HPO_MODE=${TASK_INFO[3]}
 
-from src.methods.method_runner import run_talent_method
-
-# ---------------------------------------------------------
-# DEFINE FAILURES TO RETRY
-# ---------------------------------------------------------
-# Map array indices to specific configurations
-JOBS = [
-    # 0: amformer / HPO / 0013.home_credit
-    {"method": "amformer", "dataset": "0013.home_credit", "task": "pd", "tune": True},
-    
-    # 1: catboost / HPO / 0005.base_modelisation
-    {"method": "catboost", "dataset": "0005.base_modelisation", "task": "lgd", "tune": True},
-    
-    # 2: catboost / NO_HPO / 0005.base_modelisation
-    {"method": "catboost", "dataset": "0005.base_modelisation", "task": "lgd", "tune": False},
-    
-    # 3: tabicl / HPO / 0007.hackerearth
-    {"method": "tabicl", "dataset": "0007.hackerearth", "task": "pd", "tune": True},
-    
-    # 4: tabicl / HPO / 0013.home_credit
-    {"method": "tabicl", "dataset": "0013.home_credit", "task": "pd", "tune": True},
-    
-    # 5: tabicl / NO_HPO / 0007.hackerearth
-    {"method": "tabicl", "dataset": "0007.hackerearth", "task": "pd", "tune": False},
-    
-    # 6: tabicl / NO_HPO / 0013.home_credit
-    {"method": "tabicl", "dataset": "0013.home_credit", "task": "pd", "tune": False},
-    
-    # 7: tangos / HPO / 0007.hackerearth
-    {"method": "tangos", "dataset": "0007.hackerearth", "task": "pd", "tune": True},
-    
-    # 8: tangos / HPO / 0013.home_credit
-    {"method": "tangos", "dataset": "0013.home_credit", "task": "pd", "tune": True},
-]
-
-# Get current job config
-task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
-
-# Safety check
-if task_id >= len(JOBS):
-    print(f"Error: Task ID {task_id} is out of range (Max: {len(JOBS)-1})")
-    sys.exit(1)
-
-config = JOBS[task_id]
-
-print(f"\n[CONFIG] Method:  {config['method']}")
-print(f"[CONFIG] Dataset: {config['dataset']}")
-print(f"[CONFIG] Task:    {config['task']}")
-print(f"[CONFIG] HPO:     {'Enabled' if config['tune'] else 'Disabled'}")
-print(f"[CONFIG] Limit:   100,000 rows")
+echo ""
+echo "[CONFIG] Dataset:   ${DATASET}"
+echo "[CONFIG] Method:    ${METHOD}"
+echo "[CONFIG] Task:      ${TASK_TYPE}"
+echo "[CONFIG] HPO Mode:  ${HPO_MODE}"
+echo ""
 
 # ---------------------------------------------------------
-# APPLY CATBOOST FIX (FORCE CPU)
+# CATBOOST DRIVER FIX
 # ---------------------------------------------------------
-if config['method'] == 'catboost':
-    print("\n[FIX] Detected CatBoost: Hiding GPU to prevent driver errors.")
-    os.environ['CUDA_VISIBLE_DEVICES'] = "" # Hide GPU from this process
-    # Verify
-    if 'CUDA_VISIBLE_DEVICES' in os.environ:
-        print(f"[FIX] CUDA_VISIBLE_DEVICES set to: '{os.environ['CUDA_VISIBLE_DEVICES']}'")
+# If method is catboost, hide GPU to force CPU execution and avoid driver errors
+if [ "$METHOD" == "catboost" ]; then
+    echo "[FIX] Detected CatBoost: Hiding GPU to prevent driver mismatch errors."
+    export CUDA_VISIBLE_DEVICES=""
+fi
 
 # ---------------------------------------------------------
-# RUN METHOD
+# EXECUTION
 # ---------------------------------------------------------
-try:
-    run_talent_method(
-        task=config['task'],
-        dataset=config['dataset'],
-        method=config['method'],
-        tune=config['tune'],
-        
-        # Standard Experiment Params
-        test_size=0.2,
-        val_size=0.2,
-        cv_splits=5,
-        seed=42,
-        
-        # RESOURCE FIX: Limit rows to 100k
-        row_limit=100000,
-        
-        # Logging
-        verbose=True,
-        clean_temp_dir=True,
-        
-        # HPO/Training Params (Standard)
-        max_epoch=50,
-        batch_size=255,
-        n_trials=20,
-        early_stopping=True,
-        early_stopping_patience=10
-    )
-    print("\n[SUCCESS] Method completed successfully.")
-except Exception as e:
-    print(f"\n[FAILURE] Method failed with error: {e}")
-    sys.exit(1)
+echo "Starting execution..."
 
-EOF
+python -u scripts/Experiment1/Experiment1_GPU.py \
+    --dataset "${DATASET}" \
+    --method "${METHOD}" \
+    --task_type "${TASK_TYPE}" \
+    --hpo_mode "${HPO_MODE}"
+
+echo "Done."
