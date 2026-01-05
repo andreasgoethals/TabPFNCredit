@@ -62,7 +62,6 @@ echo "[CONFIG] Dataset:   ${DATASET}"
 echo "[CONFIG] Method:    ${METHOD}"
 echo "[CONFIG] Task:      ${TASK_TYPE}"
 echo "[CONFIG] HPO Mode:  ${HPO_MODE}"
-echo "[CONFIG] Row Limit: 50000"
 echo ""
 
 # ---------------------------------------------------------
@@ -83,7 +82,6 @@ python -u scripts/Experiment1/Experiment1_GPU.py \
     --dataset "${DATASET}" \
     --method "${METHOD}" \
     --task_type "${TASK_TYPE}" \
-    --hpo_mode "${HPO_MODE}" \
-    --row_limit 50000
+    --hpo_mode "${HPO_MODE}" 
 
 echo "Done."

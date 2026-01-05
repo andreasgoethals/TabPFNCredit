@@ -216,7 +216,7 @@ METHOD_ROW_LIMITS = {
     'tabpfn': 10_000,       # In-context learning window limit
     'tabpfn_v2': 50_000,    # Larger context window than TabPFN
     'amformer': 100_000,    # Transformer complexity limits (VSC constraint)
-    'tabicl': 100_000,      # In-context learning context limits (VSC constraint)
+    'tabicl': 50_000,      # In-context learning context limits (VSC constraint)
     'tangos': 100_000,      # Transformer complexity limits (VSC constraint)
 }
 
