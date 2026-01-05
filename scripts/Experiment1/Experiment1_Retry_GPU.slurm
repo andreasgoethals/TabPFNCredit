@@ -2,29 +2,30 @@
 #SBATCH --job-name=Exp1_Miss_GPU
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
-#SBATCH --time=168:00:00
 #SBATCH --account="lp_verbekelab" 
+#SBATCH --time=168:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=72
-#SBATCH --mem-per-cpu=21000M
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=84000M
 #SBATCH --cluster=genius
 #SBATCH --partition=gpu_v100_long
 #SBATCH --gpus-per-node=1
 #SBATCH --array=0-33%8
 
 # ============================================================================
-# Experiment1 - Retry Missing GPU Tasks
+# Experiment1 - Retry Missing GPU Tasks (CORRECTED)
 # ============================================================================
-# Resources (VERIFIED from scontrol):
-# - 72 CPUs (full V100 node)
-# - 21GB per CPU × 72 = 1512GB total RAM (maximum available)
-# - 168h walltime (7 days - max for gpu_v100_long partition)
+# Resources (CORRECTED per GPU limits on Genius):
+# - 4 CPUs per GPU (MAXIMUM allowed)
+# - 84GB RAM per GPU (MAXIMUM allowed)
+# - 168h walltime (7 days - max for gpu_v100_long)
 # - 1 GPU (NVIDIA V100)
 # - Cluster: genius
 # - Partition: gpu_v100_long
-# 
-# This uses the BEST GPU partition available with maximum resources
+#
+# NOTE: Genius enforces STRICT per-GPU limits!
+# See: https://docs.vscentrum.be/leuven/tier2_hardware.html
 # ============================================================================
 
 set -e
@@ -44,8 +45,7 @@ echo "Node:          ${SLURMD_NODENAME}"
 echo "Cluster:       ${SLURM_CLUSTER_NAME}"
 echo "Partition:     ${SLURM_JOB_PARTITION}"
 echo "CPUs:          ${SLURM_CPUS_PER_TASK}"
-echo "Mem per CPU:   21000MB"
-echo "Total Memory:  1512GB"
+echo "Memory:        84GB"
 echo "GPUs:          ${SLURM_GPUS_PER_NODE}"
 echo "Time Limit:    168h"
 echo "Start Time:    $(date)"
