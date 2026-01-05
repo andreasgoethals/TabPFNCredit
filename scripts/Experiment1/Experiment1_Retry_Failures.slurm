@@ -134,9 +134,9 @@ try:
         clean_temp_dir=True,
         
         # HPO/Training Params (Standard)
-        max_epoch=200,
-        batch_size=1024,
-        n_trials=100,
+        max_epoch=50,
+        batch_size=255,
+        n_trials=20,
         early_stopping=True,
         early_stopping_patience=10
     )
