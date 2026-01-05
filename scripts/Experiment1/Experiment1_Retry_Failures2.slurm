@@ -47,6 +47,14 @@ echo "=========================================="
 # ---------------------------------------------------------
 # Format: "dataset method task hpo_mode"
 TASKS=(
+    "0013.home_credit amformer pd HPO"
+    "0005.base_modelisation catboost lgd HPO"
+    "0005.base_modelisation catboost lgd NO_HPO"
+    "0007.hackerearth tabicl pd HPO"
+    "0013.home_credit tabicl pd HPO"
+    "0007.hackerearth tabicl pd NO_HPO"
+    "0013.home_credit tabicl pd NO_HPO"
+    "0007.hackerearth tangos pd HPO"
     "0013.home_credit tangos pd HPO"
 )
 
