@@ -2,6 +2,7 @@
 #SBATCH --job-name=Exp1_Miss_CPU
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
+#SBATCH --account="lp_verbekelab" 
 #SBATCH --time=72:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
