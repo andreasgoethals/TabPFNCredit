@@ -64,7 +64,7 @@ methods:
     tabautopnpnet: false   # TabAuto-PNPNet
     tabicl: true          # TabICL
     grownet: false         # GrowNet
-    tabr: true             # TabR
+    tabr: false             # TabR
     limix: false           # LiMiX 
     mitra: false           # MITRA 
 
