@@ -1,36 +1,34 @@
 #!/bin/bash
-#SBATCH --job-name=Exp1_Missing_CPU
+#SBATCH --job-name=Exp1_Miss_CPU
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
-#SBATCH --time=168:00:00
+#SBATCH --time=72:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=36
-#SBATCH --mem=180G
+#SBATCH --mem-per-cpu=5000M
 #SBATCH --cluster=genius
 #SBATCH --partition=batch
 #SBATCH --array=0-7%4
 
 # ============================================================================
-# Experiment1 - Retry Missing CPU Tasks (MAXIMUM RESOURCES)
+# Experiment1 - Retry Missing CPU Tasks
 # ============================================================================
-# Resources: FULL NODE on Genius
+# Resources (VERIFIED from scontrol):
 # - 36 CPUs (full node)
-# - 180GB RAM (leaving 12GB for OS, out of 192GB total)
-# - 168h walltime (7 days - maximum typical limit)
-# 
-# Total tasks: 8 (4 methods × 2 modes)
-# Cluster: Genius (CPU partition)
+# - 5GB per CPU × 36 = 180GB total RAM
+# - 72h walltime (3 days - max for batch partition)
+# - Cluster: genius
+# - Partition: batch
 # ============================================================================
 
-set -e  # Exit on error
+set -e
 
-# Stagger job starts to prevent I/O congestion
+# Stagger starts
 RANDOM_DELAY=$((RANDOM % 60 + 1))
 echo "Staggering start: sleeping ${RANDOM_DELAY}s..."
 sleep ${RANDOM_DELAY}
 
-# Configuration
 echo "========================================================================"
 echo "SLURM Job Configuration"
 echo "========================================================================"
@@ -41,13 +39,13 @@ echo "Node:          ${SLURMD_NODENAME}"
 echo "Cluster:       ${SLURM_CLUSTER_NAME}"
 echo "Partition:     ${SLURM_JOB_PARTITION}"
 echo "CPUs:          ${SLURM_CPUS_PER_TASK}"
-echo "Memory:        ${SLURM_MEM_PER_NODE}MB"
-echo "Time Limit:    ${SLURM_TIMELIMIT}"
+echo "Mem per CPU:   5000MB"
+echo "Total Memory:  180GB"
+echo "Time Limit:    72h"
 echo "Start Time:    $(date)"
 echo "========================================================================"
 
-# Define all missing CPU tasks
-# Format: "dataset method task_type hpo_mode"
+# Define missing CPU tasks
 TASKS=(
     "0005.base_modelisation catboost lgd HPO"
     "0005.base_modelisation catboost lgd NO_HPO"
@@ -59,7 +57,6 @@ TASKS=(
     "0005.base_modelisation xgboost lgd NO_HPO"
 )
 
-# Get task for this array index
 TASK_INFO=(${TASKS[$SLURM_ARRAY_TASK_ID]})
 DATASET=${TASK_INFO[0]}
 METHOD=${TASK_INFO[1]}
@@ -77,21 +74,19 @@ echo "HPO Mode:   ${HPO_MODE}"
 echo "========================================================================"
 echo ""
 
-# Setup conda environment
+# Setup environment
 echo "Setting up environment..."
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
 export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
 
-# Verify environment
 echo "Python: $(which python)"
 echo "Python version: $(python --version)"
 echo ""
 
-# Change to project directory
 cd ${VSC_DATA}/TabPFNCredit
 
-# Run the task
+# Run task
 echo "Starting execution at $(date)..."
 echo "========================================================================"
 

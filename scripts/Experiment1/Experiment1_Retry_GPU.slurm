@@ -1,41 +1,38 @@
 #!/bin/bash
-#SBATCH --job-name=Exp1_Missing_GPU
+#SBATCH --job-name=Exp1_Miss_GPU
 #SBATCH --output=%x_%A_%a.out
 #SBATCH --error=%x_%A_%a.err
 #SBATCH --time=168:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=72
-#SBATCH --mem=240G
-#SBATCH --cluster=wice
-#SBATCH --partition=gpu
+#SBATCH --mem-per-cpu=21000M
+#SBATCH --cluster=genius
+#SBATCH --partition=gpu_v100_long
 #SBATCH --gpus-per-node=1
 #SBATCH --array=0-33%8
 
 # ============================================================================
-# Experiment1 - Retry Missing GPU Tasks (MAXIMUM RESOURCES)
+# Experiment1 - Retry Missing GPU Tasks
 # ============================================================================
-# Resources: MAXIMUM on wICE GPU nodes
-# - 72 CPUs (requesting maximum, will get what's available per node)
-# - 240GB RAM (conservative maximum for GPU nodes)
-# - 1 full GPU (any available: H100, A100, V100, or P100)
-# - 168h walltime (7 days - maximum typical limit)
+# Resources (VERIFIED from scontrol):
+# - 72 CPUs (full V100 node)
+# - 21GB per CPU × 72 = 1512GB total RAM (maximum available)
+# - 168h walltime (7 days - max for gpu_v100_long partition)
+# - 1 GPU (NVIDIA V100)
+# - Cluster: genius
+# - Partition: gpu_v100_long
 # 
-# Total tasks: 34
-# Cluster: wICE (GPU partition)
-# 
-# NOTE: If 72 CPUs not available, SLURM will allocate maximum available
-#       on the GPU node type. Typical GPU nodes have 36-72 cores.
+# This uses the BEST GPU partition available with maximum resources
 # ============================================================================
 
-set -e  # Exit on error
+set -e
 
-# Stagger job starts to prevent I/O congestion
+# Stagger starts
 RANDOM_DELAY=$((RANDOM % 60 + 1))
 echo "Staggering start: sleeping ${RANDOM_DELAY}s..."
 sleep ${RANDOM_DELAY}
 
-# Configuration
 echo "========================================================================"
 echo "SLURM Job Configuration"
 echo "========================================================================"
@@ -46,20 +43,20 @@ echo "Node:          ${SLURMD_NODENAME}"
 echo "Cluster:       ${SLURM_CLUSTER_NAME}"
 echo "Partition:     ${SLURM_JOB_PARTITION}"
 echo "CPUs:          ${SLURM_CPUS_PER_TASK}"
-echo "Memory:        ${SLURM_MEM_PER_NODE}MB"
+echo "Mem per CPU:   21000MB"
+echo "Total Memory:  1512GB"
 echo "GPUs:          ${SLURM_GPUS_PER_NODE}"
-echo "Time Limit:    ${SLURM_TIMELIMIT}"
+echo "Time Limit:    168h"
 echo "Start Time:    $(date)"
 echo "========================================================================"
 
-# Check GPU availability
+# Check GPU
 echo ""
 echo "GPU Information:"
 nvidia-smi --query-gpu=index,name,driver_version,memory.total --format=csv
 echo ""
 
-# Define all missing GPU tasks
-# Format: "dataset method task_type hpo_mode"
+# Define missing GPU tasks
 TASKS=(
     # PD tasks - TabICL
     "0007.hackerearth tabicl pd HPO"
@@ -100,7 +97,6 @@ TASKS=(
     "0004.base_model tabm lgd NO_HPO"
 )
 
-# Get task for this array index
 TASK_INFO=(${TASKS[$SLURM_ARRAY_TASK_ID]})
 DATASET=${TASK_INFO[0]}
 METHOD=${TASK_INFO[1]}
@@ -118,21 +114,19 @@ echo "HPO Mode:   ${HPO_MODE}"
 echo "========================================================================"
 echo ""
 
-# Setup conda environment
+# Setup environment
 echo "Setting up environment..."
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
 export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
 
-# Verify environment
 echo "Python: $(which python)"
 echo "Python version: $(python --version)"
 echo ""
 
-# Change to project directory
 cd ${VSC_DATA}/TabPFNCredit
 
-# Run the task
+# Run task
 echo "Starting execution at $(date)..."
 echo "========================================================================"
 
