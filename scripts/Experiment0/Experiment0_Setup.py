@@ -14,9 +14,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
 
-# Import GPU/CPU categorization from Experiment1
-sys.path.insert(0, str(PROJECT_ROOT / "scripts" / "Experiment1"))
-from Experiment1_Setup import GPU_METHODS, CPU_METHODS
+# Import GPU/CPU categorization directly from the central config
+# (Replaces dependency on Experiment1_Setup)
+from src.methods.method_config import GPU_METHODS, CPU_METHODS
 
 # VSC-safe constants
 MAX_TASKS_PER_SLURM = 400  # Safe buffer below 500 limit

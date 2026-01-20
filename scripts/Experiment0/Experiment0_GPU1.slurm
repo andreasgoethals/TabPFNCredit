@@ -11,10 +11,10 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=20G
 #SBATCH --partition=gpu_p100
-#SBATCH --array=0-253%16
+#SBATCH --array=0-290%16
 
 # ---------------------------------------------------------
-# BATCH 1: Tasks 400-653
+# BATCH 1: Tasks 400-690
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------

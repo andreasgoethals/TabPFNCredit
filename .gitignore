@@ -48,6 +48,9 @@ Thumbs.db
 *.bak
 
 # ---- Model Files ----
+*.safetensors
+*.cpkt
 *.pth
 *.ckpt
 *.pkl
+**/model/models/

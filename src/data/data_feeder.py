@@ -18,6 +18,31 @@ These operations are CRITICAL to prevent data leakage and must happen after
 train/test splitting, with separate fitting per fold.
 ===============================================================================
 
+===============================================================================
+ROW LIMIT HANDLING
+===============================================================================
+Two distinct types of row limits are supported:
+
+1. USER/EXPERIMENT LIMIT (row_limit parameter):
+   - Applied BEFORE splitting as a global dataset cap
+   - Use for quick debugging/testing runs
+   - Reduces both train AND test sets
+
+2. METHOD-INTRINSIC LIMIT (train_row_limit parameter):
+   - Applied AFTER splitting, only to TRAINING indices
+   - Use for methods with architectural constraints (e.g., TabPFN: 10k)
+   - Preserves full test/validation sets for robust evaluation
+   - Maximizes training data utilization within method constraints
+
+Example:
+    - Dataset: 500k rows
+    - Method limit: 10k (TabPFN)
+    - CV splits: 5-fold
+
+    OLD BEHAVIOR (incorrect): Cap at 10k → 8k train, 2k test per fold
+    NEW BEHAVIOR (correct): Full 500k → 100k test, 10k train (subsampled) per fold
+===============================================================================
+
 -------------------------------------------------------------------------------
 INPUTS
 -------------------------------------------------------------------------------
@@ -25,10 +50,11 @@ You only need to provide:
     - task: "pd" (classification) or "lgd" (regression)
     - dataset: dataset name (e.g. "0014.hmeq")
     - test_size: fraction of data reserved for testing (only used when CV_splits=1)
-    - val_size: fraction of remaining training data (without test set) reserved for validation 
+    - val_size: fraction of remaining training data (without test set) reserved for validation
     - cv_splits: number of cross-validation folds (1 = single split)
     - seed: random seed (for reproducibility)
-    - row_limit: (optional) limit number of rows for debugging
+    - row_limit: (optional) global limit on rows BEFORE splitting (user/debugging limit)
+    - train_row_limit: (optional) limit on training rows AFTER splitting (method constraint)
     - sampling: (optional, float ∈ (0,1)) desired minority-class proportion (PD only)
     - apply_pca: (optional, bool) whether to apply PCA for high-dimensional datasets
     - remove_outliers: (optional, bool) whether to remove extreme outliers
@@ -46,7 +72,7 @@ Each (N, C, y) is a dict in TALENT's expected format:
     N = {'train': X_num_train, 'val': X_num_val, 'test': X_num_test} or None
     C = {'train': X_cat_train, 'val': X_cat_val, 'test': X_cat_test} or None
     y = {'train': y_train, 'val': y_val, 'test': y_test}
-    
+
 And each info = {
     'task_type': 'binclass' or 'regression',
     'n_num_features': int,
@@ -86,14 +112,18 @@ NEAR_CONSTANT_THRESHOLD = 0.99  # Drop columns where >99% values are identical
 class DataFeeder:
     """
     TALENT-compatible data loader and splitter.
-    
+
     Handles:
         - loading or preprocessing datasets,
         - optional imbalance resampling (PD only) - applied to entire dataset first,
-        - optional row limiting,
+        - optional row limiting (global or training-only),
         - single or multi-fold splitting (train/val/test),
         - POST-SPLIT preprocessing (constant columns, outliers, PCA) per fold,
         - and returns data formatted for TALENT.
+
+    Row Limit Types:
+        - row_limit: Global cap applied BEFORE splitting (for debugging/quick runs)
+        - train_row_limit: Training-only cap applied AFTER splitting (for method constraints)
     """
 
     def __init__(
@@ -105,6 +135,7 @@ class DataFeeder:
         cv_splits: int,
         seed: int,
         row_limit: Optional[int] = None,
+        train_row_limit: Optional[int] = None,
         sampling: Optional[float] = None,
         apply_pca: bool = True,
         remove_outliers: bool = True,
@@ -116,7 +147,8 @@ class DataFeeder:
         self.val_size = val_size
         self.cv_splits = cv_splits
         self.seed = seed
-        self.row_limit = row_limit
+        self.row_limit = row_limit  # Global limit (before splitting)
+        self.train_row_limit = train_row_limit  # Training-only limit (after splitting)
         self.sampling = sampling
         self.apply_pca = apply_pca
         self.remove_outliers = remove_outliers
@@ -125,7 +157,83 @@ class DataFeeder:
     # =========================================================================
     # PRE-SPLIT OPERATIONS
     # =========================================================================
-    
+
+    def _subsample_training_indices(
+        self,
+        train_idx: np.ndarray,
+        y_train: np.ndarray,
+        fold_id: int
+    ) -> np.ndarray:
+        """
+        Subsample training indices to respect train_row_limit.
+
+        This method is called AFTER splitting to apply method-intrinsic limits
+        (e.g., TabPFN's 10k row limit) without affecting test/validation sets.
+
+        For classification tasks (PD), uses stratified sampling to preserve
+        class distribution in the subsampled training set.
+
+        Args:
+            train_idx: Full training indices for this fold
+            y_train: Target values for training data (used for stratification)
+            fold_id: Fold identifier (used for reproducible random seed)
+
+        Returns:
+            Subsampled training indices (or original if no limit needed)
+        """
+        if self.train_row_limit is None or len(train_idx) <= self.train_row_limit:
+            return train_idx
+
+        # Use fold-specific seed for reproducibility across runs
+        rng = np.random.default_rng(self.seed + fold_id)
+
+        original_size = len(train_idx)
+        target_size = self.train_row_limit
+
+        if self.task == "pd":
+            # Stratified subsampling for classification
+            # Preserve class distribution in the subsampled training set
+            unique_classes, class_counts = np.unique(y_train, return_counts=True)
+            class_proportions = class_counts / len(y_train)
+
+            # Calculate target count per class
+            target_counts = np.round(class_proportions * target_size).astype(int)
+
+            # Adjust to ensure exact target size
+            while target_counts.sum() > target_size:
+                idx_max = np.argmax(target_counts)
+                target_counts[idx_max] -= 1
+            while target_counts.sum() < target_size:
+                idx_min = np.argmin(target_counts)
+                target_counts[idx_min] += 1
+
+            # Sample from each class
+            subsampled_idx = []
+            for cls, count in zip(unique_classes, target_counts):
+                cls_mask = y_train == cls
+                cls_indices = np.where(cls_mask)[0]
+                # Handle case where we need more samples than available
+                n_to_sample = min(count, len(cls_indices))
+                sampled = rng.choice(cls_indices, size=n_to_sample, replace=False)
+                subsampled_idx.append(sampled)
+
+            subsampled_local_idx = np.concatenate(subsampled_idx)
+            rng.shuffle(subsampled_local_idx)
+
+            # Map back to original indices
+            subsampled_train_idx = train_idx[subsampled_local_idx]
+        else:
+            # Simple random subsampling for regression
+            local_idx = rng.choice(len(train_idx), size=target_size, replace=False)
+            subsampled_train_idx = train_idx[local_idx]
+
+        logger.info(
+            f"  Fold {fold_id}: Subsampled training set from {original_size:,} "
+            f"to {len(subsampled_train_idx):,} rows (train_row_limit={self.train_row_limit:,})"
+        )
+
+        return subsampled_train_idx
+
     def _apply_sampling(
         self,
         X_num: Optional[np.ndarray],
@@ -552,9 +660,11 @@ class DataFeeder:
         Processing order:
         1. Load/preprocess dataset (dataset-specific cleaning only)
         2. Apply resampling to entire dataset (if requested)
-        3. Apply row limit (if requested)
+        3. Apply global row_limit (if requested) - BEFORE splitting
         4. Split into folds (stratified CV preserves resampled distribution)
-        5. FOR EACH FOLD: Apply post-split preprocessing (constant columns, outliers, PCA)
+        5. FOR EACH FOLD:
+           a. Apply train_row_limit to TRAINING indices only (method constraints)
+           b. Apply post-split preprocessing (constant columns, outliers, PCA)
 
         Returns
         -------
@@ -601,35 +711,43 @@ class DataFeeder:
                 stratify=y if stratify else None,
             )
 
-            # Extract data subsets
-            Xn_train_full = N[idx_train_full] if N is not None else None
-            Xc_train_full = C[idx_train_full] if C is not None else None
-            y_train_full = y[idx_train_full]
-
+            # Extract TEST data (never subsampled - full size for robust evaluation)
             Xn_test = N[idx_test] if N is not None else None
             Xc_test = C[idx_test] if C is not None else None
             y_test = y[idx_test]
 
-            # Validation split
-            idx_train, idx_val = train_test_split(
-                np.arange(len(y_train_full)),
+            # Validation split from training data
+            idx_train_local, idx_val_local = train_test_split(
+                np.arange(len(idx_train_full)),
                 test_size=self.val_size,
                 random_state=self.seed,
-                stratify=y_train_full if stratify else None,
+                stratify=y[idx_train_full] if stratify else None,
             )
 
-            Xn_train = Xn_train_full[idx_train] if Xn_train_full is not None else None
-            Xn_val = Xn_train_full[idx_val] if Xn_train_full is not None else None
-            y_train = y_train_full[idx_train]
-            y_val = y_train_full[idx_val]
+            # Map local indices back to global indices
+            idx_train = idx_train_full[idx_train_local]
+            idx_val = idx_train_full[idx_val_local]
 
-            if Xc_train_full is not None:
-                Xc_train = Xc_train_full[idx_train]
-                Xc_val = Xc_train_full[idx_val]
-            else:
-                Xc_train = Xc_val = None
+            # Extract VALIDATION data (never subsampled - full size for threshold optimization)
+            Xn_val = N[idx_val] if N is not None else None
+            Xc_val = C[idx_val] if C is not None else None
+            y_val = y[idx_val]
 
-            # 5️⃣ Apply post-split preprocessing
+            # 5️⃣a Apply train_row_limit to TRAINING indices only (method constraints)
+            # This preserves full test/val sets while respecting method's max training rows
+            if self.train_row_limit is not None:
+                idx_train = self._subsample_training_indices(
+                    train_idx=idx_train,
+                    y_train=y[idx_train],
+                    fold_id=1
+                )
+
+            # Extract TRAINING data (potentially subsampled for method constraints)
+            Xn_train = N[idx_train] if N is not None else None
+            Xc_train = C[idx_train] if C is not None else None
+            y_train = y[idx_train]
+
+            # 5️⃣b Apply post-split preprocessing
             Xn_train, Xn_val, Xn_test, Xc_train, Xc_val, Xc_test, y_train = \
                 self._apply_post_split_preprocessing(
                     Xn_train, Xn_val, Xn_test,
@@ -661,34 +779,42 @@ class DataFeeder:
             else KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
         )
 
-        for fold_id, (train_idx, test_idx) in enumerate(splitter.split(N if N is not None else C, y), 1):
-            # Extract per-fold subsets
-            Xn_train_full = N[train_idx] if N is not None else None
-            Xc_train_full = C[train_idx] if C is not None else None
-            y_train_full = y[train_idx]
-
+        for fold_id, (train_idx_full, test_idx) in enumerate(splitter.split(N if N is not None else C, y), 1):
+            # Extract TEST data (never subsampled - full size for robust evaluation)
             Xn_test = N[test_idx] if N is not None else None
             Xc_test = C[test_idx] if C is not None else None
             y_test = y[test_idx]
 
-            # Validation split inside fold
-            idx_train, idx_val = train_test_split(
-                np.arange(len(y_train_full)),
+            # Validation split from training indices
+            idx_train_local, idx_val_local = train_test_split(
+                np.arange(len(train_idx_full)),
                 test_size=self.val_size,
                 random_state=self.seed,
-                stratify=y_train_full if stratify else None,
+                stratify=y[train_idx_full] if stratify else None,
             )
 
-            Xn_train = Xn_train_full[idx_train] if Xn_train_full is not None else None
-            Xn_val = Xn_train_full[idx_val] if Xn_train_full is not None else None
-            y_train = y_train_full[idx_train]
-            y_val = y_train_full[idx_val]
+            # Map local indices back to global indices
+            idx_train = train_idx_full[idx_train_local]
+            idx_val = train_idx_full[idx_val_local]
 
-            if Xc_train_full is not None:
-                Xc_train = Xc_train_full[idx_train]
-                Xc_val = Xc_train_full[idx_val]
-            else:
-                Xc_train = Xc_val = None
+            # Extract VALIDATION data (never subsampled - full size for threshold optimization)
+            Xn_val = N[idx_val] if N is not None else None
+            Xc_val = C[idx_val] if C is not None else None
+            y_val = y[idx_val]
+
+            # Apply train_row_limit to TRAINING indices only (method constraints)
+            # This preserves full test/val sets while respecting method's max training rows
+            if self.train_row_limit is not None:
+                idx_train = self._subsample_training_indices(
+                    train_idx=idx_train,
+                    y_train=y[idx_train],
+                    fold_id=fold_id
+                )
+
+            # Extract TRAINING data (potentially subsampled for method constraints)
+            Xn_train = N[idx_train] if N is not None else None
+            Xc_train = C[idx_train] if C is not None else None
+            y_train = y[idx_train]
 
             # Apply post-split preprocessing for this fold
             Xn_train, Xn_val, Xn_test, Xc_train, Xc_val, Xc_test, y_train = \

@@ -15,7 +15,7 @@ Key features:
 - Persistent config storage organized by task type (pd/lgd)
 - Handles CUDA tensor to numpy conversion
 - Extracts probabilities from logits for classification tasks
-- Automatic row limit capping for TabPFN (10k) and PFN-v2 (50k)
+- Intelligent row limit handling: user limits cap globally, method limits cap training only
 - Calculates comprehensive metrics internally (not relying on TALENT)
 - Clips LGD predictions to [0, 1] range
 - Validation set used for threshold optimization (no data leakage)
@@ -26,7 +26,7 @@ Architecture notes:
 - HPO configs saved as JSON in persistent config directory
 - Configs stored in project's 'config_hpo' folder organized by task type (pd/lgd)
 - Deep learning methods return logits; classical methods return probabilities
-- TabPFN and PFN-v2 have inherent dataset size limitations
+- TabPFN and PFN-v2 have inherent training set size limitations (applied after splitting)
 - All metrics are calculated by us for consistency and control
 
 HPO Strategy:
@@ -938,7 +938,7 @@ def run_talent_method(
         val_size: Validation set fraction (0.0 to 1.0)
         cv_splits: Number of cross-validation folds
         seed: Random seed for reproducibility
-        row_limit: Optional limit on dataset rows (auto-capped for TabPFN/PFN-v2)
+        row_limit: Optional GLOBAL limit on dataset rows (caps entire dataset before splitting)
         sampling: Optional sampling fraction
         method: TALENT method name (canonical name, e.g., 'xgboost' not 'XGBoost')
         categorical_encoding: Categorical encoding policy
@@ -981,21 +981,43 @@ def run_talent_method(
     try:
         is_regression = (task.lower() == "lgd")
         is_deep = method in DEEP_METHODS
-        
-        # Apply method-specific row limits (TabPFN: 10k, PFN-v2: 50k)
-        original_row_limit = row_limit
-        row_limit = apply_method_row_limit(method, row_limit)
-        
+
+        # ======================================================================
+        # ROW LIMIT HANDLING - Distinguish user vs method limits
+        # ======================================================================
+        # User-provided row_limit: Applied globally BEFORE splitting
+        #   - Use case: Quick debugging/testing runs
+        #   - Affects: Entire dataset (train + test + val)
+        #
+        # Method-intrinsic limit (from METHOD_ROW_LIMITS): Applied AFTER splitting
+        #   - Use case: Method constraints (TabPFN: 10k, PFN-v2: 50k)
+        #   - Affects: Training set ONLY (preserves full test/val for robust evaluation)
+        # ======================================================================
+
+        # Keep user limit as global cap (applied before splitting)
+        global_row_limit = row_limit  # None or user-specified value
+
+        # Get method-specific training limit (applied after splitting)
+        train_row_limit = None
+        if method in METHOD_ROW_LIMITS:
+            method_max = METHOD_ROW_LIMITS[method]
+            train_row_limit = method_max
+
+            # If user also specified a limit, the global limit takes precedence
+            # for the global cap, but we still apply method limit to training
+            if global_row_limit is not None and global_row_limit <= method_max:
+                # User wants a smaller dataset overall - no need for training-only limit
+                train_row_limit = None
+
         if verbose:
             print(f"\n{'='*70}")
             print(f"Running {method} ({'deep' if is_deep else 'classical'}) on {dataset} ({task.upper()})")
             print(f"{'='*70}")
-            
-            if row_limit != original_row_limit:
-                if original_row_limit is None:
-                    print(f"\nRow limit: {row_limit:,} (method maximum for {method})")
-                else:
-                    print(f"\nRow limit: {row_limit:,} (capped from {original_row_limit:,} due to {method} constraint)")
+
+            if global_row_limit is not None:
+                print(f"\nGlobal row limit: {global_row_limit:,} (user-specified, applied before splitting)")
+            if train_row_limit is not None:
+                print(f"Training row limit: {train_row_limit:,} (method constraint for {method}, applied after splitting)")
             
             if tune:
                 print(f"\n[HPO] Per-fold hyperparameter optimization enabled")
@@ -1021,7 +1043,8 @@ def run_talent_method(
             val_size=val_size,
             cv_splits=cv_splits,
             seed=seed,
-            row_limit=row_limit,
+            row_limit=global_row_limit,  # Global cap (before splitting)
+            train_row_limit=train_row_limit,  # Training-only cap (after splitting)
             sampling=sampling,
         )
         folds = feeder.prepare()

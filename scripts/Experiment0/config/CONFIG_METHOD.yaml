@@ -30,43 +30,57 @@ methods:
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: true              # Multilayer Perceptron
-    tabnet: true           # TabNet
-    tabpfn: true           # TabPFN v1 (classification)
-    tabpfn_v2: true        # TabPFN v2 (classification) 
-    tabpfn_real: false     # TabPFN Real 
-    resnet: true           # ResNet
-    ftt: true              # Feature Tokenizer Transformer
-    node: true             # Neural Oblivious Decision Ensembles
-    saint: false           # SAINT (Self-Attention and Intersample Attention Transformer)
-    tabtransformer: true   # TabTransformer
-    autoint: true          # AutoInt
-    danets: true           # DANets
-    snn: true              # Self-Normalizing Neural Networks
-    dcn2: true             # Deep & Cross Network v2
-    tabcaps: true          # TabCaps
-    tangos: true           # TANGOS
-    ptarl: true            # PTARL
-    switchtab: true        # SwitchTab
-    modernNCA: true        # ModernNCA
-    hyperfast: false       # HyperFast
-    bishop: true           # BISHOP
-    realmlp: true          # RealMLP
-    protogate: true        # ProtoGate
-    mlp_plr: true          # MLP-PLR
-    excelformer: true      # ExcelFormer
-    grande: false          # GRANDE
-    amformer: true         # AMFormer
-    tabptm: false          # TabPTM
-    trompt: false          # TROMPT
-    tabm: true             # TabM
-    t2gformer: true        # T2G-Former
-    tabautopnpnet: false   # TabAuto-PNPNet
-    tabicl: true           # TabICL
-    grownet: true          # GrowNet
-    tabr: false            # TabR
-    limix: false           # LiMiX 
-    mitra: false           # MITRA 
+    
+    # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
+    #    (Pre-trained on large datasets or priors to work out-of-the-box)
+    tabpfn: true          # TabPFN v1 (classification)
+    tabpfn_v2: true       # TabPFN v2 (classification) 
+    tabpfn_real: true     # TabPFN Real 
+    tabicl: true          # TabICL
+    tabptm: false         # TabPTM
+    mitra: true          # MITRA 
+    hyperfast: true      # HyperFast
+
+    # 2. Transformer-based Architectures
+    #    (Utilize self-attention mechanisms adapted for tabular data)
+    ftt: true             # Feature Tokenizer Transformer
+    saint: false          # SAINT (Self-Attention and Intersample Attention Transformer)
+    tabtransformer: true  # TabTransformer
+    autoint: true         # AutoInt
+    excelformer: true     # ExcelFormer
+    amformer: true        # AMFormer
+    trompt: false         # TROMPT
+    t2gformer: true       # T2G-Former
+    ptarl: true           # PTARL (uses tabular representation learning)
+
+    # 3. MLP-based & ResNet Variants
+    #    (Modern adaptations of standard neural networks)
+    mlp: true             # Multilayer Perceptron
+    resnet: true          # ResNet
+    snn: true             # Self-Normalizing Neural Networks
+    realmlp: true         # RealMLP
+    mlp_plr: true         # MLP-PLR
+    danets: true          # DANets (Deep Abstract Networks)
+    switchtab: true       # SwitchTab
+    
+    # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
+    #    (Combine deep learning with decision tree or ensemble concepts)
+    tabnet: true          # TabNet
+    node: true            # Neural Oblivious Decision Ensembles
+    grownet: true         # GrowNet
+    dcn2: true            # Deep & Cross Network v2
+    tabm: true            # TabM (Tabular Machines / Batch Ensembling)
+    
+    # 5. Specialized & Advanced Architectures
+    #    (Novel mechanisms like capsules, prototypes, or regularization)
+    tabcaps: true         # TabCaps
+    tangos: true          # TANGOS (Regularization/Augmentation)
+    modernNCA: true       # ModernNCA (Neighborhood Components Analysis)
+    bishop: true          # BISHOP
+    protogate: true       # ProtoGate
+    tabautopnpnet: false  # TabAuto-PNPNet
+    tabr: false           # TabR
+    limix: false          # LiMiX 
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -86,34 +100,43 @@ methods:
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    mlp: true              # Multilayer Perceptron
-    tabnet: true           # TabNet
+
+    # 1. Foundation Models & PFNs
     tabpfn_v2: true        # TabPFN v2 (supports regression)
-    resnet: true          # ResNet
+    tabptm: false          # TabPTM
+    mitra: true           # MITRA 
+
+    # 2. Transformer-based Architectures
     ftt: true             # Feature Tokenizer Transformer
-    node: true            # Neural Oblivious Decision Ensembles
-    saint: false           # SAINT
+    saint: false          # SAINT
     tabtransformer: true  # TabTransformer
     autoint: true         # AutoInt
-    danets: true          # DANets
-    snn: true             # Self-Normalizing Neural Networks
-    dcn2: true            # Deep & Cross Network v2
-    tangos: true          # TANGOS
+    excelformer: true     # ExcelFormer
+    amformer: true        # AMFormer
+    trompt: false         # TROMPT
+    t2gformer: true       # T2G-Former
     ptarl: true           # PTARL
-    switchtab: true       # SwitchTab
-    dnnr: true            # DNNR
-    modernNCA: true       # ModernNCA
-    bishop: true          # BISHOP
+
+    # 3. MLP-based & ResNet Variants
+    mlp: true             # Multilayer Perceptron
+    resnet: true          # ResNet
+    snn: true             # Self-Normalizing Neural Networks
     realmlp: true         # RealMLP
     mlp_plr: true         # MLP-PLR
-    excelformer: true     # ExcelFormer
-    grande: false          # GRANDE
-    amformer: true        # AMFormer
-    tabptm: false          # TabPTM
-    trompt: false          # TROMPT
-    tabm: true            # TabM
-    t2gformer: true       # T2G-Former
-    tabautopnpnet: false   # TabAuto-PNPNet
+    danets: true          # DANets
+    switchtab: true       # SwitchTab
+    
+    # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
+    tabnet: true          # TabNet
+    node: true            # Neural Oblivious Decision Ensembles
     grownet: true         # GrowNet
-    limix: false           # LiMiX 
-    mitra: false           # MITRA 
+    dcn2: true            # Deep & Cross Network v2
+    tabm: true            # TabM
+    
+    # 5. Specialized & Advanced Architectures
+    tangos: true          # TANGOS
+    modernNCA: true       # ModernNCA
+    bishop: true          # BISHOP
+    tabautopnpnet: false  # TabAuto-PNPNet
+    dnnr: true            # DNNR (Deep Neural Network Regression - specialized for regression)
+    limix: false          # LiMiX

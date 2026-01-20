@@ -11,7 +11,7 @@ A rigorous evaluation framework comparing Tabular Foundation Models (TabPFN, Tab
 - **Rigorous Cross-Validation**: 5-fold CV with proper fold isolation and no data leakage
 - **Per-Fold Hyperparameter Optimization**: Independent HPO for each fold using TALENT's built-in optimization
 - **Concurrent Execution**: File locking support for safe parallel execution on SLURM clusters
-- **Comprehensive Metrics**: Internally calculated metrics for consistency across all method types
+- **Comprehensive Metrics**: Internally calculated metrics for consistency across all method types.
 - **Smart Preprocessing**: Method-specific preprocessing policies automatically enforced
 - **Row Limit Enforcement**: Auto-capping for TabPFN (10k rows) and TabPFN v2 (50k rows)
 - **Advanced Analysis**: Rank correlation, PAMA analysis, and dataset characteristic studies
