@@ -5,26 +5,42 @@ Summarize Results: Aggregate all experiment results into summary CSV files.
 This script reads all pickle result files from an experiment folder and creates
 clean summary CSV files containing only the metrics for each fold.
 
-Works for ALL experiments (Experiment0, Experiment1, etc.) automatically.
+Works for ALL experiments (Experiment0, Experiment1, Experiment2) automatically.
 
 Structure:
     Input:  results/{experiment}/pd/*.pkl and results/{experiment}/lgd/*.pkl
     Output: results/{experiment}/summary/
 
+Pickle Structures Supported:
+    - Experiment0: {method_name: {fold_id: {...}}}
+    - Experiment1: {hpo_mode: {method_name: {fold_id: {...}}}}
+    - Experiment2: {row_limit: {method_name: {fold_id: {...}}}}  # Learning Curve
+                   (row_limit replaces hpo_mode as first-level key)
+
 Output files:
+    Standard experiments (0, 1):
     - summary_pd_raw.csv:              All PD metrics per method, dataset, fold, HPO mode
     - summary_lgd_raw.csv:             All LGD metrics per method, dataset, fold, HPO mode
-    - summary_pd_aggregated.csv:       Mean ± std across folds for PD
-    - summary_lgd_aggregated.csv:      Mean ± std across folds for LGD
+    - summary_pd_aggregated.csv:       Mean +/- std across folds for PD
+    - summary_lgd_aggregated.csv:      Mean +/- std across folds for LGD
     - pivot_pd_{metric}_no_hpo.csv:    Pivot tables for each key PD metric (NO_HPO)
     - pivot_pd_{metric}_hpo.csv:       Pivot tables for each key PD metric (HPO)
     - pivot_lgd_{metric}_no_hpo.csv:   Pivot tables for each key LGD metric (NO_HPO)
     - pivot_lgd_{metric}_hpo.csv:      Pivot tables for each key LGD metric (HPO)
 
+    Learning Curve experiments (2):
+    - summary_pd_raw.csv:              All PD metrics per method, dataset, fold, row_limit
+    - summary_lgd_raw.csv:             All LGD metrics per method, dataset, fold, row_limit
+    - summary_pd_aggregated.csv:       Mean +/- std across folds for each row_limit
+    - summary_lgd_aggregated.csv:      Mean +/- std across folds for each row_limit
+    - learning_curve_pd_{metric}.csv:  Learning curve data (method × row_limit)
+    - learning_curve_lgd_{metric}.csv: Learning curve data (method × row_limit)
+
 Usage:
     python src/utils/Summarize_Results.py
     python src/utils/Summarize_Results.py --experiment experiment0
     python src/utils/Summarize_Results.py --experiment experiment1
+    python src/utils/Summarize_Results.py --experiment experiment2
 """
 
 import sys
@@ -116,6 +132,47 @@ def extract_fold_data(
     return row
 
 
+def _is_learning_curve_structure(results: Dict[str, Any]) -> bool:
+    """
+    Detect if results have Experiment2 learning curve structure.
+
+    Learning curve structure: {row_limit: {method_name: {fold_id: {...}}}}
+    where row_limit is an integer key >= 100 (to distinguish from fold IDs).
+
+    This mirrors Experiment1's structure:
+        Experiment1: {hpo_mode: {method: {fold: {...}}}}
+        Experiment2: {row_limit: {method: {fold: {...}}}}
+    """
+    if not results:
+        return False
+
+    # Check first top-level key
+    first_key = next(iter(results.keys()), None)
+
+    # If top-level keys are HPO modes, this is Experiment1
+    if first_key in ['NO_HPO', 'HPO']:
+        return False
+
+    # If top-level key is an integer >= 100, it's likely a row_limit
+    if isinstance(first_key, int) and first_key >= 100:
+        first_value = results.get(first_key)
+        if not isinstance(first_value, dict):
+            return False
+
+        # Check if second level has method names (strings)
+        second_keys = list(first_value.keys())
+        if second_keys and all(isinstance(k, str) for k in second_keys):
+            # Check third level for fold structure
+            second_value = first_value.get(second_keys[0])
+            if isinstance(second_value, dict):
+                third_keys = list(second_value.keys())
+                # Fold IDs are small integers (1-10 typically)
+                if third_keys and all(isinstance(k, int) and k < 100 for k in third_keys):
+                    return True
+
+    return False
+
+
 def process_dataset_results(
     results: Dict[str, Any],
     dataset: str,
@@ -123,62 +180,90 @@ def process_dataset_results(
 ) -> List[Dict[str, Any]]:
     """
     Process results for a single dataset.
-    
-    Handles two different pickle structures:
+
+    Handles three different pickle structures:
     1. Experiment0: {method_name: {fold_id: {...}}}
     2. Experiment1: {hpo_mode: {method_name: {fold_id: {...}}}}
-    
-    Returns a list of dictionaries, one per (method, fold, hpo_mode) combination.
+    3. Experiment2: {row_limit: {method_name: {fold_id: {...}}}} (Learning Curve)
+                   (row_limit replaces hpo_mode as first-level key)
+
+    Returns a list of dictionaries, one per (method, fold, hpo_mode/row_limit) combination.
     """
     rows = []
-    
-    # Detect structure: Check if top-level keys are HPO modes or method names
+
+    # Detect structure
     top_keys = set(results.keys())
     has_hpo_structure = 'NO_HPO' in top_keys or 'HPO' in top_keys
-    
-    if has_hpo_structure:
+    has_learning_curve_structure = _is_learning_curve_structure(results)
+
+    if has_learning_curve_structure:
+        # Experiment2 structure: {row_limit: {method: {fold: {...}}}}
+        # This mirrors Experiment1's {hpo_mode: {method: {fold: {...}}}}
+        for row_limit, row_limit_results in results.items():
+            if not isinstance(row_limit_results, dict):
+                continue
+
+            for method_name, method_results in row_limit_results.items():
+                if not isinstance(method_results, dict):
+                    continue
+
+                for fold_id, fold_data in method_results.items():
+                    if not isinstance(fold_data, dict):
+                        continue
+
+                    try:
+                        row = extract_fold_data(
+                            fold_data, method_name, dataset, task, 'NO_HPO', fold_id
+                        )
+                        # Add row_limit for learning curve analysis
+                        row['row_limit'] = row_limit
+                        rows.append(row)
+                    except Exception as e:
+                        print(f"      Warning: Error extracting {method_name} row_limit={row_limit} fold {fold_id}: {e}")
+
+    elif has_hpo_structure:
         # Experiment1 structure: {hpo_mode: {method: {fold: {...}}}}
         for hpo_mode in ['NO_HPO', 'HPO']:
             if hpo_mode not in results:
                 continue
-            
+
             hpo_results = results[hpo_mode]
-            
+
             for method_name, method_results in hpo_results.items():
                 if not isinstance(method_results, dict):
                     continue
-                
+
                 for fold_id, fold_data in method_results.items():
                     if not isinstance(fold_data, dict):
                         continue
-                    
+
                     try:
                         row = extract_fold_data(
                             fold_data, method_name, dataset, task, hpo_mode, fold_id
                         )
                         rows.append(row)
                     except Exception as e:
-                        print(f"      ⚠️  Error extracting {method_name} fold {fold_id} ({hpo_mode}): {e}")
-    
+                        print(f"      Warning: Error extracting {method_name} fold {fold_id} ({hpo_mode}): {e}")
+
     else:
         # Experiment0 structure: {method: {fold: {...}}}
         # Treat as NO_HPO by default
         for method_name, method_results in results.items():
             if not isinstance(method_results, dict):
                 continue
-            
+
             for fold_id, fold_data in method_results.items():
                 if not isinstance(fold_data, dict):
                     continue
-                
+
                 try:
                     row = extract_fold_data(
                         fold_data, method_name, dataset, task, 'NO_HPO', fold_id
                     )
                     rows.append(row)
                 except Exception as e:
-                    print(f"      ⚠️  Error extracting {method_name} fold {fold_id}: {e}")
-    
+                    print(f"      Warning: Error extracting {method_name} fold {fold_id}: {e}")
+
     return rows
 
 
@@ -262,35 +347,45 @@ def identify_metric_columns(df: pd.DataFrame) -> List[str]:
     return sorted(metric_cols)
 
 
-def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
+def aggregate_results(df: pd.DataFrame, is_learning_curve: bool = False) -> pd.DataFrame:
     """
-    Aggregate fold results: compute mean ± std for each (method, dataset, hpo_mode).
-    
+    Aggregate fold results: compute mean +/- std for each group.
+
+    For standard experiments: Group by (method, dataset, hpo_mode)
+    For learning curve: Group by (method, dataset, row_limit)
+
     Args:
         df: Raw DataFrame with per-fold results
-        
+        is_learning_curve: If True, group by row_limit instead of hpo_mode
+
     Returns:
         Aggregated DataFrame
     """
     if df.empty:
         return pd.DataFrame()
-    
+
     # Identify metric columns dynamically
     metric_cols = identify_metric_columns(df)
-    
+
     # Also include other numeric fields
     numeric_cols = metric_cols + ['train_time', 'n_clipped_below', 'n_clipped_above']
     numeric_cols = [c for c in numeric_cols if c in df.columns]
-    
-    # Group by method, dataset, hpo_mode
-    group_cols = ['method', 'dataset', 'hpo_mode', 'task']
-    
+
+    # Group by appropriate columns
+    if is_learning_curve and 'row_limit' in df.columns:
+        group_cols = ['method', 'dataset', 'row_limit', 'task']
+    else:
+        group_cols = ['method', 'dataset', 'hpo_mode', 'task']
+
+    # Filter to columns that exist
+    group_cols = [c for c in group_cols if c in df.columns]
+
     agg_rows = []
-    
+
     for group_keys, group in df.groupby(group_cols):
         row = dict(zip(group_cols, group_keys))
         row['n_folds'] = len(group)
-        
+
         for col in numeric_cols:
             if col in group.columns:
                 values = group[col].dropna()
@@ -304,10 +399,63 @@ def aggregate_results(df: pd.DataFrame) -> pd.DataFrame:
                     row[f'{col}_std'] = np.nan
                     row[f'{col}_min'] = np.nan
                     row[f'{col}_max'] = np.nan
-        
+
         agg_rows.append(row)
-    
+
     return pd.DataFrame(agg_rows)
+
+
+def create_learning_curve_table(
+    agg_df: pd.DataFrame,
+    metric: str,
+    dataset: str = None
+) -> pd.DataFrame:
+    """
+    Create a learning curve table: methods (rows) x row_limits (columns).
+
+    Args:
+        agg_df: Aggregated DataFrame with row_limit column
+        metric: Metric to use (e.g., 'AUC', 'R2')
+        dataset: Optional filter for specific dataset
+
+    Returns:
+        DataFrame with methods as rows, row_limits as columns
+    """
+    if agg_df.empty or 'row_limit' not in agg_df.columns:
+        return pd.DataFrame()
+
+    mean_col = f'{metric}_mean'
+    if mean_col not in agg_df.columns:
+        return pd.DataFrame()
+
+    df = agg_df.copy()
+
+    # Filter by dataset if specified
+    if dataset is not None:
+        df = df[df['dataset'] == dataset]
+
+    if df.empty:
+        return pd.DataFrame()
+
+    # Create pivot: methods x row_limits
+    pivot = df.pivot_table(
+        index='method',
+        columns='row_limit',
+        values=mean_col,
+        aggfunc='mean'  # Average across datasets if not filtered
+    )
+
+    # Sort columns (row_limits) in descending order
+    pivot = pivot[sorted(pivot.columns, reverse=True)]
+
+    # Add summary column (mean across all row_limits)
+    pivot['MEAN'] = pivot.mean(axis=1)
+
+    # Sort by mean performance
+    sort_ascending = metric in ['RMSE', 'MAE', 'MSE', 'LogLoss', 'Brier', 'MAPE']
+    pivot = pivot.sort_values('MEAN', ascending=sort_ascending)
+
+    return pivot
 
 
 def create_pivot_table(
@@ -382,134 +530,177 @@ def create_pivot_table(
 def summarize_results(experiment: str = "experiment1") -> None:
     """
     Main function to summarize all experiment results.
-    
+
     Args:
-        experiment: Name of experiment folder (e.g., 'experiment0', 'experiment1')
+        experiment: Name of experiment folder (e.g., 'experiment0', 'experiment1', 'experiment2')
     """
-    
+
     # Determine paths
     results_dir = PROJECT_ROOT / "results"
     experiment_dir = results_dir / experiment
     summary_dir = experiment_dir / "summary"
-    
+
+    # Detect if this is a learning curve experiment
+    is_learning_curve = experiment.lower() == 'experiment2'
+
     print("=" * 80)
-    print(f"  SUMMARIZING RESULTS: {experiment.upper()}")
+    if is_learning_curve:
+        print(f"  SUMMARIZING RESULTS: {experiment.upper()} (LEARNING CURVE)")
+    else:
+        print(f"  SUMMARIZING RESULTS: {experiment.upper()}")
     print("=" * 80)
-    
+
     if not experiment_dir.exists():
-        print(f"\n❌ ERROR: Experiment directory not found: {experiment_dir}")
+        print(f"\nERROR: Experiment directory not found: {experiment_dir}")
         sys.exit(1)
-    
-    print(f"\n📂 Experiment directory: {experiment_dir}")
-    
+
+    print(f"\nExperiment directory: {experiment_dir}")
+
     # Create summary directory
     summary_dir.mkdir(parents=True, exist_ok=True)
-    print(f"📂 Summary output: {summary_dir}")
-    
+    print(f"Summary output: {summary_dir}")
+
     # Process each task
     all_tasks_summary = {}
-    
+
     for task in ['pd', 'lgd']:
         print(f"\n{'-' * 80}")
         print(f"  {task.upper()} RESULTS")
         print(f"{'-' * 80}")
-        
+
         # Load raw results
         raw_df = load_task_results(experiment_dir, task)
-        
+
         if raw_df.empty:
-            print(f"  ⚠️  No results found for {task.upper()}")
+            print(f"  Warning: No results found for {task.upper()}")
             continue
-        
+
         # =================================================================
         # FILTER OUT DUMMY METHOD
         # =================================================================
         n_dummy_rows = (raw_df['method'] == 'dummy').sum()
         if n_dummy_rows > 0:
-            print(f"\n  🗑️  Removing 'dummy' method: {n_dummy_rows} results excluded")
+            print(f"\n  Removing 'dummy' method: {n_dummy_rows} results excluded")
             raw_df = raw_df[raw_df['method'] != 'dummy'].reset_index(drop=True)
-        
+
         # Check if we still have data after filtering
         if raw_df.empty:
-            print(f"  ⚠️  No results remaining after filtering dummy method")
+            print(f"  Warning: No results remaining after filtering dummy method")
             continue
         # =================================================================
-        
+
+        # Detect if data has learning curve structure
+        has_row_limit = 'row_limit' in raw_df.columns
+
         # Print summary statistics
         n_methods = raw_df['method'].nunique()
         n_datasets = raw_df['dataset'].nunique()
         n_folds_total = len(raw_df)
-        hpo_modes = sorted(raw_df['hpo_mode'].unique())
-        
-        print(f"\n  📊 Summary:")
+
+        print(f"\n  Summary:")
         print(f"     - Methods: {n_methods}")
         print(f"     - Datasets: {n_datasets}")
         print(f"     - Total fold results: {n_folds_total}")
-        print(f"     - HPO modes: {hpo_modes}")
-        
+
+        if has_row_limit:
+            row_limits = sorted(raw_df['row_limit'].unique(), reverse=True)
+            print(f"     - Row limits: {len(row_limits)} ({max(row_limits):,} -> {min(row_limits):,})")
+        else:
+            hpo_modes = sorted(raw_df['hpo_mode'].unique())
+            print(f"     - HPO modes: {hpo_modes}")
+
         # Identify available metrics
         available_metrics = identify_metric_columns(raw_df)
         print(f"     - Metrics available: {len(available_metrics)}")
         if available_metrics:
             print(f"       {', '.join(available_metrics[:10])}{'...' if len(available_metrics) > 10 else ''}")
-        
+
         # Save raw results (all folds)
         raw_file = summary_dir / f"summary_{task}_raw.csv"
         raw_df.to_csv(raw_file, index=False, float_format='%.6f')
-        print(f"\n  ✅ Saved: {raw_file.name} ({len(raw_df)} rows)")
-        
+        print(f"\n  Saved: {raw_file.name} ({len(raw_df)} rows)")
+
         # Aggregate results
-        agg_df = aggregate_results(raw_df)
-        
+        agg_df = aggregate_results(raw_df, is_learning_curve=has_row_limit)
+
         if not agg_df.empty:
             agg_file = summary_dir / f"summary_{task}_aggregated.csv"
             agg_df.to_csv(agg_file, index=False, float_format='%.6f')
-            print(f"  ✅ Saved: {agg_file.name} ({len(agg_df)} rows)")
-        
+            print(f"  Saved: {agg_file.name} ({len(agg_df)} rows)")
+
         # Store for final summary
         all_tasks_summary[task] = {
             'n_methods': n_methods,
             'n_datasets': n_datasets,
             'n_results': n_folds_total,
-            'metrics': available_metrics
+            'metrics': available_metrics,
+            'is_learning_curve': has_row_limit
         }
-        
+
         # Create pivot tables for key metrics
         key_metrics = PD_KEY_METRICS if task == 'pd' else LGD_KEY_METRICS
-        
+
         # Filter to only metrics that actually exist
         key_metrics = [m for m in key_metrics if m in available_metrics]
-        
+
         if not key_metrics:
-            print(f"\n  ⚠️  No key metrics found for {task.upper()}")
+            print(f"\n  Warning: No key metrics found for {task.upper()}")
             continue
-        
-        print(f"\n  📈 Creating pivot tables for: {', '.join(key_metrics)}")
-        
-        for hpo_mode in hpo_modes:
-            print(f"\n    {hpo_mode}:")
+
+        if has_row_limit:
+            # Learning curve: Create learning curve tables
+            print(f"\n  Creating learning curve tables for: {', '.join(key_metrics)}")
+
             for metric in key_metrics:
-                pivot_df = create_pivot_table(agg_df, metric, hpo_mode)
-                
-                if not pivot_df.empty:
-                    hpo_suffix = hpo_mode.lower()
-                    pivot_file = summary_dir / f"pivot_{task}_{metric}_{hpo_suffix}.csv"
-                    pivot_df.to_csv(pivot_file)
-                    print(f"      ✓ {pivot_file.name} ({len(pivot_df)} methods × {len(pivot_df.columns)-2} datasets)")
-    
+                # Overall learning curve (averaged across all datasets)
+                lc_df = create_learning_curve_table(agg_df, metric)
+
+                if not lc_df.empty:
+                    lc_file = summary_dir / f"learning_curve_{task}_{metric}.csv"
+                    lc_df.to_csv(lc_file, float_format='%.4f')
+                    n_row_limits = len([c for c in lc_df.columns if c != 'MEAN'])
+                    print(f"    Saved: {lc_file.name} ({len(lc_df)} methods x {n_row_limits} row_limits)")
+
+                # Per-dataset learning curves
+                datasets = agg_df['dataset'].unique()
+                if len(datasets) > 1:
+                    for dataset in sorted(datasets)[:3]:  # Limit to first 3 for brevity
+                        lc_ds_df = create_learning_curve_table(agg_df, metric, dataset=dataset)
+                        if not lc_ds_df.empty:
+                            safe_dataset = dataset.replace('.', '_')
+                            lc_ds_file = summary_dir / f"learning_curve_{task}_{metric}_{safe_dataset}.csv"
+                            lc_ds_df.to_csv(lc_ds_file, float_format='%.4f')
+        else:
+            # Standard experiments: Create pivot tables
+            print(f"\n  Creating pivot tables for: {', '.join(key_metrics)}")
+            hpo_modes = sorted(raw_df['hpo_mode'].unique())
+
+            for hpo_mode in hpo_modes:
+                print(f"\n    {hpo_mode}:")
+                for metric in key_metrics:
+                    pivot_df = create_pivot_table(agg_df, metric, hpo_mode)
+
+                    if not pivot_df.empty:
+                        hpo_suffix = hpo_mode.lower()
+                        pivot_file = summary_dir / f"pivot_{task}_{metric}_{hpo_suffix}.csv"
+                        pivot_df.to_csv(pivot_file)
+                        print(f"      Saved: {pivot_file.name} ({len(pivot_df)} methods x {len(pivot_df.columns)-2} datasets)")
+
     # Final summary
     print(f"\n{'=' * 80}")
-    print("  ✅ SUMMARY COMPLETE!")
+    print("  SUMMARY COMPLETE!")
     print(f"{'=' * 80}")
-    
+
     for task, summary in all_tasks_summary.items():
         print(f"\n  {task.upper()}:")
         print(f"    - {summary['n_methods']} methods")
         print(f"    - {summary['n_datasets']} datasets")
         print(f"    - {summary['n_results']} total results")
         print(f"    - {len(summary['metrics'])} metrics")
-    
-    print(f"\n  📂 All files saved to: {summary_dir}")
+        if summary.get('is_learning_curve'):
+            print(f"    - Learning curve analysis")
+
+    print(f"\n  All files saved to: {summary_dir}")
     print(f"{'=' * 80}\n")
 
 

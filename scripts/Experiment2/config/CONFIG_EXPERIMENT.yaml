@@ -1,0 +1,32 @@
+# =============================================================================
+# CONFIG_EXPERIMENT.yaml - EXPERIMENT 2: LEARNING CURVE ANALYSIS
+# =============================================================================
+# Purpose: Evaluate how method performance degrades as training rows decrease.
+# Constraint: No HPO (Hyperparameter Optimization) - use default parameters.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Standard Training Variables
+# -----------------------------------------------------------------------------
+max_epochs: 50                    # Maximum training epochs for deep methods
+batch_size: 255                   # Training batch size
+n_trials: 1                       # NO HPO - always 1 trial (use defaults)
+early_stopping: true              # Enable early stopping
+early_stopping_patience: 10       # Wait 10 epochs before stopping
+
+# -----------------------------------------------------------------------------
+# Learning Curve Control Parameters
+# -----------------------------------------------------------------------------
+# These control how we vary the training set size to analyze performance degradation.
+#
+# Algorithm:
+#   1. Start: current = min(dataset_size, row_max)
+#   2. First step: If current is not a multiple of row_step,
+#      align to nearest lower multiple of row_step
+#      Example: dataset=8500, step=1000 -> sequence starts [8500, 8000, 7000, ...]
+#   3. Continue: Decrease by row_step until row_min is reached
+#   4. For each row_limit: Run method with that training size
+# -----------------------------------------------------------------------------
+row_max: 50000                    # Upper bound for row limit
+row_min: 1000                     # Lower bound for row limit (stop here)
+row_step: 1000                    # Step size for decreasing rows
