@@ -9,10 +9,10 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 #SBATCH --partition=batch
-#SBATCH --array=0-228%32
+#SBATCH --array=0-213%32
 
 # ---------------------------------------------------------
-# BATCH 0: Tasks 0-228
+# BATCH 0: Tasks 0-213
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------

@@ -34,10 +34,10 @@ methods:
     # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
     tabpfn: true          # TabPFN v1 (classification)
     tabpfn_v2: true       # TabPFN v2 (classification) 
-    tabpfn_real: false    # TabPFN Real 
+    tabpfn_real: true    # TabPFN Real 
     tabicl: true          # TabICL
     tabptm: false         # TabPTM
-    mitra: false          # MITRA 
+    mitra: true          # MITRA 
     hyperfast: false      # HyperFast
 
     # 2. Transformer-based Architectures
