@@ -5,12 +5,12 @@
 #SBATCH --nodes="1"
 #SBATCH --output=results/experiment2/logs/slurm/gpu0_%A_%a.out
 #SBATCH --error=results/experiment2/logs/slurm/gpu0_%A_%a.err
-#SBATCH --time=96:00:00
+#SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=45G
-#SBATCH --partition=gpu_p100
+#SBATCH --mem=64G
+#SBATCH --partition=gpu_h100
 #SBATCH --array=0-110%12
 
 # ---------------------------------------------------------
