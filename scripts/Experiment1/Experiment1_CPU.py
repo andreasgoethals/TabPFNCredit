@@ -21,19 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
+from src.methods.method_config import CPU_METHODS
 from scripts.Experiment1.Experiment1 import run_single_method
-
-# CPU methods
-CPU_METHODS = {
-    'RandomForest',
-    'LogReg',
-    'LinearRegression',
-    'knn',
-    'svm',
-    'NaiveBayes',
-    'NCM',
-    'dummy',
-}
 
 
 def build_cpu_task_list(config):

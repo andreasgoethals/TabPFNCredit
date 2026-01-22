@@ -23,52 +23,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
-from src.methods.method_config import NO_HPO_METHODS
+from src.methods.method_config import GPU_METHODS, CPU_METHODS, NO_HPO_METHODS
 
 # VSC-safe constants
 MAX_TASKS_PER_SLURM = 400  # Safe buffer below 500 limit
-
-# ======================================================================================
-#                     GPU vs CPU METHOD CATEGORIZATION
-# ======================================================================================
-
-# GPU Methods - Neural architectures + tree boosting (run on GPU nodes)
-GPU_METHODS = {
-    # Basic neural architectures
-    'mlp', 'resnet',
-    
-    # Attention-based transformers
-    'ftt', 'saint', 'tabtransformer', 'tabptm', 'trompt',
-    
-    # Specialized deep learning
-    'tabnet', 'node', 'tabr', 'grownet',
-    
-    # Advanced architectures
-    'autoint', 'snn', 'danets', 'tabcaps', 'dcn2',
-    'tangos', 'ptarl', 'switchtab', 'dnnr',
-    
-    # Modern architectures
-    'modernNCA', 'hyperfast', 'bishop', 'realmlp',
-    'protogate', 'mlp_plr', 'excelformer', 'grande',
-    'amformer', 'tabm', 't2gformer', 'tabautopnpnet',
-    'tabicl', 'limix', 'mitra',
-    
-    # Foundation models
-    'tabpfn', 'tabpfn_v2', 'tabpfn_real',
-    
-    # Tree boosting (run on GPU nodes for compatibility)
-    'xgboost', 'catboost', 'lightgbm',
-}
-
-# CPU Methods - Only classical ML (no tree boosting)
-CPU_METHODS = {
-    # Traditional ML models
-    'RandomForest', 'LogReg', 'LinearRegression',
-    'knn', 'svm', 'NaiveBayes', 'NCM',
-    
-    # Baseline models
-    'dummy',
-}
 
 
 # ======================================================================================

@@ -21,24 +21,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
+from src.methods.method_config import GPU_METHODS
 from scripts.Experiment1.Experiment1 import run_single_method
-
-# GPU methods (all non-CPU methods)
-GPU_METHODS = {
-    'xgboost', 'catboost', 'lightgbm',
-    'mlp', 'resnet', 'tabnet',
-    'node', 'autoint', 'danets', 'dcn2',
-    'ftt', 'saint', 'tabtransformer',
-    'tabpfn', 'tabpfn_v2', 'tabpfn_real',
-    'tabicl', 'tabptm', 'trompt',
-    'modernNCA', 'realmlp', 'bishop',
-    'tabr', 'grownet', 'snn', 'tabcaps',
-    'tangos', 'ptarl', 'switchtab', 'dnnr',
-    'hyperfast', 'protogate', 'mlp_plr',
-    'excelformer', 'grande', 'amformer',
-    'tabm', 't2gformer', 'tabautopnpnet',
-    'limix', 'mitra',
-}
 
 
 def build_gpu_task_list(config):

@@ -302,11 +302,11 @@ REQUIRES_NO_NUM_ENCODING: MethodSet = {
 # Methods with inherent architectural row limits
 METHOD_ROW_LIMITS = {
     # --- Foundation Models (In-Context Learning) ---
-    'tabpfn': 10_000,       # Original v1 (Context ~2-4k tokens)
-    'tabpfn_v2': 50_000,    # Standard v2 base model (Safe limit)
-    'tabpfn_real': 50_000,  # v2.5 "Real" mode (Explicitly designed for 50k)
+    'tabpfn': 5000,       # Original v1 (Context ~2-4k tokens)
+    'tabpfn_v2': 30_000,    # Standard v2 base model (Safe limit)
+    'tabpfn_real': 30_000,  # v2.5 "Real" mode (Explicitly designed for 50k)
     
-    'mitra': 10_000,        # Standard Transformer context window
+    'mitra': 5_000,        # Standard Transformer context window
     'tabicl': 50_000,       # Uses retrieval/kernel-attention for larger context
     
     # --- Deep Learning (Complexity Constraints) ---

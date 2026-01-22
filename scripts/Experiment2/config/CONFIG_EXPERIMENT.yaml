@@ -27,6 +27,6 @@ early_stopping_patience: 10       # Wait 10 epochs before stopping
 #   3. Continue: Decrease by row_step until row_min is reached
 #   4. For each row_limit: Run method with that training size
 # -----------------------------------------------------------------------------
-row_max: 50000                    # Upper bound for row limit
-row_min: 1000                     # Lower bound for row limit (stop here)
-row_step: 1000                    # Step size for decreasing rows
+row_max: 15000                   # Upper bound for row limit
+row_min: 500                     # Lower bound for row limit (stop here)
+row_step: 100                    # Step size for decreasing rows
