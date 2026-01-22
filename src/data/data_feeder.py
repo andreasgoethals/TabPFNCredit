@@ -680,21 +680,64 @@ class DataFeeder:
         N, y, C = self._apply_sampling(N, y, C)
 
         # 3️⃣ THEN optionally limit number of rows (applied to already-resampled data)
-        if self.row_limit is not None:
-            # Shuffle first to avoid bias (e.g., taking only oldest records if data is sorted)
-            # We re-initialize the RNG here to ensure this shuffle is reproducible 
-            # regardless of whether _apply_sampling() was executed previously.
-            rng = np.random.default_rng(self.seed)
-            perm_idx = rng.permutation(len(y))
-            
-            N = N[perm_idx] if N is not None else None
-            C = C[perm_idx] if C is not None else None
-            y = y[perm_idx]
+        #    Uses STRATIFIED subsampling for PD tasks to preserve class distribution
+        #    even at small row limits (critical for Experiment2 learning curves)
+        if self.row_limit is not None and len(y) > self.row_limit:
+            original_size = len(y)
 
-            # Apply the row limit
-            N = N[: self.row_limit] if N is not None else None
-            C = C[: self.row_limit] if C is not None else None
-            y = y[: self.row_limit]
+            # Calculate the fraction to KEEP
+            keep_fraction = self.row_limit / len(y)
+
+            # Use stratified subsampling for classification (PD) to preserve class distribution
+            # This is critical for small row_limits where simple slicing could exclude minority class
+            if self.task == "pd":
+                try:
+                    # Use train_test_split to get a stratified subset
+                    # We want to KEEP row_limit rows, so we "discard" the rest
+                    idx_all = np.arange(len(y))
+                    idx_keep, _ = train_test_split(
+                        idx_all,
+                        train_size=self.row_limit,
+                        random_state=self.seed,
+                        stratify=y
+                    )
+
+                    N = N[idx_keep] if N is not None else None
+                    C = C[idx_keep] if C is not None else None
+                    y = y[idx_keep]
+
+                    logger.info(
+                        f"  Applied stratified row_limit: {original_size:,} -> {len(y):,} rows "
+                        f"(preserved class distribution)"
+                    )
+                except ValueError as e:
+                    # Fallback to random sampling if stratification fails
+                    # (e.g., when minority class has too few samples)
+                    logger.warning(
+                        f"  Stratified subsampling failed ({e}), falling back to random sampling"
+                    )
+                    rng = np.random.default_rng(self.seed)
+                    idx_keep = rng.choice(len(y), size=self.row_limit, replace=False)
+
+                    N = N[idx_keep] if N is not None else None
+                    C = C[idx_keep] if C is not None else None
+                    y = y[idx_keep]
+
+                    logger.info(
+                        f"  Applied random row_limit: {original_size:,} -> {len(y):,} rows"
+                    )
+            else:
+                # For regression (LGD), use simple random subsampling
+                rng = np.random.default_rng(self.seed)
+                idx_keep = rng.choice(len(y), size=self.row_limit, replace=False)
+
+                N = N[idx_keep] if N is not None else None
+                C = C[idx_keep] if C is not None else None
+                y = y[idx_keep]
+
+                logger.info(
+                    f"  Applied random row_limit: {original_size:,} -> {len(y):,} rows"
+                )
 
 
         stratify = self.task == "pd"
