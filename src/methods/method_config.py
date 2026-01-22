@@ -66,9 +66,20 @@ CPU_METHODS: MethodSet = {
     # Traditional ML models
     'RandomForest', 'LogReg', 'LinearRegression',
     'knn', 'svm', 'NaiveBayes', 'NCM',
-    
+
     # Baseline models
     'dummy',
+}
+
+# Foundation Models - Require high-memory GPUs (wICE cluster with H100/A100)
+# These use in-context learning and need to load entire datasets into GPU memory
+FOUNDATION_METHODS: MethodSet = {
+    'tabpfn',        # TabPFN v1
+    'tabpfn_v2',     # TabPFN v2
+    'tabpfn_real',   # TabPFN v2.5 "Real" mode
+    'mitra',         # Mitra foundation model
+    'tabicl',        # TabICL (In-Context Learning)
+    'tabptm',        # TabPTM
 }
 
 

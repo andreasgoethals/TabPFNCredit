@@ -3,11 +3,15 @@
 Setup Script for Experiment 2: Learning Curve Analysis
 
 This script:
-1. Uses method_config.py for GPU/CPU categorization (no hardcoding)
+1. Uses method_config.py for GPU/CPU/Foundation categorization (no hardcoding)
 2. Reads enabled methods and datasets from config
-3. Counts GPU and CPU tasks (method × dataset combinations)
-4. Generates BATCHED SLURM scripts (max 400 tasks per file)
-5. Provides instructions for submission
+3. Splits GPU methods into Standard (genius) and Foundation (wICE) groups
+4. Counts tasks for each hardware category
+5. Generates THREE sets of BATCHED SLURM scripts:
+   - Experiment2_GPU_Standard*.slurm  (genius cluster, gpu_p100)
+   - Experiment2_GPU_Foundation*.slurm (wICE cluster, gpu_h100)
+   - Experiment2_CPU*.slurm           (genius cluster, batch)
+6. Provides instructions for submission
 
 Key differences from Experiment1:
 - Each SLURM task = ONE method + ONE dataset (no HPO variation)
@@ -25,19 +29,41 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
-from src.methods.method_config import GPU_METHODS, CPU_METHODS
+from src.methods.method_config import GPU_METHODS, CPU_METHODS, FOUNDATION_METHODS
 
 # VSC-safe constants
 MAX_TASKS_PER_SLURM = 400  # Safe buffer below 500 limit
 
 
 # ======================================================================================
-#                     SLURM SCRIPT TEMPLATES (BATCHED)
+#                     SLURM SCRIPT TEMPLATES (PARAMETERIZED)
 # ======================================================================================
 
-def generate_gpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
-    """Generate GPU SLURM script for a batch of learning curve tasks."""
+def generate_gpu_slurm_script(
+    batch_id: int,
+    start_task: int,
+    end_task: int,
+    max_concurrent: int,
+    cluster: str,
+    partition: str,
+    memory: str,
+    job_type: str,
+    orchestrator_script: str
+):
+    """
+    Generate GPU SLURM script for a batch of learning curve tasks.
 
+    Args:
+        batch_id: Batch number for this SLURM file
+        start_task: Starting global task ID
+        end_task: Ending global task ID (exclusive)
+        max_concurrent: Maximum concurrent array jobs
+        cluster: SLURM cluster name ("genius" or "wice")
+        partition: SLURM partition ("gpu_p100" or "gpu_h100")
+        memory: Memory allocation (e.g., "45G" or "64G")
+        job_type: Label for the job ("Standard" or "Foundation")
+        orchestrator_script: Python script to run (e.g., "Experiment2_GPU.py")
+    """
     n_tasks = end_task - start_task
 
     if n_tasks == 0:
@@ -45,25 +71,30 @@ def generate_gpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
     else:
         array_range = f"0-{n_tasks-1}%{max_concurrent}"
 
+    # Use longer time for foundation models (they're slower)
+    time_limit = "96:00:00" if "Foundation" in job_type else "72:00:00"
+    cpus = 8 if "Foundation" in job_type else 4
+
     return f"""#!/bin/bash
-#SBATCH --job-name=exp2_gpu{batch_id}
-#SBATCH --cluster="genius"
-#SBATCH --account="lp_verbekelab"
-#SBATCH --nodes="1"
-#SBATCH --output=results/experiment2/logs/slurm/gpu{batch_id}_%A_%a.out
-#SBATCH --error=results/experiment2/logs/slurm/gpu{batch_id}_%A_%a.err
-#SBATCH --time=48:00:00
+#SBATCH --job-name=exp2_{job_type.lower()}{batch_id}
+#SBATCH --cluster={cluster}
+#SBATCH --account=lp_verbekelab
+#SBATCH --nodes=1
+#SBATCH --output=results/experiment2/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.out
+#SBATCH --error=results/experiment2/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.err
+#SBATCH --time={time_limit}
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task={cpus}
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=64G
-#SBATCH --partition=gpu_h100
+#SBATCH --mem={memory}
+#SBATCH --partition={partition}
 #SBATCH --array={array_range}
 
 # ---------------------------------------------------------
-# EXPERIMENT 2: LEARNING CURVE ANALYSIS
+# EXPERIMENT 2: LEARNING CURVE ANALYSIS - {job_type.upper()} GPU
 # BATCH {batch_id}: Tasks {start_task}-{end_task-1}
 # ---------------------------------------------------------
+# Cluster: {cluster} | Partition: {partition} | Memory: {memory}
 # Each task runs a learning curve for ONE method + ONE dataset
 # Loop over row_limits happens inside Python
 # ---------------------------------------------------------
@@ -86,12 +117,15 @@ export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIB
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 2 - LEARNING CURVE - GPU - BATCH {batch_id}"
+echo "EXPERIMENT 2 - LEARNING CURVE - {job_type.upper()} GPU - BATCH {batch_id}"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Batch:        {batch_id}"
 echo "Task offset:  {start_task}"
+echo "Cluster:      {cluster}"
+echo "Partition:    {partition}"
+echo "Memory:       {memory}"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "=========================================="
@@ -100,7 +134,14 @@ echo "=========================================="
 GLOBAL_TASK_ID=$((SLURM_ARRAY_TASK_ID + {start_task}))
 
 # Run GPU orchestrator with global task ID
-python -u scripts/Experiment2/Experiment2_GPU.py --array_id=$GLOBAL_TASK_ID --verbose
+python -u scripts/Experiment2/{orchestrator_script} --array_id=$GLOBAL_TASK_ID --verbose
+
+# Exit status
+EXIT_CODE=$?
+echo "=========================================="
+echo "Task completed with exit code: $EXIT_CODE"
+echo "=========================================="
+exit $EXIT_CODE
 """
 
 
@@ -116,8 +157,9 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 
     return f"""#!/bin/bash
 #SBATCH --job-name=exp2_cpu{batch_id}
-#SBATCH --cluster="genius"
-#SBATCH --account="lp_verbekelab"
+#SBATCH --cluster=genius
+#SBATCH --account=lp_verbekelab
+#SBATCH --nodes=1
 #SBATCH --output=results/experiment2/logs/slurm/cpu{batch_id}_%A_%a.out
 #SBATCH --error=results/experiment2/logs/slurm/cpu{batch_id}_%A_%a.err
 #SBATCH --time=72:00:00
@@ -128,9 +170,10 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 #SBATCH --array={array_range}
 
 # ---------------------------------------------------------
-# EXPERIMENT 2: LEARNING CURVE ANALYSIS
+# EXPERIMENT 2: LEARNING CURVE ANALYSIS - CPU
 # BATCH {batch_id}: Tasks {start_task}-{end_task-1}
 # ---------------------------------------------------------
+# Cluster: genius | Partition: batch | Memory: 40G
 # Each task runs a learning curve for ONE method + ONE dataset
 # Loop over row_limits happens inside Python
 # ---------------------------------------------------------
@@ -164,6 +207,13 @@ GLOBAL_TASK_ID=$((SLURM_ARRAY_TASK_ID + {start_task}))
 
 # Run CPU orchestrator with global task ID
 python -u scripts/Experiment2/Experiment2_CPU.py --array_id=$GLOBAL_TASK_ID --verbose
+
+# Exit status
+EXIT_CODE=$?
+echo "=========================================="
+echo "Task completed with exit code: $EXIT_CODE"
+echo "=========================================="
+exit $EXIT_CODE
 """
 
 
@@ -180,19 +230,33 @@ def count_tasks_exp2(methods, datasets):
     return len(methods) * len(datasets)
 
 
-def generate_batched_slurm_files(total_tasks, script_generator, prefix, scripts_dir, max_concurrent):
+def generate_batched_slurm_files_gpu(
+    total_tasks: int,
+    prefix: str,
+    scripts_dir: Path,
+    max_concurrent: int,
+    cluster: str,
+    partition: str,
+    memory: str,
+    job_type: str,
+    orchestrator_script: str
+):
     """
-    Generate multiple SLURM files, each with max 400 tasks.
+    Generate multiple GPU SLURM files with parameterized hardware settings.
 
     Args:
         total_tasks: Total number of tasks
-        script_generator: Function to generate script content
-        prefix: Filename prefix ('Experiment2_GPU' or 'Experiment2_CPU')
+        prefix: Filename prefix (e.g., 'Experiment2_GPU_Standard')
         scripts_dir: Directory to save scripts
         max_concurrent: Max concurrent jobs
+        cluster: SLURM cluster
+        partition: SLURM partition
+        memory: Memory allocation
+        job_type: Job type label
+        orchestrator_script: Python script to run
 
     Returns:
-        List of generated filenames with task ranges
+        List of (filename, start_task, end_task) tuples
     """
     if total_tasks == 0:
         return []
@@ -205,7 +269,50 @@ def generate_batched_slurm_files(total_tasks, script_generator, prefix, scripts_
         end_task = min(start_task + MAX_TASKS_PER_SLURM, total_tasks)
 
         # Generate script content
-        script_content = script_generator(
+        script_content = generate_gpu_slurm_script(
+            batch_id=batch_id,
+            start_task=start_task,
+            end_task=end_task,
+            max_concurrent=max_concurrent,
+            cluster=cluster,
+            partition=partition,
+            memory=memory,
+            job_type=job_type,
+            orchestrator_script=orchestrator_script
+        )
+
+        # Write to file
+        filename = f"{prefix}{batch_id}.slurm"
+        filepath = scripts_dir / filename
+
+        with open(filepath, 'w', newline='\n') as f:
+            f.write(script_content)
+
+        filepath.chmod(0o755)
+        generated_files.append((filename, start_task, end_task))
+
+    return generated_files
+
+
+def generate_batched_slurm_files_cpu(total_tasks, prefix, scripts_dir, max_concurrent):
+    """
+    Generate multiple CPU SLURM files, each with max 400 tasks.
+
+    Returns:
+        List of (filename, start_task, end_task) tuples
+    """
+    if total_tasks == 0:
+        return []
+
+    n_batches = math.ceil(total_tasks / MAX_TASKS_PER_SLURM)
+    generated_files = []
+
+    for batch_id in range(n_batches):
+        start_task = batch_id * MAX_TASKS_PER_SLURM
+        end_task = min(start_task + MAX_TASKS_PER_SLURM, total_tasks)
+
+        # Generate script content
+        script_content = generate_cpu_slurm_script(
             batch_id=batch_id,
             start_task=start_task,
             end_task=end_task,
@@ -225,7 +332,14 @@ def generate_batched_slurm_files(total_tasks, script_generator, prefix, scripts_
     return generated_files
 
 
-def print_method_summary(gpu_methods, cpu_methods, pd_datasets, lgd_datasets, lc_config):
+def print_method_summary(
+    standard_gpu_methods,
+    foundation_gpu_methods,
+    cpu_methods,
+    pd_datasets,
+    lgd_datasets,
+    lc_config
+):
     """Print summary of methods, datasets, and learning curve config."""
 
     print(f"\n{'='*70}")
@@ -245,11 +359,15 @@ def print_method_summary(gpu_methods, cpu_methods, pd_datasets, lgd_datasets, lc
     print(f"  PD ({len(pd_datasets)}):  {', '.join(sorted(pd_datasets)[:5])}{'...' if len(pd_datasets) > 5 else ''}")
     print(f"  LGD ({len(lgd_datasets)}): {', '.join(sorted(lgd_datasets)[:5])}{'...' if len(lgd_datasets) > 5 else ''}")
 
-    print(f"\nGPU Methods ({len(gpu_methods)}):")
-    for i, method in enumerate(sorted(gpu_methods), 1):
+    print(f"\nStandard GPU Methods ({len(standard_gpu_methods)}) - genius/gpu_p100:")
+    for i, method in enumerate(sorted(standard_gpu_methods), 1):
         print(f"  {i:2d}. {method}")
 
-    print(f"\nCPU Methods ({len(cpu_methods)}):")
+    print(f"\nFoundation GPU Methods ({len(foundation_gpu_methods)}) - wICE/gpu_h100:")
+    for i, method in enumerate(sorted(foundation_gpu_methods), 1):
+        print(f"  {i:2d}. {method}")
+
+    print(f"\nCPU Methods ({len(cpu_methods)}) - genius/batch:")
     for i, method in enumerate(sorted(cpu_methods), 1):
         print(f"  {i:2d}. {method}")
 
@@ -278,31 +396,53 @@ def main():
         print("ERROR: No datasets enabled in config")
         sys.exit(1)
 
-    # Get enabled methods (filtered by GPU/CPU using method_config.py)
+    # Get enabled methods from config
     all_pd_methods = list(config['methods']['pd'].keys())
     all_lgd_methods = list(config['methods']['lgd'].keys())
 
-    gpu_pd_methods = [m for m in all_pd_methods if m in GPU_METHODS]
-    gpu_lgd_methods = [m for m in all_lgd_methods if m in GPU_METHODS]
+    # ==========================================
+    # SPLIT METHODS INTO THREE CATEGORIES
+    # ==========================================
 
+    # Standard GPU = GPU methods that are NOT foundation methods
+    standard_gpu_pd_methods = [m for m in all_pd_methods if m in GPU_METHODS and m not in FOUNDATION_METHODS]
+    standard_gpu_lgd_methods = [m for m in all_lgd_methods if m in GPU_METHODS and m not in FOUNDATION_METHODS]
+
+    # Foundation GPU = GPU methods that ARE foundation methods
+    foundation_gpu_pd_methods = [m for m in all_pd_methods if m in GPU_METHODS and m in FOUNDATION_METHODS]
+    foundation_gpu_lgd_methods = [m for m in all_lgd_methods if m in GPU_METHODS and m in FOUNDATION_METHODS]
+
+    # CPU methods
     cpu_pd_methods = [m for m in all_pd_methods if m in CPU_METHODS]
     cpu_lgd_methods = [m for m in all_lgd_methods if m in CPU_METHODS]
 
-    # Get unique method names
-    gpu_methods = set(gpu_pd_methods + gpu_lgd_methods)
+    # Get unique method names for summary
+    standard_gpu_methods = set(standard_gpu_pd_methods + standard_gpu_lgd_methods)
+    foundation_gpu_methods = set(foundation_gpu_pd_methods + foundation_gpu_lgd_methods)
     cpu_methods = set(cpu_pd_methods + cpu_lgd_methods)
 
-    if not gpu_methods and not cpu_methods:
+    if not standard_gpu_methods and not foundation_gpu_methods and not cpu_methods:
         print("ERROR: No methods enabled in config")
         sys.exit(1)
 
     # Print summary
-    print_method_summary(gpu_methods, cpu_methods, pd_datasets, lgd_datasets, lc_config)
+    print_method_summary(
+        standard_gpu_methods, foundation_gpu_methods, cpu_methods,
+        pd_datasets, lgd_datasets, lc_config
+    )
 
-    # Count tasks (no HPO variation for Experiment2)
-    n_gpu_tasks = (
-        count_tasks_exp2(gpu_pd_methods, pd_datasets) +
-        count_tasks_exp2(gpu_lgd_methods, lgd_datasets)
+    # ==========================================
+    # COUNT TASKS FOR EACH CATEGORY
+    # ==========================================
+
+    n_standard_gpu_tasks = (
+        count_tasks_exp2(standard_gpu_pd_methods, pd_datasets) +
+        count_tasks_exp2(standard_gpu_lgd_methods, lgd_datasets)
+    )
+
+    n_foundation_gpu_tasks = (
+        count_tasks_exp2(foundation_gpu_pd_methods, pd_datasets) +
+        count_tasks_exp2(foundation_gpu_lgd_methods, lgd_datasets)
     )
 
     n_cpu_tasks = (
@@ -311,15 +451,18 @@ def main():
     )
 
     # Determine concurrency (fewer concurrent jobs due to longer runtimes)
-    max_gpu_concurrent = min(12, n_gpu_tasks) if n_gpu_tasks > 0 else 1
+    max_standard_concurrent = min(12, n_standard_gpu_tasks) if n_standard_gpu_tasks > 0 else 1
+    max_foundation_concurrent = min(8, n_foundation_gpu_tasks) if n_foundation_gpu_tasks > 0 else 1
     max_cpu_concurrent = min(24, n_cpu_tasks) if n_cpu_tasks > 0 else 1
 
     print(f"{'='*70}")
     print("TASK COUNTS")
     print(f"{'='*70}")
-    print(f"GPU tasks:  {n_gpu_tasks:4d}")
-    print(f"CPU tasks:  {n_cpu_tasks:4d}")
-    print(f"Total:      {n_gpu_tasks + n_cpu_tasks:4d}")
+    print(f"Standard GPU tasks (genius/gpu_p100):    {n_standard_gpu_tasks:4d}")
+    print(f"Foundation GPU tasks (wICE/gpu_h100):    {n_foundation_gpu_tasks:4d}")
+    print(f"CPU tasks (genius/batch):                {n_cpu_tasks:4d}")
+    print(f"{'='*70}")
+    print(f"Total:                                   {n_standard_gpu_tasks + n_foundation_gpu_tasks + n_cpu_tasks:4d}")
     print(f"\nNote: Each task runs a learning curve (multiple row_limits)")
     print(f"      No HPO variation - all tasks use default parameters")
     print(f"\nBatching strategy: {MAX_TASKS_PER_SLURM} tasks per SLURM file (VSC limit workaround)")
@@ -334,71 +477,120 @@ def main():
     scripts_dir = PROJECT_ROOT / "scripts" / "Experiment2"
     scripts_dir.mkdir(exist_ok=True)
 
-    # Generate GPU scripts (batched)
-    gpu_files = generate_batched_slurm_files(
-        total_tasks=n_gpu_tasks,
-        script_generator=generate_gpu_slurm_script,
-        prefix="Experiment2_GPU",
+    # ==========================================
+    # GENERATE STANDARD GPU SCRIPTS (genius/gpu_p100)
+    # ==========================================
+    standard_gpu_files = generate_batched_slurm_files_gpu(
+        total_tasks=n_standard_gpu_tasks,
+        prefix="Experiment2_GPU_Standard",
         scripts_dir=scripts_dir,
-        max_concurrent=max_gpu_concurrent
+        max_concurrent=max_standard_concurrent,
+        cluster="genius",
+        partition="gpu_p100",
+        memory="45G",
+        job_type="Standard",
+        orchestrator_script="Experiment2_GPU_Standard.py"
     )
 
-    if gpu_files:
-        print(f"\nGenerated {len(gpu_files)} GPU batch script(s):")
-        for filename, start, end in gpu_files:
+    if standard_gpu_files:
+        print(f"\nGenerated {len(standard_gpu_files)} Standard GPU batch script(s) [genius/gpu_p100]:")
+        for filename, start, end in standard_gpu_files:
             print(f"  - {filename} (tasks {start}-{end-1})")
 
-    # Generate CPU scripts (batched)
-    cpu_files = generate_batched_slurm_files(
+    # ==========================================
+    # GENERATE FOUNDATION GPU SCRIPTS (wICE/gpu_h100)
+    # ==========================================
+    foundation_gpu_files = generate_batched_slurm_files_gpu(
+        total_tasks=n_foundation_gpu_tasks,
+        prefix="Experiment2_GPU_Foundation",
+        scripts_dir=scripts_dir,
+        max_concurrent=max_foundation_concurrent,
+        cluster="wice",
+        partition="gpu_h100",
+        memory="64G",
+        job_type="Foundation",
+        orchestrator_script="Experiment2_GPU_Foundation.py"
+    )
+
+    if foundation_gpu_files:
+        print(f"\nGenerated {len(foundation_gpu_files)} Foundation GPU batch script(s) [wICE/gpu_h100]:")
+        for filename, start, end in foundation_gpu_files:
+            print(f"  - {filename} (tasks {start}-{end-1})")
+
+    # ==========================================
+    # GENERATE CPU SCRIPTS (genius/batch)
+    # ==========================================
+    cpu_files = generate_batched_slurm_files_cpu(
         total_tasks=n_cpu_tasks,
-        script_generator=generate_cpu_slurm_script,
         prefix="Experiment2_CPU",
         scripts_dir=scripts_dir,
         max_concurrent=max_cpu_concurrent
     )
 
     if cpu_files:
-        print(f"\nGenerated {len(cpu_files)} CPU batch script(s):")
+        print(f"\nGenerated {len(cpu_files)} CPU batch script(s) [genius/batch]:")
         for filename, start, end in cpu_files:
             print(f"  - {filename} (tasks {start}-{end-1})")
 
+    # ==========================================
+    # PRINT SUBMISSION INSTRUCTIONS
+    # ==========================================
     print(f"\n{'='*70}")
     print("SETUP COMPLETE")
     print(f"{'='*70}\n")
 
     print("Next Steps:\n")
 
-    # GPU submission instructions
-    if gpu_files:
-        print(f"  1. Submit GPU jobs sequentially:\n")
-        for filename, _, _ in gpu_files:
+    step_num = 1
+
+    # Standard GPU submission instructions
+    if standard_gpu_files:
+        print(f"  {step_num}. Submit Standard GPU jobs (genius cluster):\n")
+        for filename, _, _ in standard_gpu_files:
             print(f"     sbatch scripts/Experiment2/{filename}")
         print()
+        step_num += 1
+
+    # Foundation GPU submission instructions
+    if foundation_gpu_files:
+        print(f"  {step_num}. Submit Foundation GPU jobs (wICE cluster):\n")
+        for filename, _, _ in foundation_gpu_files:
+            print(f"     sbatch scripts/Experiment2/{filename}")
+        print()
+        step_num += 1
 
     # CPU submission instructions
     if cpu_files:
-        print(f"  2. Submit CPU jobs sequentially:\n")
+        print(f"  {step_num}. Submit CPU jobs (genius cluster):\n")
         for filename, _, _ in cpu_files:
             print(f"     sbatch scripts/Experiment2/{filename}")
         print()
+        step_num += 1
 
     # Submission script suggestion
-    if len(gpu_files) + len(cpu_files) > 2:
+    all_files = standard_gpu_files + foundation_gpu_files + cpu_files
+    if len(all_files) > 2:
         print(f"  TIP: Create a submission script:\n")
         print(f"     cat > submit_all_exp2.sh << 'EOF'")
         print(f"     #!/bin/bash")
-        for filename, _, _ in gpu_files:
+        print(f"     # Standard GPU (genius cluster)")
+        for filename, _, _ in standard_gpu_files:
             print(f"     sbatch scripts/Experiment2/{filename}")
+        print(f"     # Foundation GPU (wICE cluster)")
+        for filename, _, _ in foundation_gpu_files:
+            print(f"     sbatch scripts/Experiment2/{filename}")
+        print(f"     # CPU (genius cluster)")
         for filename, _, _ in cpu_files:
             print(f"     sbatch scripts/Experiment2/{filename}")
         print(f"     EOF")
         print(f"     chmod +x submit_all_exp2.sh")
         print(f"     ./submit_all_exp2.sh\n")
 
-    print(f"  3. Monitor:")
+    print(f"  {step_num}. Monitor:")
     print(f"     squeue -u $USER\n")
+    step_num += 1
 
-    print(f"  4. Check results:")
+    print(f"  {step_num}. Check results:")
     print(f"     ls results/experiment2/pd/*.pkl | wc -l")
     print(f"     ls results/experiment2/lgd/*.pkl | wc -l\n")
 
