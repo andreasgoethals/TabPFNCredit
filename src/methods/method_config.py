@@ -310,19 +310,30 @@ REQUIRES_NO_NUM_ENCODING: MethodSet = {
 # Dataset Size Constraints
 # -----------------------------------------------------------------------------
 
-# Methods with inherent architectural row limits
+# Methods with inherent architectural row limits (applied to TRAINING set)
 METHOD_ROW_LIMITS = {
     # --- Foundation Models (In-Context Learning) ---
     'tabpfn': 5000,       # Original v1 (Context ~2-4k tokens)
     'tabpfn_v2': 30_000,    # Standard v2 base model (Safe limit)
     'tabpfn_real': 30_000,  # v2.5 "Real" mode (Explicitly designed for 50k)
-    
+
     'mitra': 5_000,        # Standard Transformer context window
     'tabicl': 50_000,       # Uses retrieval/kernel-attention for larger context
-    
+
     # --- Deep Learning (Complexity Constraints) ---
     'amformer': 100_000,    # VSC Memory constraint (O(N^2) attention)
     'tangos': 100_000,      # VSC Memory constraint
+}
+
+# Limits for Validation and Test sets to prevent OOM during inference
+# Foundation models use in-context learning and need to load entire datasets
+# into GPU memory, causing OOM on large validation/test sets.
+# Mitra is excluded because it handles larger inference sets differently.
+METHOD_TEST_VAL_LIMITS = {
+    'tabpfn': 2048,        # TabPFN v1: Limited context window
+    'tabpfn_v2': 4096,     # TabPFN v2: Larger but still constrained
+    'tabpfn_real': 4096,   # TabPFN v2.5 "Real" mode
+    'tabicl': 2048,        # TabICL: In-context learning constraint
 }
 
 

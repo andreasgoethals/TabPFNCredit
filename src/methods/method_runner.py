@@ -88,6 +88,9 @@ from TALENT.model.utils import (
     tune_hyper_parameters,  
 )
 
+# Sklearn import for stratified sampling
+from sklearn.model_selection import StratifiedShuffleSplit
+
 # Local imports
 from src.data.data_feeder import DataFeeder
 from src.methods.method_config import (
@@ -97,6 +100,7 @@ from src.methods.method_config import (
     LOGIT_METHODS,
     PROBABILITY_METHODS,
     METHOD_ROW_LIMITS,
+    METHOD_TEST_VAL_LIMITS,
     REQUIRES_CAT_INDICES,
     REQUIRES_CAT_TABR_OHE,
     REQUIRES_CAT_OHE,
@@ -557,21 +561,21 @@ def _silence(enabled: bool = True):
 def _suppress_all_output(enabled: bool = True):
     """
     Completely suppress all output including print statements, progress bars, and warnings.
-    
+
     More aggressive than _silence(). Redirects to devnull.
     Used during model training and HPO when verbose=False.
-    
+
     Args:
         enabled: If True, suppress output. If False, leave output as is.
     """
     if not enabled:
         yield
         return
-    
+
     old_stdout = sys.stdout
     old_stderr = sys.stderr
     devnull = open(os.devnull, 'w')
-    
+
     try:
         sys.stdout = devnull
         sys.stderr = devnull
@@ -582,6 +586,138 @@ def _suppress_all_output(enabled: bool = True):
         devnull.close()
         sys.stdout = old_stdout
         sys.stderr = old_stderr
+
+
+def _downsample_split_stratified(
+    N: Optional[np.ndarray],
+    C: Optional[np.ndarray],
+    y: np.ndarray,
+    limit: int,
+    is_classification: bool,
+    seed: int
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], np.ndarray]:
+    """
+    Downsample a data split (validation or test) to a maximum size.
+
+    Uses stratified sampling for classification tasks to preserve class distribution.
+    Uses random sampling for regression tasks (LGD).
+
+    Args:
+        N: Numerical features array (n_samples, n_num_features) or None
+        C: Categorical features array (n_samples, n_cat_features) or None
+        y: Target array (n_samples,)
+        limit: Maximum number of samples to keep
+        is_classification: If True, use stratified sampling; else random sampling
+        seed: Random seed for reproducibility
+
+    Returns:
+        Tuple of (N_downsampled, C_downsampled, y_downsampled)
+    """
+    n_samples = len(y)
+
+    if n_samples <= limit:
+        # No downsampling needed
+        return N, C, y
+
+    if is_classification:
+        # Use stratified sampling to preserve class distribution
+        # StratifiedShuffleSplit with train_size=limit gives us exactly 'limit' samples
+        # with the same class proportions as the original
+        sss = StratifiedShuffleSplit(n_splits=1, train_size=limit, random_state=seed)
+
+        # Get indices of samples to keep
+        indices, _ = next(sss.split(np.zeros(n_samples), y))
+    else:
+        # For regression (LGD), use random sampling
+        rng = np.random.default_rng(seed)
+        indices = rng.choice(n_samples, size=limit, replace=False)
+        indices = np.sort(indices)  # Keep order for reproducibility
+
+    # Apply downsampling
+    N_new = N[indices] if N is not None else None
+    C_new = C[indices] if C is not None else None
+    y_new = y[indices]
+
+    return N_new, C_new, y_new
+
+
+def _apply_test_val_limits(
+    N: Dict[str, Optional[np.ndarray]],
+    C: Dict[str, Optional[np.ndarray]],
+    y: Dict[str, np.ndarray],
+    method: str,
+    is_classification: bool,
+    seed: int,
+    verbose: bool = False
+) -> Tuple[Dict, Dict, Dict, Dict[str, int]]:
+    """
+    Apply validation and test set size limits for foundation models.
+
+    Foundation models (TabPFN, TabICL, etc.) can run OOM during inference if
+    validation/test sets are too large. This function caps these sets using
+    stratified sampling to preserve class distribution.
+
+    Args:
+        N: Dict of numerical features {'train': ..., 'val': ..., 'test': ...}
+        C: Dict of categorical features {'train': ..., 'val': ..., 'test': ...}
+        y: Dict of targets {'train': ..., 'val': ..., 'test': ...}
+        method: Method name (e.g., 'tabpfn', 'tabpfn_v2')
+        is_classification: If True (PD task), use stratified sampling
+        seed: Random seed for reproducibility
+        verbose: Whether to print downsampling info
+
+    Returns:
+        Tuple of (N_new, C_new, y_new, stats_dict)
+        stats_dict contains {'val_original': ..., 'val_downsampled': ...,
+                            'test_original': ..., 'test_downsampled': ...}
+    """
+    # Check if method has test/val limits
+    if method not in METHOD_TEST_VAL_LIMITS:
+        return N, C, y, {}
+
+    limit = METHOD_TEST_VAL_LIMITS[method]
+    stats = {}
+
+    # Create new dicts to avoid modifying originals
+    N_new = dict(N) if N is not None else {'train': None, 'val': None, 'test': None}
+    C_new = dict(C) if C is not None else {'train': None, 'val': None, 'test': None}
+    y_new = dict(y)
+
+    # Downsample validation set if needed
+    val_original = len(y['val'])
+    if val_original > limit:
+        N_val = N['val'] if N is not None else None
+        C_val = C['val'] if C is not None else None
+
+        N_new['val'], C_new['val'], y_new['val'] = _downsample_split_stratified(
+            N_val, C_val, y['val'], limit, is_classification, seed
+        )
+
+        stats['val_original'] = val_original
+        stats['val_downsampled'] = len(y_new['val'])
+
+        if verbose:
+            sampling_type = "stratified" if is_classification else "random"
+            print(f"\n[VAL LIMIT] {method}: Downsampled validation set from {val_original:,} to {limit:,} ({sampling_type})")
+
+    # Downsample test set if needed
+    test_original = len(y['test'])
+    if test_original > limit:
+        N_test = N['test'] if N is not None else None
+        C_test = C['test'] if C is not None else None
+
+        N_new['test'], C_new['test'], y_new['test'] = _downsample_split_stratified(
+            N_test, C_test, y['test'], limit, is_classification, seed + 1  # Different seed for test
+        )
+
+        stats['test_original'] = test_original
+        stats['test_downsampled'] = len(y_new['test'])
+
+        if verbose:
+            sampling_type = "stratified" if is_classification else "random"
+            print(f"[TEST LIMIT] {method}: Downsampled test set from {test_original:,} to {limit:,} ({sampling_type})")
+
+    return N_new, C_new, y_new, stats
 
 
 def _inject_configs(
@@ -1087,7 +1223,22 @@ def run_talent_method(
                     print(f"\n{'='*70}")
                     print(f"Fold {fold_id}/{len(folds)}")
                     print(f"{'='*70}")
-                
+
+                # ======================================================================
+                # APPLY TEST/VAL LIMITS FOR FOUNDATION MODELS
+                # ======================================================================
+                # Foundation models (TabPFN, TabICL, etc.) can OOM during inference
+                # if validation/test sets are too large. Apply stratified downsampling
+                # to cap these sets while preserving class distribution.
+                # ======================================================================
+                N, C, y, downsample_stats = _apply_test_val_limits(
+                    N, C, y,
+                    method=method,
+                    is_classification=not is_regression,
+                    seed=seed,
+                    verbose=verbose
+                )
+
                 # Get base arguments from TALENT
                 orig_argv = sys.argv.copy()
                 
