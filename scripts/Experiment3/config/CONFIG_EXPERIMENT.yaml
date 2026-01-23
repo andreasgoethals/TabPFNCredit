@@ -34,6 +34,6 @@ early_stopping_patience: 10       # Wait 10 epochs before stopping
 # NOTE: The sampling parameter in DataFeeder handles the actual resampling.
 #       It undersamples the majority class to achieve the target minority proportion.
 # -----------------------------------------------------------------------------
-minority_proportion_max: 0.50    # Upper bound (most balanced - 50/50 split)
-minority_proportion_min: 0.01    # Lower bound (highly imbalanced - 1% minority)
-minority_proportion_step: 0.05   # Step size for decreasing minority proportion
+minority_proportion_max: 0.10    # Upper bound (most balanced - 50/50 split)
+minority_proportion_min: 0.0025    # Lower bound (highly imbalanced - 1% minority)
+minority_proportion_step: 0.0025   # Step size for decreasing minority proportion

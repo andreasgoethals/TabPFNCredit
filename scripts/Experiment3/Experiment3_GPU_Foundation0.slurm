@@ -11,11 +11,11 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=64G
 #SBATCH --partition=gpu_h100
-#SBATCH --array=0-54%8
+#SBATCH --array=0-44%8
 
 # ---------------------------------------------------------
 # EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - FOUNDATION GPU
-# BATCH 0: Tasks 0-54
+# BATCH 0: Tasks 0-44
 # ---------------------------------------------------------
 # Cluster: wice | Partition: gpu_h100 | Memory: 64G
 # Each task runs an imbalance curve for ONE method + ONE dataset
