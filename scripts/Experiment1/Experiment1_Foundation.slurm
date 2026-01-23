@@ -35,8 +35,6 @@
 # ARRAY CONFIGURATION - REPAIR RUN
 # =============================================================================
 # Exactly 6 failed tasks to re-run (indices 0-5)
-# --exclusive ensures full node access to prevent GPU memory conflicts
-# --mem=0 requests all available memory on the node
 # =============================================================================
 #SBATCH --array=0-5
 
@@ -70,11 +68,11 @@ echo "EXPERIMENT 1 - REPAIR RUN (6 Failed Tasks)"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Node:         $SLURMD_NODENAME (EXCLUSIVE)"
+echo "Node:         $SLURMD_NODENAME"
 echo "Cluster:      $SLURM_CLUSTER_NAME"
 echo "Partition:    $SLURM_JOB_PARTITION"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
-echo "Memory:       ALL (--mem=0)"
+echo "Memory:       85G"
 echo "=========================================="
 echo "Fix: METHOD_TEST_VAL_LIMITS caps test/val sets"
 echo "=========================================="
