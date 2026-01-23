@@ -28,7 +28,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=64G
+#SBATCH --mem=85G
 #SBATCH --partition=gpu_h100
 
 # =============================================================================
@@ -39,7 +39,6 @@
 # --mem=0 requests all available memory on the node
 # =============================================================================
 #SBATCH --array=0-5
-#SBATCH --mem=0
 
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
