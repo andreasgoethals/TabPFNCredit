@@ -5,7 +5,7 @@ Summarize Results: Aggregate all experiment results into summary CSV files.
 This script reads all pickle result files from an experiment folder and creates
 clean summary CSV files containing only the metrics for each fold.
 
-Works for ALL experiments (Experiment0, Experiment1, Experiment2) automatically.
+Works for ALL experiments (Experiment0, Experiment1, Experiment2, Experiment3) automatically.
 
 Structure:
     Input:  results/{experiment}/pd/*.pkl and results/{experiment}/lgd/*.pkl
@@ -16,6 +16,8 @@ Pickle Structures Supported:
     - Experiment1: {hpo_mode: {method_name: {fold_id: {...}}}}
     - Experiment2: {row_limit: {method_name: {fold_id: {...}}}}  # Learning Curve
                    (row_limit replaces hpo_mode as first-level key)
+    - Experiment3: {minority_proportion: {method_name: {fold_id: {...}}}}  # Class Imbalance
+                   (minority_proportion replaces row_limit as first-level key)
 
 Output files:
     Standard experiments (0, 1):
@@ -36,11 +38,17 @@ Output files:
     - learning_curve_pd_{metric}.csv:  Learning curve data (method × row_limit)
     - learning_curve_lgd_{metric}.csv: Learning curve data (method × row_limit)
 
+    Class Imbalance experiments (3):
+    - summary_pd_raw.csv:                   All PD metrics per method, dataset, fold, minority_proportion
+    - summary_pd_aggregated.csv:            Mean +/- std across folds for each minority_proportion
+    - imbalance_curve_pd_{metric}.csv:      Imbalance curve data (method × minority_proportion)
+
 Usage:
     python src/utils/Summarize_Results.py
     python src/utils/Summarize_Results.py --experiment experiment0
     python src/utils/Summarize_Results.py --experiment experiment1
     python src/utils/Summarize_Results.py --experiment experiment2
+    python src/utils/Summarize_Results.py --experiment experiment3
 """
 
 import sys
@@ -173,6 +181,51 @@ def _is_learning_curve_structure(results: Dict[str, Any]) -> bool:
     return False
 
 
+def _is_class_imbalance_structure(results: Dict[str, Any]) -> bool:
+    """
+    Detect if results have Experiment3 class imbalance structure.
+
+    Class imbalance structure: {minority_proportion: {method_name: {fold_id: {...}}}}
+    where minority_proportion is a float key between 0 and 0.5.
+
+    This mirrors Experiment2's structure:
+        Experiment2: {row_limit: {method: {fold: {...}}}}  (row_limit is int >= 100)
+        Experiment3: {minority_proportion: {method: {fold: {...}}}}  (proportion is float 0-0.5)
+    """
+    if not results:
+        return False
+
+    # Check first top-level key
+    first_key = next(iter(results.keys()), None)
+
+    # If top-level keys are HPO modes, this is Experiment1
+    if first_key in ['NO_HPO', 'HPO']:
+        return False
+
+    # If top-level key is an integer >= 100, it's likely a row_limit (Experiment2)
+    if isinstance(first_key, int) and first_key >= 100:
+        return False
+
+    # If top-level key is a float between 0 and 0.5, it's likely a minority_proportion
+    if isinstance(first_key, float) and 0 <= first_key <= 0.5:
+        first_value = results.get(first_key)
+        if not isinstance(first_value, dict):
+            return False
+
+        # Check if second level has method names (strings)
+        second_keys = list(first_value.keys())
+        if second_keys and all(isinstance(k, str) for k in second_keys):
+            # Check third level for fold structure
+            second_value = first_value.get(second_keys[0])
+            if isinstance(second_value, dict):
+                third_keys = list(second_value.keys())
+                # Fold IDs are small integers (1-10 typically)
+                if third_keys and all(isinstance(k, int) and k < 100 for k in third_keys):
+                    return True
+
+    return False
+
+
 def process_dataset_results(
     results: Dict[str, Any],
     dataset: str,
@@ -181,13 +234,15 @@ def process_dataset_results(
     """
     Process results for a single dataset.
 
-    Handles three different pickle structures:
+    Handles four different pickle structures:
     1. Experiment0: {method_name: {fold_id: {...}}}
     2. Experiment1: {hpo_mode: {method_name: {fold_id: {...}}}}
     3. Experiment2: {row_limit: {method_name: {fold_id: {...}}}} (Learning Curve)
                    (row_limit replaces hpo_mode as first-level key)
+    4. Experiment3: {minority_proportion: {method_name: {fold_id: {...}}}} (Class Imbalance)
+                   (minority_proportion replaces row_limit as first-level key)
 
-    Returns a list of dictionaries, one per (method, fold, hpo_mode/row_limit) combination.
+    Returns a list of dictionaries, one per (method, fold, hpo_mode/row_limit/minority_proportion) combination.
     """
     rows = []
 
@@ -195,8 +250,34 @@ def process_dataset_results(
     top_keys = set(results.keys())
     has_hpo_structure = 'NO_HPO' in top_keys or 'HPO' in top_keys
     has_learning_curve_structure = _is_learning_curve_structure(results)
+    has_class_imbalance_structure = _is_class_imbalance_structure(results)
 
-    if has_learning_curve_structure:
+    if has_class_imbalance_structure:
+        # Experiment3 structure: {minority_proportion: {method: {fold: {...}}}}
+        # This mirrors Experiment2's {row_limit: {method: {fold: {...}}}}
+        for minority_proportion, prop_results in results.items():
+            if not isinstance(prop_results, dict):
+                continue
+
+            for method_name, method_results in prop_results.items():
+                if not isinstance(method_results, dict):
+                    continue
+
+                for fold_id, fold_data in method_results.items():
+                    if not isinstance(fold_data, dict):
+                        continue
+
+                    try:
+                        row = extract_fold_data(
+                            fold_data, method_name, dataset, task, 'NO_HPO', fold_id
+                        )
+                        # Add minority_proportion for class imbalance analysis
+                        row['minority_proportion'] = minority_proportion
+                        rows.append(row)
+                    except Exception as e:
+                        print(f"      Warning: Error extracting {method_name} minority_proportion={minority_proportion} fold {fold_id}: {e}")
+
+    elif has_learning_curve_structure:
         # Experiment2 structure: {row_limit: {method: {fold: {...}}}}
         # This mirrors Experiment1's {hpo_mode: {method: {fold: {...}}}}
         for row_limit, row_limit_results in results.items():
@@ -347,16 +428,22 @@ def identify_metric_columns(df: pd.DataFrame) -> List[str]:
     return sorted(metric_cols)
 
 
-def aggregate_results(df: pd.DataFrame, is_learning_curve: bool = False) -> pd.DataFrame:
+def aggregate_results(
+    df: pd.DataFrame,
+    is_learning_curve: bool = False,
+    is_class_imbalance: bool = False
+) -> pd.DataFrame:
     """
     Aggregate fold results: compute mean +/- std for each group.
 
     For standard experiments: Group by (method, dataset, hpo_mode)
     For learning curve: Group by (method, dataset, row_limit)
+    For class imbalance: Group by (method, dataset, minority_proportion)
 
     Args:
         df: Raw DataFrame with per-fold results
         is_learning_curve: If True, group by row_limit instead of hpo_mode
+        is_class_imbalance: If True, group by minority_proportion instead of hpo_mode
 
     Returns:
         Aggregated DataFrame
@@ -372,7 +459,9 @@ def aggregate_results(df: pd.DataFrame, is_learning_curve: bool = False) -> pd.D
     numeric_cols = [c for c in numeric_cols if c in df.columns]
 
     # Group by appropriate columns
-    if is_learning_curve and 'row_limit' in df.columns:
+    if is_class_imbalance and 'minority_proportion' in df.columns:
+        group_cols = ['method', 'dataset', 'minority_proportion', 'task']
+    elif is_learning_curve and 'row_limit' in df.columns:
         group_cols = ['method', 'dataset', 'row_limit', 'task']
     else:
         group_cols = ['method', 'dataset', 'hpo_mode', 'task']
@@ -458,6 +547,59 @@ def create_learning_curve_table(
     return pivot
 
 
+def create_imbalance_curve_table(
+    agg_df: pd.DataFrame,
+    metric: str,
+    dataset: str = None
+) -> pd.DataFrame:
+    """
+    Create an imbalance curve table: methods (rows) x minority_proportions (columns).
+
+    Args:
+        agg_df: Aggregated DataFrame with minority_proportion column
+        metric: Metric to use (e.g., 'AUC', 'F1')
+        dataset: Optional filter for specific dataset
+
+    Returns:
+        DataFrame with methods as rows, minority_proportions as columns
+    """
+    if agg_df.empty or 'minority_proportion' not in agg_df.columns:
+        return pd.DataFrame()
+
+    mean_col = f'{metric}_mean'
+    if mean_col not in agg_df.columns:
+        return pd.DataFrame()
+
+    df = agg_df.copy()
+
+    # Filter by dataset if specified
+    if dataset is not None:
+        df = df[df['dataset'] == dataset]
+
+    if df.empty:
+        return pd.DataFrame()
+
+    # Create pivot: methods x minority_proportions
+    pivot = df.pivot_table(
+        index='method',
+        columns='minority_proportion',
+        values=mean_col,
+        aggfunc='mean'  # Average across datasets if not filtered
+    )
+
+    # Sort columns (minority_proportions) in descending order (most balanced first)
+    pivot = pivot[sorted(pivot.columns, reverse=True)]
+
+    # Add summary column (mean across all proportions)
+    pivot['MEAN'] = pivot.mean(axis=1)
+
+    # Sort by mean performance (higher is better for most classification metrics)
+    sort_ascending = metric in ['LogLoss', 'Brier']
+    pivot = pivot.sort_values('MEAN', ascending=sort_ascending)
+
+    return pivot
+
+
 def create_pivot_table(
     agg_df: pd.DataFrame,
     metric: str,
@@ -532,7 +674,7 @@ def summarize_results(experiment: str = "experiment1") -> None:
     Main function to summarize all experiment results.
 
     Args:
-        experiment: Name of experiment folder (e.g., 'experiment0', 'experiment1', 'experiment2')
+        experiment: Name of experiment folder (e.g., 'experiment0', 'experiment1', 'experiment2', 'experiment3')
     """
 
     # Determine paths
@@ -540,12 +682,15 @@ def summarize_results(experiment: str = "experiment1") -> None:
     experiment_dir = results_dir / experiment
     summary_dir = experiment_dir / "summary"
 
-    # Detect if this is a learning curve experiment
+    # Detect if this is a learning curve or class imbalance experiment
     is_learning_curve = experiment.lower() == 'experiment2'
+    is_class_imbalance = experiment.lower() == 'experiment3'
 
     print("=" * 80)
     if is_learning_curve:
         print(f"  SUMMARIZING RESULTS: {experiment.upper()} (LEARNING CURVE)")
+    elif is_class_imbalance:
+        print(f"  SUMMARIZING RESULTS: {experiment.upper()} (CLASS IMBALANCE)")
     else:
         print(f"  SUMMARIZING RESULTS: {experiment.upper()}")
     print("=" * 80)
@@ -589,8 +734,9 @@ def summarize_results(experiment: str = "experiment1") -> None:
             continue
         # =================================================================
 
-        # Detect if data has learning curve structure
+        # Detect if data has learning curve or class imbalance structure
         has_row_limit = 'row_limit' in raw_df.columns
+        has_minority_proportion = 'minority_proportion' in raw_df.columns
 
         # Print summary statistics
         n_methods = raw_df['method'].nunique()
@@ -602,7 +748,10 @@ def summarize_results(experiment: str = "experiment1") -> None:
         print(f"     - Datasets: {n_datasets}")
         print(f"     - Total fold results: {n_folds_total}")
 
-        if has_row_limit:
+        if has_minority_proportion:
+            proportions = sorted(raw_df['minority_proportion'].unique(), reverse=True)
+            print(f"     - Minority proportions: {len(proportions)} ({max(proportions):.2f} -> {min(proportions):.2f})")
+        elif has_row_limit:
             row_limits = sorted(raw_df['row_limit'].unique(), reverse=True)
             print(f"     - Row limits: {len(row_limits)} ({max(row_limits):,} -> {min(row_limits):,})")
         else:
@@ -621,7 +770,11 @@ def summarize_results(experiment: str = "experiment1") -> None:
         print(f"\n  Saved: {raw_file.name} ({len(raw_df)} rows)")
 
         # Aggregate results
-        agg_df = aggregate_results(raw_df, is_learning_curve=has_row_limit)
+        agg_df = aggregate_results(
+            raw_df,
+            is_learning_curve=has_row_limit,
+            is_class_imbalance=has_minority_proportion
+        )
 
         if not agg_df.empty:
             agg_file = summary_dir / f"summary_{task}_aggregated.csv"
@@ -634,7 +787,8 @@ def summarize_results(experiment: str = "experiment1") -> None:
             'n_datasets': n_datasets,
             'n_results': n_folds_total,
             'metrics': available_metrics,
-            'is_learning_curve': has_row_limit
+            'is_learning_curve': has_row_limit,
+            'is_class_imbalance': has_minority_proportion
         }
 
         # Create pivot tables for key metrics
@@ -647,7 +801,31 @@ def summarize_results(experiment: str = "experiment1") -> None:
             print(f"\n  Warning: No key metrics found for {task.upper()}")
             continue
 
-        if has_row_limit:
+        if has_minority_proportion:
+            # Class imbalance: Create imbalance curve tables
+            print(f"\n  Creating imbalance curve tables for: {', '.join(key_metrics)}")
+
+            for metric in key_metrics:
+                # Overall imbalance curve (averaged across all datasets)
+                ic_df = create_imbalance_curve_table(agg_df, metric)
+
+                if not ic_df.empty:
+                    ic_file = summary_dir / f"imbalance_curve_{task}_{metric}.csv"
+                    ic_df.to_csv(ic_file, float_format='%.4f')
+                    n_proportions = len([c for c in ic_df.columns if c != 'MEAN'])
+                    print(f"    Saved: {ic_file.name} ({len(ic_df)} methods x {n_proportions} proportions)")
+
+                # Per-dataset imbalance curves
+                datasets = agg_df['dataset'].unique()
+                if len(datasets) > 1:
+                    for dataset in sorted(datasets)[:3]:  # Limit to first 3 for brevity
+                        ic_ds_df = create_imbalance_curve_table(agg_df, metric, dataset=dataset)
+                        if not ic_ds_df.empty:
+                            safe_dataset = dataset.replace('.', '_')
+                            ic_ds_file = summary_dir / f"imbalance_curve_{task}_{metric}_{safe_dataset}.csv"
+                            ic_ds_df.to_csv(ic_ds_file, float_format='%.4f')
+
+        elif has_row_limit:
             # Learning curve: Create learning curve tables
             print(f"\n  Creating learning curve tables for: {', '.join(key_metrics)}")
 
@@ -697,7 +875,9 @@ def summarize_results(experiment: str = "experiment1") -> None:
         print(f"    - {summary['n_datasets']} datasets")
         print(f"    - {summary['n_results']} total results")
         print(f"    - {len(summary['metrics'])} metrics")
-        if summary.get('is_learning_curve'):
+        if summary.get('is_class_imbalance'):
+            print(f"    - Class imbalance analysis")
+        elif summary.get('is_learning_curve'):
             print(f"    - Learning curve analysis")
 
     print(f"\n  All files saved to: {summary_dir}")
@@ -714,6 +894,7 @@ Examples:
     python src/utils/Summarize_Results.py --experiment experiment0
     python src/utils/Summarize_Results.py --experiment experiment1
     python src/utils/Summarize_Results.py -e experiment2
+    python src/utils/Summarize_Results.py -e experiment3
         """
     )
     

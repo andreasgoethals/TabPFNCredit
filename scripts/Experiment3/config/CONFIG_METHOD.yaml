@@ -1,0 +1,129 @@
+# ============================================================
+# CONFIG_METHOD.yaml - EXPERIMENT 3: CLASS IMBALANCE ANALYSIS
+# ============================================================
+# This configuration file controls which models are included in
+# the class imbalance experiment for PD (classification) tasks.
+#
+# - Set each method to true to include it in the benchmark.
+# - Set to false to exclude it.
+# - This configuration file uses TALENT's canonical model names.
+#
+# NOTE: Experiment 3 focuses on how models handle varying levels
+# of class imbalance. Only PD (classification) methods are relevant.
+# ============================================================
+
+methods:
+
+  # ----------------------------------------------------------
+  # Probability of Default (PD) - Classification Methods
+  # ----------------------------------------------------------
+  pd:
+    # -----------------------------
+    # Classical Machine Learning
+    # -----------------------------
+    catboost: true        # CatBoost
+    knn: false            # K-Nearest Neighbors
+    lightgbm: true        # LightGBM
+    LogReg: true          # Logistic Regression
+    NaiveBayes: false     # Naive Bayes
+    RandomForest: false   # Random Forest
+    svm: false            # Support Vector Machine
+    xgboost: true         # Extreme Gradient Boosting
+    NCM: false            # Nearest Class Mean
+    dummy: false          # Dummy baseline classifier
+
+    # -----------------------------
+    # Deep / Neural / Transformer-based Methods
+    # -----------------------------
+
+    # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
+    tabpfn: true          # TabPFN v1 (classification)
+    tabpfn_v2: true       # TabPFN v2 (classification)
+    tabpfn_real: true     # TabPFN Real
+    tabicl: true          # TabICL
+    tabptm: false         # TabPTM
+    mitra: true           # MITRA
+    hyperfast: false      # HyperFast
+
+    # 2. Transformer-based Architectures
+    ftt: true             # Feature Tokenizer Transformer
+    saint: false          # SAINT (Self-Attention and Intersample Attention Transformer)
+    tabtransformer: false # TabTransformer
+    autoint: false        # AutoInt
+    excelformer: false    # ExcelFormer
+    amformer: false       # AMFormer
+    trompt: false         # TROMPT
+    t2gformer: false      # T2G-Former
+    ptarl: false          # PTARL
+
+    # 3. MLP-based & ResNet Variants
+    mlp: false            # Multilayer Perceptron
+    resnet: false         # ResNet
+    snn: false            # Self-Normalizing Neural Networks
+    realmlp: false        # RealMLP
+    mlp_plr: false        # MLP-PLR
+    danets: false         # DANets
+    switchtab: false      # SwitchTab
+
+    # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
+    tabnet: false         # TabNet
+    node: false           # Neural Oblivious Decision Ensembles
+    grownet: false        # GrowNet
+    dcn2: false           # Deep & Cross Network v2
+    tabm: false           # TabM
+
+    # 5. Specialized & Advanced Architectures
+    tabcaps: false        # TabCaps
+    tangos: false         # TANGOS
+    modernNCA: false      # ModernNCA
+    bishop: false         # BISHOP
+    protogate: false      # ProtoGate
+    tabautopnpnet: false  # TabAuto-PNPNet
+    tabr: false           # TabR
+    limix: false          # LiMiX
+
+  # ----------------------------------------------------------
+  # Loss Given Default (LGD) - Regression Methods
+  # ----------------------------------------------------------
+  # NOTE: LGD methods are disabled for Experiment 3 because
+  # class imbalance analysis only applies to classification tasks.
+  # ----------------------------------------------------------
+  lgd:
+    # All LGD methods disabled for class imbalance experiment
+    catboost: false
+    knn: false
+    lightgbm: false
+    LinearRegression: false
+    RandomForest: false
+    xgboost: false
+    svm: false
+    tabpfn_v2: false
+    tabptm: false
+    mitra: false
+    ftt: false
+    saint: false
+    tabtransformer: false
+    autoint: false
+    excelformer: false
+    amformer: false
+    trompt: false
+    t2gformer: false
+    ptarl: false
+    mlp: false
+    resnet: false
+    snn: false
+    realmlp: false
+    mlp_plr: false
+    danets: false
+    switchtab: false
+    tabnet: false
+    node: false
+    grownet: false
+    dcn2: false
+    tabm: false
+    tangos: false
+    modernNCA: false
+    bishop: false
+    tabautopnpnet: false
+    dnnr: false
+    limix: false
