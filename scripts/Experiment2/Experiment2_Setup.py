@@ -72,7 +72,7 @@ def generate_gpu_slurm_script(
         array_range = f"0-{n_tasks-1}%{max_concurrent}"
 
     # Use longer time for foundation models (they're slower)
-    time_limit = "96:00:00" if "Foundation" in job_type else "72:00:00"
+    time_limit = "48:00:00" 
     cpus = 8 if "Foundation" in job_type else 4
 
     return f"""#!/bin/bash
