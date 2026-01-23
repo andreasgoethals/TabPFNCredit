@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """
-Foundation Model Orchestrator: Re-run foundation models on high-memory GPUs
+Foundation Model Orchestrator: REPAIR RUN for failed foundation model tasks
 
-This script is a specialized version of Experiment1_GPU.py designed to re-run
-only the foundation models that failed on standard GPUs due to memory limits.
+This script re-runs ONLY the specific foundation model tasks that failed due to
+OOM errors during inference. The underlying issue (test/val set size limits)
+has been fixed in method_runner.py with METHOD_TEST_VAL_LIMITS.
 
-Target Methods:
-    - tabpfn, tabpfn_v2, tabpfn_real
-    - mitra, tabicl
-
-These methods require high-memory GPUs (H100/A100 with 64GB+ RAM) due to their
-in-context learning architecture that loads entire datasets into memory.
+REPAIR RUN: 6 specific failed tasks (hardcoded)
+    - 0007.hackerearth / tabpfn / PD / NO_HPO
+    - 0007.hackerearth / tabpfn_v2 / PD / NO_HPO
+    - 0007.hackerearth / tabpfn_real / PD / NO_HPO
+    - 0012.loan_default / mitra / PD / NO_HPO
+    - 0013.home_credit / mitra / PD / NO_HPO
+    - 0013.home_credit / tabicl / PD / NO_HPO
 
 Usage:
     # Array-based execution (for SLURM array jobs)
     python Experiment1_Foundation.py --array_id 0
 
     # Direct task specification (for retries)
-    python Experiment1_Foundation.py --dataset 0001.gmsc --method tabpfn_v2 --task_type pd --hpo_mode NO_HPO
+    python Experiment1_Foundation.py --dataset 0007.hackerearth --method tabpfn --task_type pd --hpo_mode NO_HPO
 
 Supports both array-based execution and direct task specification.
 """
@@ -49,37 +51,39 @@ FOUNDATION_METHODS = {
 }
 
 
+# =============================================================================
+# HARDCODED REPAIR RUN LIST - 6 Failed Tasks
+# =============================================================================
+# These specific tasks failed with OOM errors during inference.
+# The fix: METHOD_TEST_VAL_LIMITS in method_config.py caps test/val sets.
+#
+# Format: (dataset, method, task_type, hpo_mode)
+# =============================================================================
+
+FAILED_TASKS = [
+    ('0007.hackerearth', 'tabpfn',      'pd', 'NO_HPO'),
+    ('0007.hackerearth', 'tabpfn_v2',   'pd', 'NO_HPO'),
+    ('0007.hackerearth', 'tabpfn_real', 'pd', 'NO_HPO'),
+    ('0012.loan_default', 'mitra',      'pd', 'NO_HPO'),
+    ('0013.home_credit',  'mitra',      'pd', 'NO_HPO'),
+    ('0013.home_credit',  'tabicl',     'pd', 'NO_HPO'),
+]
+
+
 def build_foundation_task_list(config):
     """
-    Build list of all foundation model tasks.
+    Return the hardcoded list of failed tasks for this repair run.
 
-    Iterates through all datasets in CONFIG_DATA.yaml (both PD and LGD tasks)
-    and creates tasks only for the foundation methods.
+    NOTE: This function has been modified for a REPAIR RUN.
+    It returns only the 6 specific tasks that failed, NOT all foundation tasks.
+
+    To restore full task generation, replace this with dynamic generation from config.
 
     Returns:
         List of tuples: (dataset, method, task_type, hpo_mode)
     """
-    tasks = []
-
-    # PD tasks
-    pd_datasets = list(config['datasets']['pd'].keys())
-    pd_methods = [m for m in config['methods']['pd'].keys() if m in FOUNDATION_METHODS]
-
-    for dataset in pd_datasets:
-        for method in pd_methods:
-            tasks.append((dataset, method, 'pd', 'NO_HPO'))
-            tasks.append((dataset, method, 'pd', 'HPO'))
-
-    # LGD tasks
-    lgd_datasets = list(config['datasets']['lgd'].keys())
-    lgd_methods = [m for m in config['methods']['lgd'].keys() if m in FOUNDATION_METHODS]
-
-    for dataset in lgd_datasets:
-        for method in lgd_methods:
-            tasks.append((dataset, method, 'lgd', 'NO_HPO'))
-            tasks.append((dataset, method, 'lgd', 'HPO'))
-
-    return tasks
+    # REPAIR RUN: Return hardcoded failed tasks only
+    return FAILED_TASKS.copy()
 
 
 def main():
@@ -121,8 +125,9 @@ Foundation Methods:
     config = load_config("Experiment1")
 
     print(f"\n{'='*70}")
-    print(f"FOUNDATION MODEL ORCHESTRATOR (HIGH-MEMORY GPUs)")
+    print(f"FOUNDATION MODEL REPAIR RUN - 6 Failed Tasks")
     print(f"{'='*70}")
+    print(f"Fix applied: METHOD_TEST_VAL_LIMITS caps test/val sets")
     print(f"Target methods: {', '.join(sorted(FOUNDATION_METHODS))}")
 
     # Build task list

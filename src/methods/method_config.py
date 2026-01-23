@@ -330,10 +330,10 @@ METHOD_ROW_LIMITS = {
 # into GPU memory, causing OOM on large validation/test sets.
 # Mitra is excluded because it handles larger inference sets differently.
 METHOD_TEST_VAL_LIMITS = {
-    'tabpfn': 2048,        # TabPFN v1: Limited context window
-    'tabpfn_v2': 4096,     # TabPFN v2: Larger but still constrained
-    'tabpfn_real': 4096,   # TabPFN v2.5 "Real" mode
-    'tabicl': 2048,        # TabICL: In-context learning constraint
+    'tabpfn': 50_000,        # TabPFN v1: Limited context window
+    'tabpfn_v2': 50_000,     # TabPFN v2: Larger but still constrained
+    'tabpfn_real': 50_000,   # TabPFN v2.5 "Real" mode
+    'tabicl': 35_000,        # TabICL: In-context learning constraint
 }
 
 

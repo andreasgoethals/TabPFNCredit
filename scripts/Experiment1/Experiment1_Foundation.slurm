@@ -1,23 +1,29 @@
 #!/bin/bash
 # =============================================================================
-# FOUNDATION MODEL RE-RUN: High-Memory GPU Jobs (wICE Cluster)
+# FOUNDATION MODEL REPAIR RUN: 6 Failed Tasks (wICE Cluster)
 # =============================================================================
-# This script runs foundation models (tabpfn, mitra, tabicl, etc.) that require
-# high-memory GPUs due to their in-context learning architecture.
+# This script re-runs ONLY the 6 specific foundation model tasks that failed
+# due to OOM errors during inference.
 #
-# Target Hardware: H100 (80GB) or A100 (80GB) GPUs on wICE cluster
-# Memory: 64GB+ system RAM to handle large datasets
+# Fix applied: METHOD_TEST_VAL_LIMITS in method_config.py caps test/val sets
 #
-# To determine the correct array size, run:
-#   python scripts/Experiment1/Experiment1_Foundation.py --list-tasks
+# Failed tasks being re-run:
+#   [0] 0007.hackerearth / tabpfn / PD / NO_HPO
+#   [1] 0007.hackerearth / tabpfn_v2 / PD / NO_HPO
+#   [2] 0007.hackerearth / tabpfn_real / PD / NO_HPO
+#   [3] 0012.loan_default / mitra / PD / NO_HPO
+#   [4] 0013.home_credit / mitra / PD / NO_HPO
+#   [5] 0013.home_credit / tabicl / PD / NO_HPO
+#
+# Target Hardware: H100 (80GB) GPUs on wICE cluster
 # =============================================================================
 
-#SBATCH --job-name=exp1_foundation
+#SBATCH --job-name=exp1_repair
 #SBATCH --cluster=wice
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=results/experiment1/logs/slurm/foundation_%A_%a.out
-#SBATCH --error=results/experiment1/logs/slurm/foundation_%A_%a.err
+#SBATCH --output=results/experiment1/logs/slurm/repair_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/repair_%A_%a.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -26,14 +32,15 @@
 #SBATCH --partition=gpu_h100
 
 # =============================================================================
-# ARRAY CONFIGURATION
+# ARRAY CONFIGURATION - REPAIR RUN
 # =============================================================================
-# Task count calculation:
-#   PD: 15 datasets × 5 methods (tabpfn, tabpfn_v2, tabpfn_real, tabicl, mitra) × 2 HPO modes = 150
-#   LGD: 7 datasets × 1 method (tabpfn_v2 only) × 2 HPO modes = 14
-#   Total: 164 tasks
+# Exactly 6 failed tasks to re-run (indices 0-5)
+# --exclusive ensures full node access to prevent GPU memory conflicts
+# --mem=0 requests all available memory on the node
 # =============================================================================
-#SBATCH --array=0-163%8
+#SBATCH --array=0-5
+#SBATCH --exclusive
+#SBATCH --mem=0
 
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
@@ -61,17 +68,17 @@ cd $VSC_DATA/TabPFNCredit
 # JOB INFORMATION
 # ---------------------------------------------------------
 echo "=========================================="
-echo "EXPERIMENT 1 - FOUNDATION MODELS (wICE)"
+echo "EXPERIMENT 1 - REPAIR RUN (6 Failed Tasks)"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Node:         $SLURMD_NODENAME"
+echo "Node:         $SLURMD_NODENAME (EXCLUSIVE)"
 echo "Cluster:      $SLURM_CLUSTER_NAME"
 echo "Partition:    $SLURM_JOB_PARTITION"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
-echo "Memory:       64GB"
+echo "Memory:       ALL (--mem=0)"
 echo "=========================================="
-echo "Foundation Methods: tabpfn, tabpfn_v2, tabpfn_real, mitra, tabicl"
+echo "Fix: METHOD_TEST_VAL_LIMITS caps test/val sets"
 echo "=========================================="
 
 # ---------------------------------------------------------
