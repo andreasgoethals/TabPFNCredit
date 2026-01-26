@@ -24,6 +24,7 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=85G
 #SBATCH --partition=gpu_h100
+#SBATCH --exclusive
 
 # =============================================================================
 # ARRAY CONFIGURATION - REPAIR RUN
