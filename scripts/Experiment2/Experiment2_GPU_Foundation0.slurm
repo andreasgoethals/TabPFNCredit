@@ -8,19 +8,18 @@
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --gpus-per-node=4
-#SBATCH --mem=0
+#SBATCH --gpus-per-node=1
+#SBATCH --mem=100G
 #SBATCH --partition=gpu_h100
 #SBATCH --array=0-56%8
-#SBATCH --exclusive
+
 
 # ---------------------------------------------------------
-# EXPERIMENT 2: LEARNING CURVE ANALYSIS - FOUNDATION GPU
+# EXPERIMENT 2: FOUNDATION GPU
 # BATCH 0: Tasks 0-56
 # ---------------------------------------------------------
-# Cluster: wice | Partition: gpu_h100 | GPUs: 4
-# Each task runs a learning curve for ONE method + ONE dataset
-# Loop over row_limits happens inside Python
+# Memory Strategy: #SBATCH --mem=100G
+# Fragmentation Fix: YES
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
@@ -40,17 +39,12 @@ export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRAR
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 2 - LEARNING CURVE - FOUNDATION GPU - BATCH 0"
+echo "EXP 2 - FOUNDATION - BATCH 0"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Batch:        0"
-echo "Task offset:  0"
-echo "Cluster:      wice"
-echo "Partition:    gpu_h100"
-echo "GPUs/Node:    4"
 echo "Node:         $SLURMD_NODENAME"
-echo "GPU List:     $CUDA_VISIBLE_DEVICES"
+echo "Memory:       100G (Soft Isolation)"
 echo "=========================================="
 
 # Calculate global task ID from batch offset

@@ -16,14 +16,6 @@
 # EXPERIMENT 2: LEARNING CURVE ANALYSIS - CPU
 # BATCH 0: Tasks 0-12
 # ---------------------------------------------------------
-# Cluster: genius | Partition: batch | Memory: 40G
-# Each task runs a learning curve for ONE method + ONE dataset
-# Loop over row_limits happens inside Python
-# ---------------------------------------------------------
-# STAGGERED START TO PREVENT I/O CONGESTION
-# ---------------------------------------------------------
-sleep $((RANDOM % 60 + 1))
-# ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
@@ -40,8 +32,6 @@ echo "EXPERIMENT 2 - LEARNING CURVE - CPU - BATCH 0"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Batch:        0"
-echo "Task offset:  0"
 echo "Node:         $SLURMD_NODENAME"
 echo "=========================================="
 

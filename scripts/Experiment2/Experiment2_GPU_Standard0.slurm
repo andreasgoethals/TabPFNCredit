@@ -15,12 +15,11 @@
 
 
 # ---------------------------------------------------------
-# EXPERIMENT 2: LEARNING CURVE ANALYSIS - STANDARD GPU
+# EXPERIMENT 2: STANDARD GPU
 # BATCH 0: Tasks 0-53
 # ---------------------------------------------------------
-# Cluster: genius | Partition: gpu_p100 | GPUs: 1
-# Each task runs a learning curve for ONE method + ONE dataset
-# Loop over row_limits happens inside Python
+# Memory Strategy: #SBATCH --mem=45G
+# Fragmentation Fix: YES
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
@@ -40,17 +39,12 @@ export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRAR
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 2 - LEARNING CURVE - STANDARD GPU - BATCH 0"
+echo "EXP 2 - STANDARD - BATCH 0"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Batch:        0"
-echo "Task offset:  0"
-echo "Cluster:      genius"
-echo "Partition:    gpu_p100"
-echo "GPUs/Node:    1"
 echo "Node:         $SLURMD_NODENAME"
-echo "GPU List:     $CUDA_VISIBLE_DEVICES"
+echo "Memory:       45G"
 echo "=========================================="
 
 # Calculate global task ID from batch offset
