@@ -8,7 +8,7 @@
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --gpus-per-node=1
+#SBATCH --gpus-per-node=4
 #SBATCH --mem=0
 #SBATCH --partition=gpu_h100
 #SBATCH --array=0-56%8
@@ -18,14 +18,15 @@
 # EXPERIMENT 2: LEARNING CURVE ANALYSIS - FOUNDATION GPU
 # BATCH 0: Tasks 0-56
 # ---------------------------------------------------------
-# Cluster: wice | Partition: gpu_h100 | Exclusive Mode
+# Cluster: wice | Partition: gpu_h100 | GPUs: 4
 # Each task runs a learning curve for ONE method + ONE dataset
+# Loop over row_limits happens inside Python
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# CRITICAL MEMORY FIX FOR FOUNDATION MODELS (Mitra/TabICL)
+# Memory Fragmentation Fix (Crucial for Foundation Models)
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
 # Setup conda from $VSC_DATA
@@ -46,9 +47,10 @@ echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Batch:        0"
 echo "Task offset:  0"
 echo "Cluster:      wice"
-echo "Mode:         EXCLUSIVE (Full Node Access)"
+echo "Partition:    gpu_h100"
+echo "GPUs/Node:    4"
 echo "Node:         $SLURMD_NODENAME"
-echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "GPU List:     $CUDA_VISIBLE_DEVICES"
 echo "=========================================="
 
 # Calculate global task ID from batch offset

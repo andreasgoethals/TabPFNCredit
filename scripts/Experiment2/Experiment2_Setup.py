@@ -52,10 +52,17 @@ def generate_gpu_slurm_script(
 ):
     """
     Generate GPU SLURM script for a batch of learning curve tasks.
-    
-    UPDATES: 
-    - Added --exclusive to prevent memory interference (Mitra fix)
-    - Added PYTORCH_CUDA_ALLOC_CONF (Fragmentation fix)
+
+    Args:
+        batch_id: Batch number for this SLURM file
+        start_task: Starting global task ID
+        end_task: Ending global task ID (exclusive)
+        max_concurrent: Maximum concurrent array jobs
+        cluster: SLURM cluster name ("genius" or "wice")
+        partition: SLURM partition ("gpu_p100" or "gpu_h100")
+        memory: Memory allocation (e.g., "45G" or "64G")
+        job_type: Label for the job ("Standard" or "Foundation")
+        orchestrator_script: Python script to run (e.g., "Experiment2_GPU.py")
     """
     n_tasks = end_task - start_task
 
@@ -66,7 +73,20 @@ def generate_gpu_slurm_script(
 
     # Use longer time for foundation models (they're slower)
     time_limit = "48:00:00" 
-    cpus = 18 if "Foundation" in job_type else 8 # Increased CPU request for data loading
+    
+    # Foundation Model Specific Settings
+    if "Foundation" in job_type:
+        cpus = 18
+        # FIX: When using --exclusive on a 4-GPU node, we must request all 4 GPUs
+        # to avoid Slurm configuration errors.
+        gpus = 4 
+        exclusive_flag = "#SBATCH --exclusive"
+        mem_flag = "#SBATCH --mem=0" # Use all available RAM
+    else:
+        cpus = 4
+        gpus = 1
+        exclusive_flag = ""
+        mem_flag = f"#SBATCH --mem={memory}"
 
     return f"""#!/bin/bash
 #SBATCH --job-name=exp2_{job_type.lower()}{batch_id}
@@ -78,24 +98,25 @@ def generate_gpu_slurm_script(
 #SBATCH --time={time_limit}
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task={cpus}
-#SBATCH --gpus-per-node=1
-#SBATCH --mem=0
+#SBATCH --gpus-per-node={gpus}
+{mem_flag}
 #SBATCH --partition={partition}
 #SBATCH --array={array_range}
-#SBATCH --exclusive
+{exclusive_flag}
 
 # ---------------------------------------------------------
 # EXPERIMENT 2: LEARNING CURVE ANALYSIS - {job_type.upper()} GPU
 # BATCH {batch_id}: Tasks {start_task}-{end_task-1}
 # ---------------------------------------------------------
-# Cluster: {cluster} | Partition: {partition} | Exclusive Mode
+# Cluster: {cluster} | Partition: {partition} | GPUs: {gpus}
 # Each task runs a learning curve for ONE method + ONE dataset
+# Loop over row_limits happens inside Python
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# CRITICAL MEMORY FIX FOR FOUNDATION MODELS (Mitra/TabICL)
+# Memory Fragmentation Fix (Crucial for Foundation Models)
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
 # Setup conda from $VSC_DATA
@@ -116,9 +137,10 @@ echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Batch:        {batch_id}"
 echo "Task offset:  {start_task}"
 echo "Cluster:      {cluster}"
-echo "Mode:         EXCLUSIVE (Full Node Access)"
+echo "Partition:    {partition}"
+echo "GPUs/Node:    {gpus}"
 echo "Node:         $SLURMD_NODENAME"
-echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "GPU List:     $CUDA_VISIBLE_DEVICES"
 echo "=========================================="
 
 # Calculate global task ID from batch offset
@@ -234,6 +256,20 @@ def generate_batched_slurm_files_gpu(
 ):
     """
     Generate multiple GPU SLURM files with parameterized hardware settings.
+
+    Args:
+        total_tasks: Total number of tasks
+        prefix: Filename prefix (e.g., 'Experiment2_GPU_Standard')
+        scripts_dir: Directory to save scripts
+        max_concurrent: Max concurrent jobs
+        cluster: SLURM cluster
+        partition: SLURM partition
+        memory: Memory allocation
+        job_type: Job type label
+        orchestrator_script: Python script to run
+
+    Returns:
+        List of (filename, start_task, end_task) tuples
     """
     if total_tasks == 0:
         return []
@@ -272,7 +308,12 @@ def generate_batched_slurm_files_gpu(
 
 
 def generate_batched_slurm_files_cpu(total_tasks, prefix, scripts_dir, max_concurrent):
-    """Generate multiple CPU SLURM files."""
+    """
+    Generate multiple CPU SLURM files, each with max 400 tasks.
+
+    Returns:
+        List of (filename, start_task, end_task) tuples
+    """
     if total_tasks == 0:
         return []
 
@@ -323,7 +364,7 @@ def print_method_summary(
     print(f"  row_min:  {lc_config['row_min']:,}")
     print(f"  row_step: {lc_config['row_step']:,}")
 
-    # Estimate number of row limit iterations
+    # Estimate number of row limit iterations for a typical large dataset
     max_iterations = (lc_config['row_max'] - lc_config['row_min']) // lc_config['row_step'] + 1
     print(f"  Max iterations per task: ~{max_iterations}")
 

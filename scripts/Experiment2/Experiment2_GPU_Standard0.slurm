@@ -7,25 +7,26 @@
 #SBATCH --error=results/experiment2/logs/slurm/standard0_%A_%a.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=4
 #SBATCH --gpus-per-node=1
-#SBATCH --mem=0
+#SBATCH --mem=45G
 #SBATCH --partition=gpu_p100
 #SBATCH --array=0-53%12
-#SBATCH --exclusive
+
 
 # ---------------------------------------------------------
 # EXPERIMENT 2: LEARNING CURVE ANALYSIS - STANDARD GPU
 # BATCH 0: Tasks 0-53
 # ---------------------------------------------------------
-# Cluster: genius | Partition: gpu_p100 | Exclusive Mode
+# Cluster: genius | Partition: gpu_p100 | GPUs: 1
 # Each task runs a learning curve for ONE method + ONE dataset
+# Loop over row_limits happens inside Python
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# CRITICAL MEMORY FIX FOR FOUNDATION MODELS (Mitra/TabICL)
+# Memory Fragmentation Fix (Crucial for Foundation Models)
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
 # Setup conda from $VSC_DATA
@@ -46,9 +47,10 @@ echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Batch:        0"
 echo "Task offset:  0"
 echo "Cluster:      genius"
-echo "Mode:         EXCLUSIVE (Full Node Access)"
+echo "Partition:    gpu_p100"
+echo "GPUs/Node:    1"
 echo "Node:         $SLURMD_NODENAME"
-echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "GPU List:     $CUDA_VISIBLE_DEVICES"
 echo "=========================================="
 
 # Calculate global task ID from batch offset
