@@ -22,9 +22,8 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --gpus-per-node=4
-#SBATCH --mem=85G
+#SBATCH --mem=100G
 #SBATCH --partition=gpu_h100
-#SBATCH --exclusive
 
 # =============================================================================
 # ARRAY CONFIGURATION - REPAIR RUN
