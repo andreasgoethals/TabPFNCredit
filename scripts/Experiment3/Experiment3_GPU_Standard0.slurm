@@ -13,21 +13,22 @@
 #SBATCH --partition=gpu_p100
 #SBATCH --array=0-35%12
 
+
 # ---------------------------------------------------------
 # EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - STANDARD GPU
 # BATCH 0: Tasks 0-35
 # ---------------------------------------------------------
-# Cluster: genius | Partition: gpu_p100 | Memory: 45G
+# Memory Strategy: #SBATCH --mem=45G
+# Fragmentation Fix: YES
 # Each task runs an imbalance curve for ONE method + ONE dataset
 # Loop over minority_proportion happens inside Python
-# ---------------------------------------------------------
-# STAGGERED START TO PREVENT I/O CONGESTION
-# ---------------------------------------------------------
-sleep $((RANDOM % 60 + 1))
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
+
+# Memory Fragmentation Fix (Crucial for Foundation Models)
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
 # Setup conda from $VSC_DATA
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
@@ -40,16 +41,14 @@ export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRAR
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 3 - IMBALANCE - STANDARD GPU - BATCH 0"
+echo "EXP 3 - STANDARD - BATCH 0"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Batch:        0"
 echo "Task offset:  0"
-echo "Cluster:      genius"
-echo "Partition:    gpu_p100"
-echo "Memory:       45G"
 echo "Node:         $SLURMD_NODENAME"
+echo "Memory:       45G"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "=========================================="
 

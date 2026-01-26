@@ -252,13 +252,20 @@ def calculate_lgd_metrics(
     metrics['MaxError'] = float(max_error(y_true, y_pred))
     metrics['Explained_Variance'] = float(explained_variance_score(y_true, y_pred))
     
-    # MAPE (Mean Absolute Percentage Error) - exclude zeros
+    # MAPE (Mean Absolute Percentage Error) - exclude zeros to avoid division by zero
+    # Note: Excluding y_true=0 samples is standard practice for MAPE but affects comparability
     mask = y_true != 0
+    n_zeros_excluded = len(y_true) - mask.sum()
     if mask.sum() > 0:
         mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
         metrics['MAPE'] = float(mape)
     else:
         metrics['MAPE'] = np.nan
+    # Store count of excluded zeros for transparency in results
+    metrics['MAPE_n_zeros_excluded'] = int(n_zeros_excluded)
+    if n_zeros_excluded > 0:
+        pct_excluded = 100 * n_zeros_excluded / len(y_true)
+        metrics['MAPE_pct_zeros_excluded'] = float(pct_excluded)
     
     # Correlation metrics
     if np.std(y_pred) > 1e-10 and np.std(y_true) > 1e-10:

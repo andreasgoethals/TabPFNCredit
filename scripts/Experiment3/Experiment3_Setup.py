@@ -54,6 +54,10 @@ def generate_gpu_slurm_script(
     """
     Generate GPU SLURM script for a batch of class imbalance analysis tasks.
 
+    UPDATES:
+    - Implements Soft Isolation for Foundation models (100G mem, no exclusive).
+    - Adds fragmentation fix.
+
     Args:
         batch_id: Batch number for this SLURM file
         start_task: Starting global task ID
@@ -74,7 +78,22 @@ def generate_gpu_slurm_script(
 
     # All jobs use 72h time limit (VSC maximum)
     time_limit = MAX_WALLTIME
-    cpus = 8 if "Foundation" in job_type else 4
+
+    # --- SOFT ISOLATION STRATEGY ---
+    if "Foundation" in job_type:
+        cpus = 16
+        gpus = 1
+        # CRITICAL: Request 100G to 'dominate' the node.
+        # This prevents other large jobs from running here, acting as pseudo-isolation
+        # without the long wait times of --exclusive.
+        mem_flag = "#SBATCH --mem=100G"
+        exclusive_flag = ""
+    else:
+        # Standard Models: Share resources efficiently
+        cpus = 4
+        gpus = 1
+        mem_flag = f"#SBATCH --mem={memory}"
+        exclusive_flag = ""
 
     return f"""#!/bin/bash
 #SBATCH --job-name=exp3_{job_type.lower()}{batch_id}
@@ -86,26 +105,27 @@ def generate_gpu_slurm_script(
 #SBATCH --time={time_limit}
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task={cpus}
-#SBATCH --gpus-per-node=1
-#SBATCH --mem={memory}
+#SBATCH --gpus-per-node={gpus}
+{mem_flag}
 #SBATCH --partition={partition}
 #SBATCH --array={array_range}
+{exclusive_flag}
 
 # ---------------------------------------------------------
 # EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - {job_type.upper()} GPU
 # BATCH {batch_id}: Tasks {start_task}-{end_task-1}
 # ---------------------------------------------------------
-# Cluster: {cluster} | Partition: {partition} | Memory: {memory}
+# Memory Strategy: {mem_flag}
+# Fragmentation Fix: YES
 # Each task runs an imbalance curve for ONE method + ONE dataset
 # Loop over minority_proportion happens inside Python
-# ---------------------------------------------------------
-# STAGGERED START TO PREVENT I/O CONGESTION
-# ---------------------------------------------------------
-sleep $((RANDOM % 60 + 1))
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
+
+# Memory Fragmentation Fix (Crucial for Foundation Models)
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
 # Setup conda from $VSC_DATA
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
@@ -118,16 +138,14 @@ export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIB
 cd $VSC_DATA/TabPFNCredit
 
 echo "=========================================="
-echo "EXPERIMENT 3 - IMBALANCE - {job_type.upper()} GPU - BATCH {batch_id}"
+echo "EXP 3 - {job_type.upper()} - BATCH {batch_id}"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
 echo "Batch:        {batch_id}"
 echo "Task offset:  {start_task}"
-echo "Cluster:      {cluster}"
-echo "Partition:    {partition}"
-echo "Memory:       {memory}"
 echo "Node:         $SLURMD_NODENAME"
+echo "Memory:       {'100G (Soft Isolation)' if 'Foundation' in job_type else memory}"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "=========================================="
 
@@ -486,6 +504,7 @@ def main():
 
     # ==========================================
     # GENERATE FOUNDATION GPU SCRIPTS (wICE/gpu_h100)
+    # Uses Soft Isolation: 100G memory request (no --exclusive)
     # ==========================================
     foundation_gpu_files = generate_batched_slurm_files_gpu(
         total_tasks=n_foundation_gpu_tasks,
@@ -494,7 +513,7 @@ def main():
         max_concurrent=max_foundation_concurrent,
         cluster="wice",
         partition="gpu_h100",
-        memory="64G",
+        memory="64G",  # Ignored in function logic for Foundation, overwritten by 100G
         job_type="Foundation",
         orchestrator_script="Experiment3_GPU_Foundation.py"
     )

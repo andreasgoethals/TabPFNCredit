@@ -7,7 +7,7 @@
 #SBATCH --error=results/experiment2/logs/slurm/foundation0_%A_%a.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=16
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=100G
 #SBATCH --partition=gpu_h100

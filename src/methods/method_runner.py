@@ -1431,28 +1431,33 @@ def run_talent_method(
                         # Fallback: Assume single array is test predictions only
                         # We'll need to get validation predictions separately
                         test_pred_raw = predictions_raw
-                        
+
                         # Try to get validation predictions by predicting on val split only
                         try:
                             N_val_only = {'train': N['train'], 'val': N['val'], 'test': N['val']}
                             C_val_only = {'train': C['train'], 'val': C['val'], 'test': C['val']} if C is not None else None
                             y_val_only = {'train': y['train'], 'val': y['val'], 'test': y['val']}
-                            
+
                             with _suppress_all_output(True):
                                 val_output = model.predict((N_val_only, C_val_only, y_val_only), info, model_name=args.evaluate_option)
                             val_pred_raw = _parse_prediction_output(val_output)
-                            
+
                             # If dict/tuple format, extract the 'test' key (which we set to val data)
                             if isinstance(val_pred_raw, dict):
                                 val_pred_raw = val_pred_raw['test']
                             elif isinstance(val_pred_raw, (tuple, list)):
                                 val_pred_raw = val_pred_raw[2]
-                                
+
                         except Exception as e:
-                            if verbose:
-                                print(f"\n[WARNING] Could not get validation predictions: {e}")
-                                print(f"[WARNING] Threshold will be optimized on test set (data leakage)")
-                            val_pred_raw = None
+                            # CRITICAL: Do NOT fall back to test set - this causes data leakage
+                            # Raise an error to ensure proper scientific methodology
+                            logger.error(f"Could not get validation predictions for threshold optimization: {e}")
+                            logger.error("Refusing to optimize threshold on test set (would cause data leakage)")
+                            raise RuntimeError(
+                                f"Validation prediction failed for method '{method}': {e}. "
+                                f"Cannot optimize threshold without validation predictions. "
+                                f"This would require using test set which causes data leakage."
+                            )
                     
                     # ======================================================================
                     # CONVERT TO NUMPY AND EXTRACT PROBABILITIES

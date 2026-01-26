@@ -122,7 +122,8 @@ def generate_minority_proportion_sequence(
     1. Start: current = min(original_proportion, proportion_max)
     2. Include the starting point
     3. Decrease by proportion_step until proportion_min is reached
-    4. Each step rounds to 2 decimal places for cleaner values
+    4. Uses 10 decimal precision internally to avoid floating-point accumulation errors
+       while preserving full precision in output (critical for Experiment 3 analysis)
 
     Example:
         original=0.35, max=0.50, min=0.01, step=0.05
@@ -135,35 +136,42 @@ def generate_minority_proportion_sequence(
         proportion_step: Step size for decreasing proportion
 
     Returns:
-        List of minority proportions in decreasing order
+        List of minority proportions in decreasing order (full precision preserved)
     """
     sequence = []
 
     # Start with the smaller of original_proportion and proportion_max
     # We can only decrease the minority proportion, not increase it beyond original
+    # Use 10 decimal precision to avoid floating-point errors while preserving accuracy
     current = min(original_proportion, proportion_max)
-    current = round(current, 2)
+    current = round(current, 10)
 
     # If original proportion is already below min, just return original
     if current < proportion_min:
         return [current]
 
-    # Add the starting point
+    # Add the starting point (full precision preserved)
     sequence.append(current)
 
     # Align to nearest lower multiple of proportion_step
-    aligned = round((current // proportion_step) * proportion_step, 2)
+    # Use high precision (10 decimals) to avoid floating-point accumulation errors
+    aligned = round((current // proportion_step) * proportion_step, 10)
     if aligned < current and aligned >= proportion_min:
         current = aligned
         sequence.append(current)
 
     # Decrease by proportion_step until proportion_min
-    while current - proportion_step >= proportion_min:
-        current = round(current - proportion_step, 2)
+    # CRITICAL: Use epsilon comparison to avoid infinite loops from floating-point errors
+    epsilon = 1e-12
+    while round(current - proportion_step, 10) >= proportion_min - epsilon:
+        current = round(current - proportion_step, 10)  # High precision arithmetic
+        # Safety check: if we've gone below min due to floating-point, stop
+        if current < proportion_min - epsilon:
+            break
         sequence.append(current)
 
     # Ensure proportion_min is included if we haven't reached it exactly
-    if sequence[-1] > proportion_min:
+    if abs(sequence[-1] - proportion_min) > epsilon and sequence[-1] > proportion_min:
         sequence.append(proportion_min)
 
     return sequence

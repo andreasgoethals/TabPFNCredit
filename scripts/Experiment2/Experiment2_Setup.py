@@ -68,7 +68,7 @@ def generate_gpu_slurm_script(
     
     # --- SOFT ISOLATION STRATEGY ---
     if "Foundation" in job_type:
-        cpus = 18
+        cpus = 16
         gpus = 1
         # CRITICAL: Request 100G to 'dominate' the node. 
         # This prevents other large jobs from running here, acting as pseudo-isolation

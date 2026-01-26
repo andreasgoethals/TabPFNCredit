@@ -438,20 +438,24 @@ class DataFeeder:
         C_train: Optional[np.ndarray],
         C_val: Optional[np.ndarray],
         C_test: Optional[np.ndarray],
+        fold_id: int = 1,
         target_features: int = PCA_TARGET_FEATURES,
         winsorize_limits: Tuple[float, float] = (0.01, 0.99)
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
                Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Apply PCA dimensionality reduction, fitted on TRAINING data only.
-        
+
         Process:
         1. Combine numerical and categorical features (encode categoricals as integers)
         2. Impute missing values using TRAINING statistics
         3. Fit PCA on TRAINING data
         4. Transform train/val/test using the fitted PCA
         5. Winsorize PCA components using TRAINING percentiles
-        
+
+        Args:
+            fold_id: Fold identifier for reproducible random seed (combined with self.seed)
+
         Returns
         -------
         N_train, N_val, N_test : transformed numerical features (PCA components)
@@ -503,7 +507,9 @@ class DataFeeder:
         n_components = max(1, n_components)
         
         # Fit PCA on TRAINING data only
-        pca = PCA(n_components=n_components, random_state=42)
+        # Use fold-specific seed for reproducibility: self.seed + fold_id ensures
+        # different folds get different but deterministic random states
+        pca = PCA(n_components=n_components, random_state=self.seed + fold_id)
         X_train_pca = pca.fit_transform(X_train_imputed)
         
         # Transform val and test using the fitted PCA
@@ -574,11 +580,12 @@ class DataFeeder:
         if self.apply_pca and N_train is not None:
             total_features = (N_train.shape[1] if N_train is not None else 0) + \
                         (C_train.shape[1] if C_train is not None else 0)
-            
+
             if total_features > MAX_FEATURES_THRESHOLD:
                 N_train, N_val, N_test, C_train, C_val, C_test = \
                     self._apply_pca_post_split(
-                        N_train, N_val, N_test, C_train, C_val, C_test
+                        N_train, N_val, N_test, C_train, C_val, C_test,
+                        fold_id=fold_id  # Pass fold_id for reproducible seed
                     )
             else:
                 N_train, N_val, N_test = self._winsorize_features_post_split(
@@ -760,10 +767,11 @@ class DataFeeder:
             y_test = y[idx_test]
 
             # Validation split from training data
+            # Use fold-specific seed (fold_id=1 for single split) for reproducibility
             idx_train_local, idx_val_local = train_test_split(
                 np.arange(len(idx_train_full)),
                 test_size=self.val_size,
-                random_state=self.seed,
+                random_state=self.seed + 1,  # fold_id=1 for single split
                 stratify=y[idx_train_full] if stratify else None,
             )
 
@@ -829,10 +837,11 @@ class DataFeeder:
             y_test = y[test_idx]
 
             # Validation split from training indices
+            # Use fold-specific seed to ensure different validation splits per fold
             idx_train_local, idx_val_local = train_test_split(
                 np.arange(len(train_idx_full)),
                 test_size=self.val_size,
-                random_state=self.seed,
+                random_state=self.seed + fold_id,  # Fold-specific seed
                 stratify=y[train_idx_full] if stratify else None,
             )
 
