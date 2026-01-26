@@ -318,7 +318,7 @@ METHOD_ROW_LIMITS = {
     'tabpfn_real': 30_000,  # v2.5 "Real" mode (Explicitly designed for 50k)
 
     'mitra': 5_000,        # Standard Transformer context window
-    'tabicl': 50_000,       # Uses retrieval/kernel-attention for larger context
+    'tabicl': 30_000,       # Uses retrieval/kernel-attention for larger context
 
     # --- Deep Learning (Complexity Constraints) ---
     'amformer': 100_000,    # VSC Memory constraint (O(N^2) attention)
@@ -333,7 +333,7 @@ METHOD_TEST_VAL_LIMITS = {
     'tabpfn': 50_000,        # TabPFN v1: Limited context window
     'tabpfn_v2': 50_000,     # TabPFN v2: Larger but still constrained
     'tabpfn_real': 50_000,   # TabPFN v2.5 "Real" mode
-    'tabicl': 35_000,        # TabICL: In-context learning constraint
+    'tabicl': 30_000,        # TabICL: In-context learning constraint
 }
 
 

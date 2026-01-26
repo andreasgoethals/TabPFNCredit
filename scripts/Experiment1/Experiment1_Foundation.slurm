@@ -1,29 +1,23 @@
 #!/bin/bash
 # =============================================================================
-# FOUNDATION MODEL REPAIR RUN: 6 Failed Tasks (wICE Cluster)
+# FOUNDATION MODEL REPAIR RUN: 3 Specific Tasks (wICE Cluster)
 # =============================================================================
-# This script re-runs ONLY the 6 specific foundation model tasks that failed
-# due to OOM errors during inference.
+# This script re-runs ONLY the 3 specific foundation model tasks.
 #
-# Fix applied: METHOD_TEST_VAL_LIMITS in method_config.py caps test/val sets
-#
-# Failed tasks being re-run:
-#   [0] 0007.hackerearth / tabpfn / PD / NO_HPO
-#   [1] 0007.hackerearth / tabpfn_v2 / PD / NO_HPO
-#   [2] 0007.hackerearth / tabpfn_real / PD / NO_HPO
-#   [3] 0012.loan_default / mitra / PD / NO_HPO
-#   [4] 0013.home_credit / mitra / PD / NO_HPO
-#   [5] 0013.home_credit / tabicl / PD / NO_HPO
+# Tasks being re-run:
+#   [0] 0012.loan_default / mitra / PD / NO_HPO  (Standard)
+#   [1] 0013.home_credit  / mitra / PD / NO_HPO  (Standard)
+#   [2] 0013.home_credit  / tabicl/ PD / NO_HPO  (Row Limit: 50,000)
 #
 # Target Hardware: H100 (80GB) GPUs on wICE cluster
 # =============================================================================
 
-#SBATCH --job-name=exp1_repair
+#SBATCH --job-name=exp1_repair_3
 #SBATCH --cluster=wice
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=results/experiment1/logs/slurm/repair_%A_%a.out
-#SBATCH --error=results/experiment1/logs/slurm/repair_%A_%a.err
+#SBATCH --output=results/experiment1/logs/slurm/repair3_%A_%a.out
+#SBATCH --error=results/experiment1/logs/slurm/repair3_%A_%a.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -34,9 +28,9 @@
 # =============================================================================
 # ARRAY CONFIGURATION - REPAIR RUN
 # =============================================================================
-# Exactly 6 failed tasks to re-run (indices 0-5)
+# Exactly 3 tasks to re-run (indices 0-2)
 # =============================================================================
-#SBATCH --array=0-5
+#SBATCH --array=0-2
 
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
@@ -64,7 +58,7 @@ cd $VSC_DATA/TabPFNCredit
 # JOB INFORMATION
 # ---------------------------------------------------------
 echo "=========================================="
-echo "EXPERIMENT 1 - REPAIR RUN (6 Failed Tasks)"
+echo "EXPERIMENT 1 - REPAIR RUN (3 Tasks)"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Array ID:     $SLURM_ARRAY_TASK_ID"
@@ -74,7 +68,7 @@ echo "Partition:    $SLURM_JOB_PARTITION"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Memory:       85G"
 echo "=========================================="
-echo "Fix: METHOD_TEST_VAL_LIMITS caps test/val sets"
+echo "Special Config: Row Limit 50k for Task [2]"
 echo "=========================================="
 
 # ---------------------------------------------------------

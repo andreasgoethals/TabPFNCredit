@@ -1,27 +1,18 @@
 #!/usr/bin/env python3
 """
-Foundation Model Orchestrator: REPAIR RUN for failed foundation model tasks
+Foundation Model Orchestrator: REPAIR RUN for specific failed tasks
 
-This script re-runs ONLY the specific foundation model tasks that failed due to
-OOM errors during inference. The underlying issue (test/val set size limits)
-has been fixed in method_runner.py with METHOD_TEST_VAL_LIMITS.
+This script re-runs ONLY the 3 specific foundation model tasks requested.
+It applies a row limit of 50,000 to the Home Credit / TabICL task.
 
-REPAIR RUN: 6 specific failed tasks (hardcoded)
-    - 0007.hackerearth / tabpfn / PD / NO_HPO
-    - 0007.hackerearth / tabpfn_v2 / PD / NO_HPO
-    - 0007.hackerearth / tabpfn_real / PD / NO_HPO
-    - 0012.loan_default / mitra / PD / NO_HPO
-    - 0013.home_credit / mitra / PD / NO_HPO
-    - 0013.home_credit / tabicl / PD / NO_HPO
+REPAIR RUN: 3 specific tasks
+    - 0012.loan_default / mitra / PD / NO_HPO (No limit)
+    - 0013.home_credit / mitra / PD / NO_HPO (No limit)
+    - 0013.home_credit / tabicl / PD / NO_HPO (Row Limit: 50,000)
 
 Usage:
     # Array-based execution (for SLURM array jobs)
     python Experiment1_Foundation.py --array_id 0
-
-    # Direct task specification (for retries)
-    python Experiment1_Foundation.py --dataset 0007.hackerearth --method tabpfn --task_type pd --hpo_mode NO_HPO
-
-Supports both array-based execution and direct task specification.
 """
 
 import sys
@@ -39,9 +30,6 @@ from scripts.Experiment1.Experiment1 import run_single_method
 # =============================================================================
 # FOUNDATION MODELS - Methods requiring high-memory GPUs
 # =============================================================================
-# These methods use in-context learning and need to load entire datasets
-# into GPU memory, requiring 64GB+ VRAM for larger datasets.
-
 FOUNDATION_METHODS = {
     'tabpfn',        # Original TabPFN (v1)
     'tabpfn_v2',     # TabPFN v2 (standard)
@@ -50,74 +38,51 @@ FOUNDATION_METHODS = {
     'tabicl',        # TabICL (In-Context Learning)
 }
 
-
 # =============================================================================
-# HARDCODED REPAIR RUN LIST - 6 Failed Tasks
+# HARDCODED REPAIR RUN LIST - 3 Specific Tasks
 # =============================================================================
-# These specific tasks failed with OOM errors during inference.
-# The fix: METHOD_TEST_VAL_LIMITS in method_config.py caps test/val sets.
-#
-# Format: (dataset, method, task_type, hpo_mode)
+# Format: (dataset, method, task_type, hpo_mode, row_limit)
+# row_limit: int or None
 # =============================================================================
 
 FAILED_TASKS = [
-    ('0007.hackerearth', 'tabpfn',      'pd', 'NO_HPO'),
-    ('0007.hackerearth', 'tabpfn_v2',   'pd', 'NO_HPO'),
-    ('0007.hackerearth', 'tabpfn_real', 'pd', 'NO_HPO'),
-    ('0012.loan_default', 'mitra',      'pd', 'NO_HPO'),
-    ('0013.home_credit',  'mitra',      'pd', 'NO_HPO'),
-    ('0013.home_credit',  'tabicl',     'pd', 'NO_HPO'),
+    # Task 0: Loan Default / Mitra (No Limit)
+    ('0012.loan_default', 'mitra',  'pd', 'NO_HPO', None),
+    
+    # Task 1: Home Credit / Mitra (No Limit)
+    ('0013.home_credit',  'mitra',  'pd', 'NO_HPO', None),
+    
+    # Task 2: Home Credit / TabICL (Limit 50k)
+    ('0013.home_credit',  'tabicl', 'pd', 'NO_HPO', 50000),
 ]
 
 
 def build_foundation_task_list(config):
     """
-    Return the hardcoded list of failed tasks for this repair run.
-
-    NOTE: This function has been modified for a REPAIR RUN.
-    It returns only the 6 specific tasks that failed, NOT all foundation tasks.
-
-    To restore full task generation, replace this with dynamic generation from config.
-
+    Return the hardcoded list of tasks for this repair run.
     Returns:
-        List of tuples: (dataset, method, task_type, hpo_mode)
+        List of tuples: (dataset, method, task_type, hpo_mode, row_limit)
     """
-    # REPAIR RUN: Return hardcoded failed tasks only
     return FAILED_TASKS.copy()
 
 
 def main():
     parser = argparse.ArgumentParser(
         description='Run foundation models on high-memory GPUs',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-    # Array-based execution
-    python Experiment1_Foundation.py --array_id 0
-
-    # Direct task specification
-    python Experiment1_Foundation.py --dataset 0001.gmsc --method tabpfn_v2 --task_type pd --hpo_mode NO_HPO
-
-Foundation Methods:
-    tabpfn, tabpfn_v2, tabpfn_real, mitra, tabicl
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--array_id', type=int,
-                       help='SLURM array task ID (for array jobs)')
-    parser.add_argument('--dataset', type=str,
-                       help='Specific dataset to run')
-    parser.add_argument('--method', type=str,
-                       help='Specific method to run (must be a foundation method)')
-    parser.add_argument('--task_type', type=str,
-                       help='Task type (pd or lgd)')
-    parser.add_argument('--hpo_mode', type=str,
-                       help='HPO mode (NO_HPO or HPO)')
+                        help='SLURM array task ID (for array jobs)')
+    parser.add_argument('--dataset', type=str, help='Specific dataset')
+    parser.add_argument('--method', type=str, help='Specific method')
+    parser.add_argument('--task_type', type=str, help='Task type')
+    parser.add_argument('--hpo_mode', type=str, help='HPO mode')
     parser.add_argument('--verbose', action='store_true',
-                       help='Enable detailed logging')
+                        help='Enable detailed logging')
     parser.add_argument('--experiment', type=str, default='experiment1',
-                       help='Experiment name (default: experiment1)')
+                        help='Experiment name (default: experiment1)')
     parser.add_argument('--list-tasks', action='store_true',
-                       help='List all tasks and exit (useful for debugging)')
+                        help='List all tasks and exit')
 
     args = parser.parse_args()
 
@@ -125,9 +90,8 @@ Foundation Methods:
     config = load_config("Experiment1")
 
     print(f"\n{'='*70}")
-    print(f"FOUNDATION MODEL REPAIR RUN - 6 Failed Tasks")
+    print(f"FOUNDATION MODEL REPAIR RUN - 3 Specific Tasks")
     print(f"{'='*70}")
-    print(f"Fix applied: METHOD_TEST_VAL_LIMITS caps test/val sets")
     print(f"Target methods: {', '.join(sorted(FOUNDATION_METHODS))}")
 
     # Build task list
@@ -137,31 +101,31 @@ Foundation Methods:
     if args.list_tasks:
         print(f"\nTotal foundation tasks: {len(foundation_tasks)}")
         print(f"\nTask list:")
-        for i, (ds, method, tt, hpo) in enumerate(foundation_tasks):
-            print(f"  [{i:3d}] {ds} / {method} / {tt} / {hpo}")
+        for i, (ds, method, tt, hpo, limit) in enumerate(foundation_tasks):
+            limit_str = f"Limit: {limit}" if limit else "No Limit"
+            print(f"  [{i:3d}] {ds} / {method} / {tt} / {hpo} ({limit_str})")
         print(f"\n{'='*70}")
         return
 
-    # Check if direct parameters provided (for retry scripts)
+    # Check if direct parameters provided (Manual Override)
     if args.dataset and args.method and args.task_type and args.hpo_mode:
-        # Validate method is a foundation method
-        if args.method not in FOUNDATION_METHODS:
-            print(f"\nERROR: Method '{args.method}' is not a foundation method.")
-            print(f"Valid foundation methods: {', '.join(sorted(FOUNDATION_METHODS))}")
-            print(f"{'='*70}\n")
-            sys.exit(1)
-
-        # Direct task specification
         dataset = args.dataset
         method = args.method
         task_type = args.task_type
         hpo_mode = args.hpo_mode
+        row_limit = None # Default to None for manual runs unless logic added
+        
+        # Check if this manual run matches our special case
+        if dataset == '0013.home_credit' and method == 'tabicl':
+             row_limit = 50000
+             print("Applying implicit row limit of 50,000 for Home Credit/TabICL")
 
         print(f"Mode:         Direct task specification")
         print(f"Dataset:      {dataset}")
         print(f"Method:       {method}")
         print(f"Task type:    {task_type}")
         print(f"HPO mode:     {hpo_mode}")
+        print(f"Row Limit:    {row_limit}")
         print(f"{'='*70}\n")
 
     elif args.array_id is not None:
@@ -177,14 +141,22 @@ Foundation Methods:
             sys.exit(1)
 
         # Get task for this array ID
-        dataset, method, task_type, hpo_mode = foundation_tasks[args.array_id]
-        print(f"Running task {args.array_id}: {dataset}/{method}/{task_type}/{hpo_mode}\n")
+        dataset, method, task_type, hpo_mode, row_limit = foundation_tasks[args.array_id]
+        print(f"Running task {args.array_id}: {dataset}/{method}/{task_type}/{hpo_mode}")
+        if row_limit:
+            print(f"Apply Config Row Limit: {row_limit}")
+        print("\n")
 
     else:
         print("\nERROR: Must provide either --array_id or (--dataset, --method, --task_type, --hpo_mode)")
-        print("       Use --list-tasks to see all available tasks.")
-        print(f"{'='*70}\n")
         sys.exit(1)
+
+    # Apply row limit to configuration if specified
+    if row_limit is not None:
+        if 'split' not in config:
+            config['split'] = {}
+        config['split']['row_limit'] = row_limit
+        print(f"Configuration updated: split.row_limit = {row_limit}")
 
     # Execute task
     run_single_method(
