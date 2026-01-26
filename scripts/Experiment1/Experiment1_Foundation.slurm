@@ -62,7 +62,7 @@ echo "=========================================="
 # ---------------------------------------------------------
 
 # Run sequential orchestrator
-python -u scripts/Experiment1/Experiment1_Foundation_Sequential.py
+python -u scripts/Experiment1/Experiment1_Foundation.py
 
 # ---------------------------------------------------------
 # EXIT STATUS
