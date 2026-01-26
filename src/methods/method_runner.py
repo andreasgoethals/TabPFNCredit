@@ -1239,6 +1239,20 @@ def run_talent_method(
                     verbose=verbose
                 )
 
+                # ======================================================================
+                # SANITIZE CATEGORICAL DATA STRUCTURE
+                # ======================================================================
+                # When row_limit is applied, DataFeeder returns C as a dictionary with
+                # None values (e.g., {'train': None, 'val': None, 'test': None}) for
+                # datasets without categorical features. TALENT expects C to be None
+                # directly in this case. This sanitization aligns Experiment 2 behavior
+                # with Experiment 1 to prevent AttributeError in TALENT's data_nan_process.
+                # ======================================================================
+                if isinstance(C, dict) and C.get('train') is None:
+                    C = None
+                    if verbose:
+                        print("  [Sanitized] C dict with None values -> C = None")
+
                 # Get base arguments from TALENT
                 orig_argv = sys.argv.copy()
                 
