@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"C:\\\\Users\\\\U0152019\\\\OneDrive - KU Leuven\\\\PhD Documents\\\\Projects\\\\1. TabPFN\\\\TabPFNCredit\\\\results\\\\Experiment2\"\" 2>/dev/null || dir \"C:UsersU0152019OneDrive - KU LeuvenPhD DocumentsProjects1. TabPFNTabPFNCreditresultsExperiment2 \")"
+    ]
+  }
+}

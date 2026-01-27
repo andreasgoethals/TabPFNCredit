@@ -1,25 +1,19 @@
 #!/bin/bash
 # =============================================================================
-# FOUNDATION MODEL SEQUENTIAL REPAIR RUN (wICE Cluster)
+# EXPERIMENT 1 - FINAL RERUN: 0013.home_credit / mitra / NO_HPO
 # =============================================================================
-# This script runs the 3 foundation tasks SEQUENTIALLY in a SINGLE job.
-# This guarantees they never interfere with each other.
-#
-# Resources:
-# - 100G Memory: Ensures no other large job shares the node (Soft Isolation)
-# - 1 GPU: Sufficient for sequential execution
-# - 48 Hours: Plenty of time for 3 tasks
+# Single task on a dedicated node (no row limit).
 # =============================================================================
 
-#SBATCH --job-name=exp1_seq_repair
+#SBATCH --job-name=exp1_final_mitra
 #SBATCH --cluster=wice
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=results/experiment1/logs/slurm/seq_repair_%j.out
-#SBATCH --error=results/experiment1/logs/slurm/seq_repair_%j.err
+#SBATCH --output=results/experiment1/logs/slurm/final0_%j.out
+#SBATCH --error=results/experiment1/logs/slurm/final0_%j.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=16
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=100G
 #SBATCH --partition=gpu_h100
@@ -48,21 +42,24 @@ cd $VSC_DATA/TabPFNCredit
 # JOB INFORMATION
 # ---------------------------------------------------------
 echo "=========================================="
-echo "EXPERIMENT 1 - SEQUENTIAL REPAIR RUN"
+echo "EXPERIMENT 1 - FINAL RERUN 0: mitra"
 echo "=========================================="
 echo "Job ID:       $SLURM_JOB_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Memory:       100G (Soft Isolation)"
-echo "Mode:         Sequential Execution"
+echo "Task:         0013.home_credit / mitra / NO_HPO"
 echo "=========================================="
 
 # ---------------------------------------------------------
 # EXECUTION
 # ---------------------------------------------------------
 
-# Run sequential orchestrator
-python -u scripts/Experiment1/Experiment1_Foundation.py
+python -u scripts/Experiment1/Experiment1_Final.py \
+    --dataset 0013.home_credit \
+    --method mitra \
+    --task_type pd \
+    --hpo_mode NO_HPO
 
 # ---------------------------------------------------------
 # EXIT STATUS
