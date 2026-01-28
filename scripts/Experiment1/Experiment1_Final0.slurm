@@ -60,7 +60,7 @@ python -u scripts/Experiment1/Experiment1_Final.py \
     --method mitra \
     --task_type pd \
     --hpo_mode NO_HPO \
-    --row_limit 30000
+    --row_limit 20000
 
 # ---------------------------------------------------------
 # EXIT STATUS
