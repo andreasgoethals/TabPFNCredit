@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls -la \"C:\\\\Users\\\\U0152019\\\\OneDrive - KU Leuven\\\\PhD Documents\\\\Projects\\\\1. TabPFN\\\\TabPFNCredit\\\\results\\\\Experiment2\"\" 2>/dev/null || dir \"C:UsersU0152019OneDrive - KU LeuvenPhD DocumentsProjects1. TabPFNTabPFNCreditresultsExperiment2 \")"
+      "Bash(ls -la \"C:\\\\Users\\\\U0152019\\\\OneDrive - KU Leuven\\\\PhD Documents\\\\Projects\\\\1. TabPFN\\\\TabPFNCredit\\\\results\\\\Experiment2\"\" 2>/dev/null || dir \"C:UsersU0152019OneDrive - KU LeuvenPhD DocumentsProjects1. TabPFNTabPFNCreditresultsExperiment2 \")",
+      "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\U0152019\\\\OneDrive - KU Leuven\\\\PhD Documents\\\\Projects\\\\1. TabPFN\\\\TabPFNCredit\\\\results\\\\experiment2\\\\logs\\\\slurm\\\\cpu0_58914533_0.out'' -TotalCount 60\")"
     ]
   }
 }

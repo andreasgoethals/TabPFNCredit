@@ -356,8 +356,12 @@ def run_imbalance_analysis(
         # Check if this proportion would leave enough minority samples for CV
         # After sampling: if current > target, minority gets downsampled to:
         #   desired_min = int(target / (1 - target) * n_majority)
-        # We need at least cv_splits samples per class for StratifiedKFold
+        # We need enough minority samples so that:
+        #   - StratifiedKFold can create cv_splits folds (>= cv_splits per class)
+        #   - Each fold's validation set has at least 1 minority sample
+        # Conservative threshold: cv_splits * 3 ensures enough for train/val/test in each fold
         cv_splits = config['split']['cv_splits']
+        min_required = cv_splits * 3
         if original_proportion > minority_proportion:
             # Minority will be downsampled
             expected_minority = int(minority_proportion / (1 - minority_proportion) * n_majority_original)
@@ -365,11 +369,11 @@ def run_imbalance_analysis(
             # Majority will be downsampled (minority stays the same)
             expected_minority = n_minority_original
 
-        if expected_minority < cv_splits:
+        if expected_minority < min_required:
             print(f"  [SKIP] Proportion {minority_proportion:.4f} would yield only {expected_minority} "
-                  f"minority samples (need >= {cv_splits} for {cv_splits}-fold CV)")
+                  f"minority samples (need >= {min_required} for reliable {cv_splits}-fold CV)")
             logger.info(f"Skipping minority_proportion={minority_proportion}: "
-                        f"only {expected_minority} minority samples (need >= {cv_splits})")
+                        f"only {expected_minority} minority samples (need >= {min_required})")
             completed_proportions.append(minority_proportion)
             continue
 
@@ -429,19 +433,38 @@ def run_imbalance_analysis(
             completed_proportions.append(minority_proportion)
 
         except Exception as e:
-            logger.error(f"Failed at minority_proportion={minority_proportion}: {e}", exc_info=True)
-            print(f"  [FAIL] {str(e)}")
-            failed_proportions.append((minority_proportion, str(e)))
+            error_str = str(e)
 
-            # Log to consolidated error file
-            error_log = experiment_path / "logs" / "errors.log"
-            with open(error_log, 'a') as ef:
-                ef.write(f"\n{'='*70}\n")
-                ef.write(f"FAILED: {dataset}/{method}/minority_proportion={minority_proportion}\n")
-                ef.write(f"Time: {datetime.now().isoformat()}\n")
-                ef.write(f"Error: {str(e)}\n")
-                ef.write(f"Node: {os.environ.get('SLURMD_NODENAME', 'N/A')}\n")
-                ef.write(f"{'='*70}\n")
+            # Check if this is a class-imbalance-related error that should be skipped
+            # rather than treated as a real failure
+            skip_patterns = [
+                "only one label",
+                "too few. The minimum number of groups",
+                "least populated class",
+                "Cannot optimize threshold without validation predictions",
+            ]
+            is_imbalance_error = any(p in error_str for p in skip_patterns)
+
+            if is_imbalance_error:
+                # This proportion is too extreme for this method/dataset — skip gracefully
+                print(f"  [SKIP] Proportion too extreme for reliable CV: {error_str[:80]}...")
+                logger.info(f"Skipping minority_proportion={minority_proportion} "
+                            f"(class imbalance too extreme): {error_str[:120]}")
+                completed_proportions.append(minority_proportion)
+            else:
+                # Real failure — log to error file
+                logger.error(f"Failed at minority_proportion={minority_proportion}: {e}", exc_info=True)
+                print(f"  [FAIL] {error_str}")
+                failed_proportions.append((minority_proportion, error_str))
+
+                error_log = experiment_path / "logs" / "errors.log"
+                with open(error_log, 'a') as ef:
+                    ef.write(f"\n{'='*70}\n")
+                    ef.write(f"FAILED: {dataset}/{method}/minority_proportion={minority_proportion}\n")
+                    ef.write(f"Time: {datetime.now().isoformat()}\n")
+                    ef.write(f"Error: {error_str}\n")
+                    ef.write(f"Node: {os.environ.get('SLURMD_NODENAME', 'N/A')}\n")
+                    ef.write(f"{'='*70}\n")
 
             # Continue with next proportion (don't abort entire analysis)
             continue
