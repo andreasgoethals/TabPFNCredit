@@ -47,6 +47,14 @@ from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
 from src.methods.method_runner import run_talent_method
 from src.data.preprocessing import preprocess_dataset
+import gc
+
+# Try to import torch for GPU cleanup between iterations
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
 
 
 def _acquire_lock(file_handle, exclusive: bool = True) -> bool:
@@ -80,6 +88,13 @@ def _release_lock(file_handle) -> None:
             portalocker.unlock(file_handle)
         except Exception:
             pass
+
+
+def _cleanup_gpu():
+    """Free GPU memory between iterations to prevent OOM from fragmentation."""
+    gc.collect()
+    if _HAS_TORCH and torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def get_dataset_size(task_type: str, dataset: str) -> int:
@@ -367,6 +382,10 @@ def run_learning_curve(
 
             # Continue with next row limit (don't abort entire learning curve)
             continue
+
+        finally:
+            # Free GPU memory between iterations to prevent OOM from fragmentation
+            _cleanup_gpu()
 
     # ==========================================
     # FINAL SUMMARY

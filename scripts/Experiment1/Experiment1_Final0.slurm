@@ -59,7 +59,8 @@ python -u scripts/Experiment1/Experiment1_Final.py \
     --dataset 0013.home_credit \
     --method mitra \
     --task_type pd \
-    --hpo_mode NO_HPO
+    --hpo_mode NO_HPO \
+    --row_limit 30000
 
 # ---------------------------------------------------------
 # EXIT STATUS

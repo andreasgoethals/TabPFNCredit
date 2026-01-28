@@ -50,6 +50,14 @@ from src.utils.storage_handler import StorageHandler
 from src.methods.method_runner import run_talent_method
 from src.data.preprocessing import preprocess_dataset
 import numpy as np
+import gc
+
+# Try to import torch for GPU cleanup between iterations
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
 
 
 def _acquire_lock(file_handle, exclusive: bool = True) -> bool:
@@ -85,16 +93,23 @@ def _release_lock(file_handle) -> None:
             pass
 
 
-def get_dataset_minority_proportion(task_type: str, dataset: str) -> float:
+def _cleanup_gpu():
+    """Free GPU memory between iterations to prevent OOM from fragmentation."""
+    gc.collect()
+    if _HAS_TORCH and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def get_dataset_class_info(task_type: str, dataset: str) -> dict:
     """
-    Get the original minority class proportion for a dataset.
+    Get class distribution info for a dataset.
 
     Args:
         task_type: 'pd' (classification only for this experiment)
         dataset: Dataset name (e.g., '0009.german')
 
     Returns:
-        Minority class proportion (float between 0 and 1)
+        Dict with keys: 'minority_proportion', 'n_minority', 'n_majority', 'n_total'
     """
     # Load dataset to get class distribution
     N, C, y, info = preprocess_dataset(task_type, dataset)
@@ -103,10 +118,16 @@ def get_dataset_minority_proportion(task_type: str, dataset: str) -> float:
     if len(unique) != 2:
         raise ValueError(f"Dataset {dataset} is not binary classification (found {len(unique)} classes)")
 
-    minority_count = counts.min()
-    total_count = counts.sum()
+    n_minority = int(counts.min())
+    n_majority = int(counts.max())
+    n_total = int(counts.sum())
 
-    return minority_count / total_count
+    return {
+        'minority_proportion': n_minority / n_total,
+        'n_minority': n_minority,
+        'n_majority': n_majority,
+        'n_total': n_total,
+    }
 
 
 def generate_minority_proportion_sequence(
@@ -270,11 +291,16 @@ def run_imbalance_analysis(
     print(f"[CONFIG] proportion_max={proportion_max}, proportion_min={proportion_min}, proportion_step={proportion_step}")
     logger.info(f"Imbalance config: max={proportion_max}, min={proportion_min}, step={proportion_step}")
 
-    # Get original minority proportion
-    print(f"[INFO] Loading dataset to determine original minority proportion...")
-    original_proportion = get_dataset_minority_proportion(task_type, dataset)
+    # Get original class distribution info
+    print(f"[INFO] Loading dataset to determine class distribution...")
+    class_info = get_dataset_class_info(task_type, dataset)
+    original_proportion = class_info['minority_proportion']
+    n_minority_original = class_info['n_minority']
+    n_majority_original = class_info['n_majority']
     print(f"[INFO] Original minority proportion: {original_proportion:.4f} ({original_proportion*100:.2f}%)")
-    logger.info(f"Dataset {dataset} has original minority proportion {original_proportion:.4f}")
+    print(f"[INFO] Class counts: minority={n_minority_original}, majority={n_majority_original}")
+    logger.info(f"Dataset {dataset} has original minority proportion {original_proportion:.4f} "
+                f"(minority={n_minority_original}, majority={n_majority_original})")
 
     # Generate minority proportion sequence
     proportions = generate_minority_proportion_sequence(
@@ -324,6 +350,26 @@ def run_imbalance_analysis(
         if minority_proportion in existing_results and method in existing_results.get(minority_proportion, {}):
             print(f"  [SKIP] Already completed")
             logger.info(f"Skipping minority_proportion={minority_proportion} (already completed)")
+            completed_proportions.append(minority_proportion)
+            continue
+
+        # Check if this proportion would leave enough minority samples for CV
+        # After sampling: if current > target, minority gets downsampled to:
+        #   desired_min = int(target / (1 - target) * n_majority)
+        # We need at least cv_splits samples per class for StratifiedKFold
+        cv_splits = config['split']['cv_splits']
+        if original_proportion > minority_proportion:
+            # Minority will be downsampled
+            expected_minority = int(minority_proportion / (1 - minority_proportion) * n_majority_original)
+        else:
+            # Majority will be downsampled (minority stays the same)
+            expected_minority = n_minority_original
+
+        if expected_minority < cv_splits:
+            print(f"  [SKIP] Proportion {minority_proportion:.4f} would yield only {expected_minority} "
+                  f"minority samples (need >= {cv_splits} for {cv_splits}-fold CV)")
+            logger.info(f"Skipping minority_proportion={minority_proportion}: "
+                        f"only {expected_minority} minority samples (need >= {cv_splits})")
             completed_proportions.append(minority_proportion)
             continue
 
@@ -399,6 +445,10 @@ def run_imbalance_analysis(
 
             # Continue with next proportion (don't abort entire analysis)
             continue
+
+        finally:
+            # Free GPU memory between iterations to prevent OOM from fragmentation
+            _cleanup_gpu()
 
     # ==========================================
     # FINAL SUMMARY

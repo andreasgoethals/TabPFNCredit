@@ -11,12 +11,12 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=45G
 #SBATCH --partition=gpu_p100
-#SBATCH --array=0-53%12
+#SBATCH --array=0-49%12
 
 
 # ---------------------------------------------------------
 # EXPERIMENT 2: STANDARD GPU
-# BATCH 0: Tasks 0-53
+# BATCH 0: Tasks 0-49
 # ---------------------------------------------------------
 # Memory Strategy: #SBATCH --mem=45G
 # Fragmentation Fix: YES

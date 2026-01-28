@@ -60,7 +60,7 @@ python -u scripts/Experiment1/Experiment1_Final.py \
     --method tabicl \
     --task_type pd \
     --hpo_mode NO_HPO \
-    --row_limit 50000
+    --row_limit 30000
 
 # ---------------------------------------------------------
 # EXIT STATUS
