@@ -69,6 +69,9 @@ sleep $((RANDOM % 60 + 1))
 # Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
+# Memory Fragmentation Fix
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
+
 # Setup conda from $VSC_DATA
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit

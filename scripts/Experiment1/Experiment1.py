@@ -8,6 +8,7 @@ Supports both GPU and CPU method execution with clear separation.
 
 import os
 import sys
+import gc
 import pickle
 import time
 import logging
@@ -68,6 +69,21 @@ from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
 from src.methods.method_runner import run_talent_method
 from src.methods.method_config import NO_HPO_METHODS
+
+# Conditional torch import for GPU cleanup
+try:
+    import torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
+
+def _cleanup_gpu():
+    """Free GPU memory after method execution to prevent OOM from fragmentation."""
+    gc.collect()
+    if _HAS_TORCH and torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
 def run_single_method(
@@ -379,7 +395,10 @@ def run_single_method(
         
         logger.info("Task completed successfully")
         print(f"[DONE] {dataset}/{method}/{hpo_mode}")
-        
+
+        # GPU cleanup after successful execution
+        _cleanup_gpu()
+
     except Exception as e:
         logger.error(f"Task failed: {e}", exc_info=True)
         print(f"[FAIL] {dataset}/{method}/{hpo_mode}: {str(e)}")
@@ -395,7 +414,10 @@ def run_single_method(
             ef.write(f"Error: {str(e)}\n")
             ef.write(f"Node: {os.environ.get('SLURMD_NODENAME', 'N/A')}\n")
             ef.write(f"{'='*70}\n")
-        
+
+        # GPU cleanup after failed execution
+        _cleanup_gpu()
+
         raise
 
 

@@ -334,6 +334,7 @@ METHOD_TEST_VAL_LIMITS = {
     'tabpfn_v2': 50_000,     # TabPFN v2: Larger but still constrained
     'tabpfn_real': 50_000,   # TabPFN v2.5 "Real" mode
     'tabicl': 30_000,        # TabICL: In-context learning constraint
+    'mitra': 5_000,           # Mitra: Limited by GPU memory during inference
 }
 
 
