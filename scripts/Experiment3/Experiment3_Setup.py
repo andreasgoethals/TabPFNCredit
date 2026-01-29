@@ -9,7 +9,7 @@ This script:
 4. Counts tasks for each hardware category (PD only - no LGD)
 5. Generates THREE sets of BATCHED SLURM scripts:
    - Experiment3_GPU_Standard*.slurm  (genius cluster, gpu_p100)
-   - Experiment3_GPU_Foundation*.slurm (wICE cluster, gpu_h100)
+   - Experiment3_GPU_Foundation*.slurm (wICE cluster, gpu_a100)
    - Experiment3_CPU*.slurm           (genius cluster, batch)
 6. Provides instructions for submission
 
@@ -64,7 +64,7 @@ def generate_gpu_slurm_script(
         end_task: Ending global task ID (exclusive)
         max_concurrent: Maximum concurrent array jobs
         cluster: SLURM cluster name ("genius" or "wice")
-        partition: SLURM partition ("gpu_p100" or "gpu_h100")
+        partition: SLURM partition ("gpu_p100" or "gpu_a100")
         memory: Memory allocation (e.g., "45G" or "64G")
         job_type: Label for the job ("Standard" or "Foundation")
         orchestrator_script: Python script to run (e.g., "Experiment3_GPU_Standard.py")
@@ -382,7 +382,7 @@ def print_method_summary(
     for i, method in enumerate(sorted(standard_gpu_methods), 1):
         print(f"  {i:2d}. {method}")
 
-    print(f"\nFoundation GPU Methods ({len(foundation_gpu_methods)}) - wICE/gpu_h100:")
+    print(f"\nFoundation GPU Methods ({len(foundation_gpu_methods)}) - wICE/gpu_a100:")
     for i, method in enumerate(sorted(foundation_gpu_methods), 1):
         print(f"  {i:2d}. {method}")
 
@@ -462,7 +462,7 @@ def main():
     print("TASK COUNTS")
     print(f"{'='*70}")
     print(f"Standard GPU tasks (genius/gpu_p100):    {n_standard_gpu_tasks:4d}")
-    print(f"Foundation GPU tasks (wICE/gpu_h100):    {n_foundation_gpu_tasks:4d}")
+    print(f"Foundation GPU tasks (wICE/gpu_a100):    {n_foundation_gpu_tasks:4d}")
     print(f"CPU tasks (genius/batch):                {n_cpu_tasks:4d}")
     print(f"{'='*70}")
     print(f"Total:                                   {n_standard_gpu_tasks + n_foundation_gpu_tasks + n_cpu_tasks:4d}")
@@ -503,7 +503,7 @@ def main():
             print(f"  - {filename} (tasks {start}-{end-1})")
 
     # ==========================================
-    # GENERATE FOUNDATION GPU SCRIPTS (wICE/gpu_h100)
+    # GENERATE FOUNDATION GPU SCRIPTS (wICE/gpu_a100)
     # Uses Soft Isolation: 100G memory request (no --exclusive)
     # ==========================================
     foundation_gpu_files = generate_batched_slurm_files_gpu(
@@ -512,14 +512,14 @@ def main():
         scripts_dir=scripts_dir,
         max_concurrent=max_foundation_concurrent,
         cluster="wice",
-        partition="gpu_h100",
+        partition="gpu_a100",
         memory="64G",  # Ignored in function logic for Foundation, overwritten by 100G
         job_type="Foundation",
         orchestrator_script="Experiment3_GPU_Foundation.py"
     )
 
     if foundation_gpu_files:
-        print(f"\nGenerated {len(foundation_gpu_files)} Foundation GPU batch script(s) [wICE/gpu_h100]:")
+        print(f"\nGenerated {len(foundation_gpu_files)} Foundation GPU batch script(s) [wICE/gpu_a100]:")
         for filename, start, end in foundation_gpu_files:
             print(f"  - {filename} (tasks {start}-{end-1})")
 
