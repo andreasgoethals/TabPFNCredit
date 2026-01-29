@@ -16,7 +16,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=100G
-#SBATCH --partition=gpu_h100
+#SBATCH --partition=gpu_a100
 
 # ---------------------------------------------------------
 # ENVIRONMENT SETUP
