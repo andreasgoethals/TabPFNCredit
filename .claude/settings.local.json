@@ -7,7 +7,9 @@
       "Bash(git checkout:*)",
       "Bash(python -c:*)",
       "Bash(ls:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(tree:*)",
+      "Bash(python:*)"
     ]
   }
 }

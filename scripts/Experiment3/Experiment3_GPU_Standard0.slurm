@@ -11,12 +11,12 @@
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=45G
 #SBATCH --partition=gpu_p100
-#SBATCH --array=0-35%12
+#SBATCH --array=0-31%12
 
 
 # ---------------------------------------------------------
 # EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - STANDARD GPU
-# BATCH 0: Tasks 0-35
+# BATCH 0: Tasks 0-31
 # ---------------------------------------------------------
 # Memory Strategy: #SBATCH --mem=45G
 # Fragmentation Fix: YES

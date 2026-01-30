@@ -10,11 +10,11 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 #SBATCH --partition=batch
-#SBATCH --array=0-11%12
+#SBATCH --array=0-10%11
 
 # ---------------------------------------------------------
 # EXPERIMENT 2: LEARNING CURVE ANALYSIS - CPU
-# BATCH 0: Tasks 0-11
+# BATCH 0: Tasks 0-10
 # ---------------------------------------------------------
 
 # Force unbuffered I/O

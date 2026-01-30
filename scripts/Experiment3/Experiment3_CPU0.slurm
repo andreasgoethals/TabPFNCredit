@@ -10,11 +10,11 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 #SBATCH --partition=batch
-#SBATCH --array=0-8%9
+#SBATCH --array=0-7%8
 
 # ---------------------------------------------------------
 # EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - CPU
-# BATCH 0: Tasks 0-8
+# BATCH 0: Tasks 0-7
 # ---------------------------------------------------------
 # Cluster: genius | Partition: batch | Memory: 40G
 # Each task runs an imbalance curve for ONE method + ONE dataset
