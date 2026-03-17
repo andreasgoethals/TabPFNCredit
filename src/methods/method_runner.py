@@ -26,6 +26,7 @@ Architecture notes:
 - HPO configs saved as JSON in persistent config directory
 - Configs stored in project's 'config_hpo' folder organized by task type (pd/lgd)
 - Deep learning methods return logits; classical methods return probabilities
+- LinearRegression is the only CLASS_LABELS method (regression-only, continuous predictions)
 - TabPFN and PFN-v2 have inherent training set size limitations (applied after splitting)
 - All metrics are calculated by us for consistency and control
 
@@ -99,16 +100,9 @@ from src.methods.method_config import (
     NO_HPO_METHODS,
     LOGIT_METHODS,
     PROBABILITY_METHODS,
+    CLASS_LABEL_METHODS,
     METHOD_ROW_LIMITS,
     METHOD_TEST_VAL_LIMITS,
-    REQUIRES_CAT_INDICES,
-    REQUIRES_CAT_TABR_OHE,
-    REQUIRES_CAT_OHE,
-    FORBIDS_CAT_INDICES,
-    TABPFN_VARIANTS,
-    REQUIRES_NO_NORMALIZATION,
-    REQUIRES_NO_NUM_ENCODING,
-    REQUIRES_STANDARD_NORMALIZATION,
     apply_preprocessing_policies,
     apply_method_row_limit,
     _is_missing,
@@ -288,28 +282,41 @@ def _extract_class_probabilities(
 ) -> Optional[np.ndarray]:
     """
     Extract class probabilities from model predictions.
-    
-    Deep learning methods typically return logits (unbounded values).
-    Classical methods typically return probabilities (0-1 range).
-    
+
+    Handles three output types (determined by method_config registry):
+    - LOGITS: Raw network output needing softmax/sigmoid conversion
+    - PROBABILITIES: predict_proba() output, already calibrated [0,1]
+    - CLASS_LABELS: Continuous predictions (regression-only methods like LinearRegression)
+
     For binary classification:
     - If predictions are 2D with 2 columns: extract probability of positive class (column 1)
     - If predictions are 1D: interpret as probability of positive class
-    
+
+    Note: In the updated TALENT version, all classification methods return probabilities
+    (SVM via CalibratedClassifierCV, NCM via custom _predict_proba(), NaiveBayes via
+    GaussianNB.predict_proba(), Dummy via predict_proba(), RealMLP via modified predict()).
+    CLASS_LABELS is now only used for LinearRegression (regression-only).
+
     Args:
-        predictions: Model predictions (may be logits or probabilities)
-        method: Method name to determine if logits or probabilities expected
+        predictions: Model predictions (logits, probabilities, or class labels)
+        method: Method name to determine output type from registry
         is_regression: Whether this is a regression task
-        
+
     Returns:
         1D array of probabilities for positive class (classification only)
-        None for regression tasks
+        None for regression tasks or CLASS_LABEL methods (regression-only)
     """
     if is_regression:
         return None
-    
+
+    # CLASS_LABEL methods return continuous predictions (regression-only).
+    # For classification, this should not be reached since CLASS_LABEL methods
+    # (currently only LinearRegression) are not used for classification tasks.
+    if method in CLASS_LABEL_METHODS:
+        return None
+
     returns_logits = method in LOGIT_METHODS
-    
+
     # Handle 2D predictions: (n_samples, n_classes)
     if len(predictions.shape) == 2 and predictions.shape[1] >= 2:
         if returns_logits:
@@ -318,27 +325,27 @@ def _extract_class_probabilities(
             probabilities = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
         else:
             probabilities = predictions
-        
+
         return probabilities[:, 1]
-    
+
     # Handle 1D predictions: (n_samples,) or (n_samples, 1)
     elif len(predictions.shape) == 1 or (len(predictions.shape) == 2 and predictions.shape[1] == 1):
         if len(predictions.shape) == 2:
             predictions = predictions.ravel()
-        
+
         if returns_logits:
             # Apply sigmoid: p = 1 / (1 + exp(-logit))
             probabilities = 1.0 / (1.0 + np.exp(-predictions))
         else:
-            # Check if values are in [0,1] range
-            if np.all((predictions >= 0) & (predictions <= 1)):
-                probabilities = predictions
+            # Check if values are approximately in [0,1] range (with float tolerance)
+            if np.all((predictions >= -1e-6) & (predictions <= 1.0 + 1e-6)):
+                probabilities = np.clip(predictions, 0.0, 1.0)
             else:
-                # Values outside [0,1] - treat as logits
+                # Values well outside [0,1] — treat as logits
                 probabilities = 1.0 / (1.0 + np.exp(-predictions))
-        
+
         return probabilities
-    
+
     else:
         warnings.warn(
             f"Unexpected prediction shape {predictions.shape} for method {method}. "
@@ -1557,8 +1564,13 @@ def run_talent_method(
                     if verbose:
                         print(f"\nFold {fold_id} metrics:")
                         for metric_name, metric_value in metrics.items():
-                            if not np.isnan(metric_value):
-                                print(f"  {metric_name}: {metric_value:.4f}")
+                            try:
+                                if isinstance(metric_value, (int, np.integer)):
+                                    print(f"  {metric_name}: {metric_value}")
+                                elif not np.isnan(metric_value):
+                                    print(f"  {metric_name}: {metric_value:.4f}")
+                            except (TypeError, ValueError):
+                                print(f"  {metric_name}: {metric_value}")
 
                 except Exception as e:
                     if verbose:

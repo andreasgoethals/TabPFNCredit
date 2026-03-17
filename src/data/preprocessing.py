@@ -100,7 +100,7 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # ----------------------------------------------------------
     info = {
         "dataset_name": dataset,
-        "task_type": "regression" if task == "lgd" else "classification",
+        "task_type": "regression" if task == "lgd" else "binclass",
         "n_samples": len(y),
         "n_num_features": N.shape[1] if N is not None else 0,
         "n_cat_features": C.shape[1] if C is not None else 0,

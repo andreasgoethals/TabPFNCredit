@@ -90,7 +90,7 @@ def load_pickle_file(pkl_path: Path) -> Dict[str, Any]:
         with open(pkl_path, 'rb') as f:
             return pickle.load(f)
     except Exception as e:
-        print(f"    ⚠️  ERROR loading {pkl_path.name}: {e}")
+        print(f"    [ERROR] loading {pkl_path.name}: {e}")
         return {}
 
 
@@ -389,9 +389,9 @@ def load_task_results(experiment_dir: Path, task: str) -> pd.DataFrame:
             n_methods = len(set(r['method'] for r in rows))
             n_folds = len(set(r['fold_id'] for r in rows))
             hpo_modes = set(r['hpo_mode'] for r in rows)
-            print(f"    ✓ {dataset_name}: {len(rows)} results ({n_methods} methods, {n_folds} folds, {hpo_modes})")
+            print(f"    [OK] {dataset_name}: {len(rows)} results ({n_methods} methods, {n_folds} folds, {hpo_modes})")
         else:
-            print(f"    ⚠️  {dataset_name}: No valid results")
+            print(f"    [WARN] {dataset_name}: No valid results")
     
     if not all_rows:
         return pd.DataFrame()
@@ -910,7 +910,7 @@ Examples:
     try:
         summarize_results(experiment=args.experiment)
     except KeyboardInterrupt:
-        print("\n\n⚠️  Interrupted by user")
+        print("\n\n[WARN] Interrupted by user")
         sys.exit(1)
     except Exception as e:
         print(f"\n\n❌ ERROR: {e}")

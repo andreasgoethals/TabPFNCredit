@@ -182,18 +182,21 @@ def run_method_debugger(
                 task='pd', dataset=first_pd, method=method, tune=False, **common_params
             )
             elapsed = time.time() - start_time
-            if method_results and 'metrics' in method_results:
-                auc = method_results['metrics'].get('AUC', method_results['metrics'].get('auc', 'N/A'))
+            # method_results is {fold_id: {results_dict}} — extract first fold
+            first_fold = next(iter(method_results.values()), {}) if method_results else {}
+            fold_metrics = first_fold.get('metrics', {})
+            if fold_metrics:
+                auc = fold_metrics.get('AUC', 'N/A')
                 if isinstance(auc, float): auc = round(auc, 4)
-                logger.info(f"[{i+1}/{len(pd_methods)}] ✓ {method} ({elapsed:.1f}s) AUC={auc}")
-                print(f"  [{i+1:2}/{len(pd_methods)}] ✓ {method} (AUC={auc})")
+                logger.info(f"[{i+1}/{len(pd_methods)}] OK {method} ({elapsed:.1f}s) AUC={auc}")
+                print(f"  [{i+1:2}/{len(pd_methods)}] OK {method} (AUC={auc})")
                 results['pd']['success'].append((method, elapsed, auc))
             else:
                 results['pd']['success'].append((method, elapsed, 'N/A'))
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"[{i+1}/{len(pd_methods)}] ✗ {method} {str(e)}")
-            print(f"  [{i+1:2}/{len(pd_methods)}] ✗ {method}")
+            logger.error(f"[{i+1}/{len(pd_methods)}] FAIL{method} {str(e)}")
+            print(f"  [{i+1:2}/{len(pd_methods)}] FAIL{method}")
             results['pd']['failed'].append((method, elapsed, str(e)))
         update_summary()
 
@@ -208,18 +211,21 @@ def run_method_debugger(
                 task='lgd', dataset=first_lgd, method=method, tune=False, **common_params
             )
             elapsed = time.time() - start_time
-            if method_results and 'metrics' in method_results:
-                rmse = method_results['metrics'].get('RMSE', method_results['metrics'].get('rmse', 'N/A'))
+            # method_results is {fold_id: {results_dict}} — extract first fold
+            first_fold = next(iter(method_results.values()), {}) if method_results else {}
+            fold_metrics = first_fold.get('metrics', {})
+            if fold_metrics:
+                rmse = fold_metrics.get('RMSE', 'N/A')
                 if isinstance(rmse, float): rmse = round(rmse, 4)
-                logger.info(f"[{i+1}/{len(lgd_methods)}] ✓ {method} ({elapsed:.1f}s) RMSE={rmse}")
-                print(f"  [{i+1:2}/{len(lgd_methods)}] ✓ {method} (RMSE={rmse})")
+                logger.info(f"[{i+1}/{len(lgd_methods)}] OK {method} ({elapsed:.1f}s) RMSE={rmse}")
+                print(f"  [{i+1:2}/{len(lgd_methods)}] OK {method} (RMSE={rmse})")
                 results['lgd']['success'].append((method, elapsed, rmse))
             else:
                 results['lgd']['success'].append((method, elapsed, 'N/A'))
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.error(f"[{i+1}/{len(lgd_methods)}] ✗ {method} {str(e)}")
-            print(f"  [{i+1:2}/{len(lgd_methods)}] ✗ {method}")
+            logger.error(f"[{i+1}/{len(lgd_methods)}] FAIL{method} {str(e)}")
+            print(f"  [{i+1:2}/{len(lgd_methods)}] FAIL{method}")
             results['lgd']['failed'].append((method, elapsed, str(e)))
         update_summary()
 

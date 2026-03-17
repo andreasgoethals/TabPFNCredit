@@ -102,11 +102,15 @@ PCA_TARGET_FEATURES = 99       # Target number of PCA components
 
 # Outlier detection settings (hybrid: percentile + magnitude)
 OUTLIER_PERCENTILE_THRESHOLD = 0.001  # 0.1% tails (rare)
-OUTLIER_MAGNITUDE_MULTIPLIER = 5.0    # Must be 5× IQR from median (extreme)
+OUTLIER_MAGNITUDE_MULTIPLIER = 5.0    # Must be 5x IQR from median (extreme)
 MIN_ROWS_FOR_OUTLIER_DETECTION = 100  # Need enough data for statistics
+MIN_ROWS_AFTER_OUTLIER_REMOVAL = 20   # Guard: ensure training set stays viable
 
 # Near-constant column threshold
 NEAR_CONSTANT_THRESHOLD = 0.99  # Drop columns where >99% values are identical
+
+# Winsorization limits (consistent across PCA and non-PCA paths)
+WINSORIZE_LIMITS = (0.001, 0.999)  # 0.1th and 99.9th percentiles
 
 
 class DataFeeder:
@@ -313,25 +317,29 @@ class DataFeeder:
         
         # Check numerical columns
         if N_train is not None:
+            n_rows = N_train.shape[0]
             for col_idx in range(N_train.shape[1]):
                 col_data = N_train[:, col_idx]
-                # Count non-NaN values
                 valid_data = col_data[~np.isnan(col_data)]
                 if len(valid_data) > 0:
                     unique_vals, counts = np.unique(valid_data, return_counts=True)
-                    max_freq = counts.max() / len(valid_data)
+                    # Divide by TOTAL rows (not just valid), so columns with
+                    # mostly-NaN + one constant value are not falsely flagged.
+                    max_freq = counts.max() / n_rows
                     if max_freq > threshold:
                         num_cols_to_drop.append(col_idx)
-        
+
         # Check categorical columns
         if C_train is not None:
+            n_rows_cat = C_train.shape[0]
             for col_idx in range(C_train.shape[1]):
                 col_data = C_train[:, col_idx]
                 # Count valid values (assuming -1 represents missing)
                 valid_data = col_data[col_data >= 0]
                 if len(valid_data) > 0:
                     unique_vals, counts = np.unique(valid_data, return_counts=True)
-                    max_freq = counts.max() / len(valid_data)
+                    # Divide by TOTAL rows (not just valid) for consistency.
+                    max_freq = counts.max() / n_rows_cat
                     if max_freq > threshold:
                         cat_cols_to_drop.append(col_idx)
         
@@ -359,12 +367,12 @@ class DataFeeder:
     def _remove_outliers_post_split(
         self,
         N_train: Optional[np.ndarray],
-        C_train: Optional[np.ndarray],  # ← ADD THIS
+        C_train: Optional[np.ndarray],
         y_train: np.ndarray,
         percentile_threshold: float = OUTLIER_PERCENTILE_THRESHOLD,
         magnitude_multiplier: float = OUTLIER_MAGNITUDE_MULTIPLIER,
         min_rows: int = MIN_ROWS_FOR_OUTLIER_DETECTION
-    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], np.ndarray, int]:  # ← UPDATE RETURN TYPE
+    ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], np.ndarray, int]:
         """
         Remove extreme outliers from TRAINING data only, using training statistics.
         
@@ -382,9 +390,10 @@ class DataFeeder:
         n_removed : number of rows removed
         """
         if N_train is None or len(N_train) < min_rows:
-            return N_train, C_train, y_train, 0  # ← RETURN C_train
-        
-        outlier_mask = np.zeros(len(N_train), dtype=bool)
+            return N_train, C_train, y_train, 0
+
+        n_total = len(N_train)
+        outlier_mask = np.zeros(n_total, dtype=bool)
         
         for col_idx in range(N_train.shape[1]):
             col_data = N_train[:, col_idx]
@@ -417,18 +426,27 @@ class DataFeeder:
             outlier_mask = outlier_mask | col_outliers
         
         n_removed = outlier_mask.sum()
-        
+
         if n_removed > 0:
+            n_remaining = n_total - n_removed
+            # Guard: ensure training set stays viable after removal
+            if n_remaining < MIN_ROWS_AFTER_OUTLIER_REMOVAL:
+                logger.warning(
+                    f"    Outlier removal would leave only {n_remaining} rows "
+                    f"(< {MIN_ROWS_AFTER_OUTLIER_REMOVAL}). Skipping removal."
+                )
+                return N_train, C_train, y_train, 0
+
             N_train = N_train[~outlier_mask]
-            C_train = C_train[~outlier_mask] if C_train is not None else None  # ← FIX: Filter C_train too!
+            C_train = C_train[~outlier_mask] if C_train is not None else None
             y_train = y_train[~outlier_mask]
-            pct_removed = n_removed / (n_removed + len(N_train)) * 100
+            pct_removed = n_removed / n_total * 100
             logger.info(
                 f"    Removed {n_removed} outliers from training data "
                 f"({pct_removed:.2f}%)"
             )
-        
-        return N_train, C_train, y_train, n_removed  # ← RETURN C_train
+
+        return N_train, C_train, y_train, n_removed
 
     def _apply_pca_post_split(
         self,
@@ -440,7 +458,7 @@ class DataFeeder:
         C_test: Optional[np.ndarray],
         fold_id: int = 1,
         target_features: int = PCA_TARGET_FEATURES,
-        winsorize_limits: Tuple[float, float] = (0.01, 0.99)
+        winsorize_limits: Tuple[float, float] = WINSORIZE_LIMITS
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray],
                Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
@@ -474,11 +492,17 @@ class DataFeeder:
         # Combine numerical and categorical features
         def combine_features(N, C):
             if N is not None and C is not None:
-                return np.concatenate([N, C.astype(np.float32)], axis=1)
+                # Convert categoricals to float, replacing -1 sentinel (missing)
+                # with NaN so that the imputation step handles them correctly.
+                C_float = C.astype(np.float32)
+                C_float[C < 0] = np.nan
+                return np.concatenate([N, C_float], axis=1)
             elif N is not None:
                 return N
             elif C is not None:
-                return C.astype(np.float32)
+                C_float = C.astype(np.float32)
+                C_float[C < 0] = np.nan
+                return C_float
             return None
         
         X_train = combine_features(N_train, C_train)
@@ -573,7 +597,7 @@ class DataFeeder:
         # Step 2: Remove extreme outliers (from training only)
         if self.remove_outliers and N_train is not None:
             N_train, C_train, y_train, _ = self._remove_outliers_post_split(
-                N_train, C_train, y_train  # ← PASS C_train
+                N_train, C_train, y_train
             )
         
         # Step 3: Apply PCA if needed
@@ -599,7 +623,7 @@ class DataFeeder:
         N_train: Optional[np.ndarray],
         N_val: Optional[np.ndarray],
         N_test: Optional[np.ndarray],
-        winsorize_limits: Tuple[float, float] = (0.001, 0.999)
+        winsorize_limits: Tuple[float, float] = WINSORIZE_LIMITS
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Winsorize extreme values in val/test sets using TRAINING percentiles.
@@ -610,7 +634,7 @@ class DataFeeder:
         Parameters
         ----------
         winsorize_limits : tuple
-            (lower, upper) percentiles for clipping (default: 1%, 99%)
+            (lower, upper) percentiles for clipping (default: 0.1%, 99.9%)
         
         Returns
         -------

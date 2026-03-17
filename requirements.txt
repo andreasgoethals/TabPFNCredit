@@ -21,8 +21,8 @@ einops==0.8.0
 qhoptim==1.1.0
 category_encoders==2.6.3
 dill
-msgpack>=1.0.5                   # ← Added version pin
-msgpack-numpy>=0.4.8             # ← FIXED: hyphen not underscore
+msgpack>=1.0.5                   
+msgpack-numpy>=0.4.8             
 torchmetrics
 pytorch_lightning
 einx
@@ -37,8 +37,7 @@ lightgbm==4.6.0
 catboost==1.2.8
 
 # ============================================
-# TALENT Framework (Custom Branch - PR #90)
-# Includes probability support fix for classical methods
+# TALENT Framework 
 # ============================================
 TALENT @ git+https://github.com/LAMDA-Tabular/TALENT
 
