@@ -1133,7 +1133,7 @@ def run_talent_method(
         #   - Affects: Entire dataset (train + test + val)
         #
         # Method-intrinsic limit (from METHOD_ROW_LIMITS): Applied AFTER splitting
-        #   - Use case: Method constraints (TabPFN: 10k, PFN-v2: 50k)
+        #   - Use case: Method constraints (TabPFN v1: 5k, TabPFN v2: 50k, TabICL: 30k, MITRA: 5k)
         #   - Affects: Training set ONLY (preserves full test/val for robust evaluation)
         # ======================================================================
 

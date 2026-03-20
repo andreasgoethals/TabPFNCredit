@@ -159,7 +159,15 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         train_row_limit=5_000,
         test_val_limit=50_000,
         supports_hpo=False,
-        notes="TabPFN v1. predict_proba() returns calibrated probabilities.",
+        notes=(
+            "TabPFN v1 (Hollmann et al., 2022). In-context learning: the entire training set "
+            "is loaded as a transformer context at inference time. Original paper designed for "
+            "≤1,024 training samples; the library was later extended to ~10,000 before "
+            "performance degrades. train_row_limit=5,000 is a conservative practical cap. "
+            "test_val_limit=50,000 is deliberately larger: inference queries are processed "
+            "one-by-one against the fixed context (no quadratic N_test cost), so large "
+            "evaluation sets are fine. predict_proba() returns calibrated probabilities."
+        ),
     ),
     MethodSpec(
         name="tabpfn_v2",
@@ -169,10 +177,16 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         cat_policy=CatPolicy.INDICES,
         normalization="none",
         num_policy="none",
-        train_row_limit=30_000,
+        train_row_limit=50_000,
         test_val_limit=50_000,
         supports_hpo=False,
-        notes="TabPFN v2 (PFN_v2.py). predict_proba() returns probabilities.",
+        notes=(
+            "TabPFN v2 (Hollmann et al., 2025). Extended ICL architecture supports larger "
+            "context windows than v1, with efficient chunked inference. train_row_limit=50,000 "
+            "reflects the practical GPU memory ceiling (~16–24 GB) for our credit datasets "
+            "(10–50 features). Matches test_val_limit=50,000 for a consistent 1:1 "
+            "train-to-inference ratio. predict_proba() returns probabilities."
+        ),
     ),
     MethodSpec(
         name="tabpfn_real",
@@ -182,10 +196,15 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         cat_policy=CatPolicy.INDICES,
         normalization="none",
         num_policy="none",
-        train_row_limit=30_000,
+        train_row_limit=50_000,
         test_val_limit=50_000,
         supports_hpo=False,
-        notes="TabPFN v2.5 'Real' mode. Same PFN_v2.py class, predict_proba().",
+        notes=(
+            "TabPFN v2 in 'Real' mode (Hollmann et al., 2025). Same architecture as tabpfn_v2 "
+            "but with real-data fine-tuning enabled. Identical row limits: train_row_limit=50,000 "
+            "and test_val_limit=50,000 (1:1 ratio). Uses the same PFN_v2.py class. "
+            "predict_proba() returns probabilities."
+        ),
     ),
     MethodSpec(
         name="mitra",
@@ -198,8 +217,13 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         train_row_limit=5_000,
         test_val_limit=5_000,
         supports_hpo=False,
-        notes="Mitra foundation model. Has custom predict() that returns raw model output, "
-              "not predict_proba(). Needs softmax.",
+        notes=(
+            "MITRA foundation model. ICL with cross-attention between training context and "
+            "test queries: GPU memory scales as O(N_train × N_test), so train_row_limit and "
+            "test_val_limit are both capped at 5,000 to prevent OOM. The symmetric 1:1 ratio "
+            "reflects this joint memory constraint. Has custom predict() returning raw logits "
+            "(not predict_proba()); softmax applied externally."
+        ),
     ),
     MethodSpec(
         name="tabicl",
@@ -209,10 +233,16 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         cat_policy=CatPolicy.INDICES,
         normalization="none",
         num_policy="none",
-        train_row_limit=30_000,
-        test_val_limit=30_000,
+        train_row_limit=50_000,
+        test_val_limit=50_000,
         supports_hpo=False,
-        notes="TabICL. predict_proba() in tabicl.py returns probabilities.",
+        notes=(
+            "TabICL (Qu et al., 2024). ICL model explicitly evaluated up to 30,000 training "
+            "samples in the paper; train_row_limit=50,000 is a conservative extension of that "
+            "range. test_val_limit=50,000 matches train_row_limit for a consistent 1:1 ratio — "
+            "inference uses the full training context, so N_test is bounded by the same "
+            "GPU memory budget as N_train. predict_proba() returns probabilities."
+        ),
     ),
     MethodSpec(
         name="tabptm",
@@ -341,7 +371,13 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         output_type=OutputType.LOGITS,
         cat_policy=CatPolicy.INDICES,
         train_row_limit=100_000,
-        notes="AMFormer. assert(cat_policy == 'indices'). O(N^2) attention. Base predict() → logits.",
+        notes=(
+            "AMFormer. assert(cat_policy == 'indices'). Row-wise self-attention is O(N²) over "
+            "the training set, making training memory and time grow quadratically. "
+            "train_row_limit=100,000 is a practical compute cap to bound training cost; "
+            "no test_val_limit needed (mini-batch inference has no N_test memory constraint). "
+            "Base predict() → logits."
+        ),
     ),
     MethodSpec(
         name="t2gformer",
@@ -420,7 +456,12 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         output_type=OutputType.LOGITS,
         cat_policy=CatPolicy.OHE,
         train_row_limit=100_000,
-        notes="TANGOS. assert(cat_policy != 'indices'). Base predict() → logits.",
+        notes=(
+            "TANGOS. assert(cat_policy != 'indices'). train_row_limit=100,000 is a practical "
+            "compute cap to bound training time and memory (standard mini-batch training, not "
+            "ICL). No test_val_limit needed (mini-batch inference has no N_test constraint). "
+            "Base predict() → logits."
+        ),
     ),
     MethodSpec(
         name="ptarl",
@@ -508,7 +549,9 @@ _REGISTRY_LIST: ty.List[MethodSpec] = [
         output_type=OutputType.LOGITS,
         cat_policy=CatPolicy.INDICES,
         normalization="none",
-        notes="LiMiX. Mixup-based. Uses indices. No normalization. Base predict() → logits.",
+        num_policy="none",
+        notes="LiMiX. assert(cat_policy == 'indices'), assert(normalization == 'none'), "
+              "assert(num_policy == 'none'). Mixup-based. Base predict() → logits.",
     ),
 
     # ==================================================================================

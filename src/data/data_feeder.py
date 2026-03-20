@@ -30,17 +30,18 @@ Two distinct types of row limits are supported:
 
 2. METHOD-INTRINSIC LIMIT (train_row_limit parameter):
    - Applied AFTER splitting, only to TRAINING indices
-   - Use for methods with architectural constraints (e.g., TabPFN: 10k)
+   - Use for methods with architectural constraints
+     (e.g., TabPFN v1: 5k train; TabPFN v2: 50k train; TabICL: 30k train; MITRA: 5k train)
    - Preserves full test/validation sets for robust evaluation
    - Maximizes training data utilization within method constraints
 
 Example:
     - Dataset: 500k rows
-    - Method limit: 10k (TabPFN)
+    - Method limit: 5k train (TabPFN v1), 50k test/val
     - CV splits: 5-fold
 
-    OLD BEHAVIOR (incorrect): Cap at 10k → 8k train, 2k test per fold
-    NEW BEHAVIOR (correct): Full 500k → 100k test, 10k train (subsampled) per fold
+    OLD BEHAVIOR (incorrect): Cap at 5k → 4k train, 1k test per fold
+    NEW BEHAVIOR (correct): Full 500k → 100k test, 5k train (subsampled) per fold
 ===============================================================================
 
 -------------------------------------------------------------------------------
@@ -97,7 +98,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # PCA settings
-MAX_FEATURES_THRESHOLD = 100  # Trigger PCA if total features exceed this
+MAX_FEATURES_THRESHOLD = 99   # Trigger PCA if total features exceed this
 PCA_TARGET_FEATURES = 99       # Target number of PCA components
 
 # Outlier detection settings (hybrid: percentile + magnitude)

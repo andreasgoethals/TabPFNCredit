@@ -2,9 +2,14 @@
 # TabPFNCredit .gitignore
 # ============================================================================
 
-# ---- Data (keep structure only) ----
+# ---- Data (keep directory structure only) ----
 data/*
 !data/.gitkeep
+!data/raw/
+data/raw/*
+!data/raw/.gitkeep
+!data/processed/
+data/processed/*
 
 # ---- Images (keep folder only) ----
 images/*
@@ -13,44 +18,76 @@ images/*
 # ---- Results (ignore completely) ----
 results/
 
-# ---- Generated configs ----
+# ---- Generated HPO configs ----
 config_hpo/
 
-# ---- Python ----
+# ---- Python bytecode & packaging ----
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg
 *.egg-info/
+dist/
+build/
 .Python
+*.whl
 
-# ---- Virtual Environments ----
+# ---- Virtual environments ----
 .env
 .venv/
 venv/
 env/
+ENV/
 
 # ---- Jupyter ----
 .ipynb_checkpoints/
 
-# ---- IDEs ----
+# ---- IDEs & editors ----
 .vscode/
 .idea/
 *.sublime-*
+*.swp
+*.swo
+*~
 
-# ---- OS Files ----
+# ---- OS files ----
 .DS_Store
+.DS_Store?
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# ---- Logs & Temp Files ----
+# ---- Logs, temp & backup files ----
 *.log
 *.tmp
 *.bak
+*.orig
 
-# ---- Model Files ----
+# ---- Model & checkpoint files ----
 *.safetensors
 *.cpkt
 *.pth
 *.ckpt
 *.pkl
+*.h5
+*.hdf5
 **/model/models/
+
+# ---- Secrets & credentials ----
+*.env.local
+.env.production
+credentials.json
+secrets.json
+*.key
+*.pem
+
+# ---- Distribution / packaging ----
+*.tar.gz
+*.zip
+
+# ---- Coverage & testing ----
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
