@@ -339,11 +339,14 @@ Analysis notebooks in `notebooks/`:
 | Notebook | Purpose |
 |----------|---------|
 | `Experiment0.ipynb` | Method selection from pilot study |
-| `Experiment1.ipynb` | Full benchmark: heatmaps, rank analysis, PAMA, correlation, training time |
+| `Experiment1.1-PD.ipynb` | PD benchmark: heatmaps, distributions, ranks, dataset correlations, training time, all-metrics bar charts |
+| `Experiment1.2-LGD.ipynb` | LGD benchmark: heatmaps, distributions, ranks, dataset correlations, training time, all-metrics bar charts |
+| `Experiment1.3-Stat.ipynb` | Statistical analysis (Demsar 2006): Friedman + Iman-Davenport, Nemenyi CD, Wilcoxon + Holm, effect sizes (Vargha-Delaney A), PAMA, bootstrap CIs, Win/Draw/Loss, pairwise scatter plots |
 | `Experiment2.ipynb` | Learning curves: performance vs training set size |
 | `Experiment3.ipynb` | Class imbalance: performance vs minority proportion |
 | `Data_Exploration.ipynb` | Dataset characteristics analysis |
 | `Individual_Method_Runner.ipynb` | Debug and test individual methods |
+
 
 ---
 
@@ -352,7 +355,11 @@ Analysis notebooks in `notebooks/`:
 ```
 TabPFNCredit/
 ├── notebooks/                         # Analysis & visualization
-│   ├── Experiment{0-3}.ipynb          # Per-experiment analysis
+│   ├── Experiment0.ipynb              # Pilot study method selection
+│   ├── Experiment1.1-PD.ipynb         # Experiment 1: PD visualizations & metrics
+│   ├── Experiment1.2-LGD.ipynb        # Experiment 1: LGD visualizations & metrics
+│   ├── Experiment1.3-Stat.ipynb       # Experiment 1: Statistical analysis (Demsar 2006)
+│   ├── Experiment{2-3}.ipynb          # Learning curves & class imbalance
 │   ├── Data_Exploration.ipynb         # Dataset characteristics
 │   └── Individual_Method_Runner.ipynb # Method debugging
 │
