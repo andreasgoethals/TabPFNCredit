@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \":*)",
+      "Bash(python:*)",
+      "Bash(del \"C:\\\\Users\\\\U0152019\\\\PhD Documents\\\\Projects\\\\1. TabPFN\\\\TabPFNCredit\\\\fix_notebook.py\")",
+      "mcp__PDF__By_Anthropic___read_pdf_bytes",
+      "mcp__PDF_Tools_-_Fill__Analyze__Extract__View__read_pdf_content"
+    ]
+  }
+}
