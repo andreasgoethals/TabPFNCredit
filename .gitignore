@@ -2,6 +2,9 @@
 # TabPFNCredit .gitignore
 # ============================================================================
 
+# ---- Claude Code (local AI assistant config — never commit) ----
+.claude/
+
 # ---- Data (keep directory structure only) ----
 data/*
 !data/.gitkeep
@@ -66,12 +69,12 @@ Desktop.ini
 
 # ---- Model & checkpoint files ----
 *.safetensors
-*.cpkt
 *.pth
 *.ckpt
 *.pkl
 *.h5
 *.hdf5
+*.npy
 **/model/models/
 
 # ---- Secrets & credentials ----

@@ -300,12 +300,13 @@ All LGD predictions are clipped to [0, 1] before metric calculation.
 ```bash
 git clone https://github.com/andreasgoethals/tabpfncredit.git
 cd tabpfncredit
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+python -m venv venv
+source venv/bin/activate        # Linux/macOS
+# venv\Scripts\activate         # Windows
 pip install -r requirements_local.txt
 ```
 
-For VSC supercomputer, use `requirements_vsc.txt` instead.
+For VSC supercomputer, use `requirements_vsc.txt` instead (includes CUDA 11.8 PyTorch builds).
 
 ### 2. Configuration
 
@@ -326,7 +327,21 @@ sbatch scripts/Experiment1/Experiment1_GPU.slurm
 sbatch scripts/Experiment1/Experiment1_CPU.slurm
 ```
 
-### 4. Analyzing Results
+### 4. Jupyter Dev Server
+
+Launch Jupyter from the project root using the venv kernel:
+
+```bash
+# Jupyter Notebook (classic, port 8888)
+venv/Scripts/jupyter notebook --port 8888 --notebook-dir notebooks
+
+# Jupyter Lab (modern UI, port 8889)
+venv/Scripts/jupyter lab --port 8889 --notebook-dir notebooks
+```
+
+Server configurations are saved in `.claude/launch.json` for use with Claude Code's `preview_start`.
+
+### 5. Analyzing Results
 
 Results are stored as pickle files in `results/experimentN/{pd,lgd}/`. Generate summary CSVs:
 
@@ -341,7 +356,7 @@ Analysis notebooks in `notebooks/`:
 | `Experiment0.ipynb` | Method selection from pilot study |
 | `Experiment1.1-PD.ipynb` | PD benchmark: heatmaps, distributions, ranks, dataset correlations, training time, all-metrics bar charts |
 | `Experiment1.2-LGD.ipynb` | LGD benchmark: heatmaps, distributions, ranks, dataset correlations, training time, all-metrics bar charts |
-| `Experiment1.3-Stat.ipynb` | Statistical analysis (Demsar 2006): Friedman + Iman-Davenport, Nemenyi CD, Wilcoxon + Holm, effect sizes (Vargha-Delaney A), PAMA, bootstrap CIs, Win/Draw/Loss, pairwise scatter plots |
+| `Experiment1.3-Stat.ipynb` | Statistical analysis: Friedman + Iman-Davenport omnibus test, Nemenyi CD diagram (all methods), Wilcoxon signed-rank + Holm pairwise tests, PAMA, bootstrap rank CIs, Win/Loss + significance matrix, effect sizes (Vargha-Delaney A), pairwise scatter plots |
 | `Experiment2.ipynb` | Learning curves: performance vs training set size |
 | `Experiment3.ipynb` | Class imbalance: performance vs minority proportion |
 | `Data_Exploration.ipynb` | Dataset characteristics analysis |
@@ -358,7 +373,7 @@ TabPFNCredit/
 │   ├── Experiment0.ipynb              # Pilot study method selection
 │   ├── Experiment1.1-PD.ipynb         # Experiment 1: PD visualizations & metrics
 │   ├── Experiment1.2-LGD.ipynb        # Experiment 1: LGD visualizations & metrics
-│   ├── Experiment1.3-Stat.ipynb       # Experiment 1: Statistical analysis (Demsar 2006)
+│   ├── Experiment1.3-Stat.ipynb       # Experiment 1: Statistical analysis
 │   ├── Experiment{2-3}.ipynb          # Learning curves & class imbalance
 │   ├── Data_Exploration.ipynb         # Dataset characteristics
 │   └── Individual_Method_Runner.ipynb # Method debugging
@@ -377,30 +392,34 @@ TabPFNCredit/
 │   ├── data/
 │   │   ├── preprocessing.py           # Load/cache TALENT-format arrays
 │   │   ├── dataset_preprocessing.py   # Per-dataset raw data cleaning
-│   │   └── data_feeder.py            # CV splitting + post-split preprocessing
+│   │   └── data_feeder.py             # CV splitting + post-split preprocessing
 │   ├── methods/
-│   │   ├── method_config.py          # Single-source-of-truth method registry
-│   │   ├── method_runner.py          # TALENT method wrapper
-│   │   ├── method_metrics.py         # PD and LGD metric calculation
-│   │   └── method_debugger.py        # Quick method testing
+│   │   ├── method_config.py           # Single-source-of-truth method registry
+│   │   ├── method_runner.py           # TALENT method wrapper
+│   │   ├── method_metrics.py          # PD and LGD metric calculation
+│   │   └── method_debugger.py         # Quick method testing
 │   └── utils/
-│       ├── config_reader.py          # YAML configuration parser
-│       ├── storage_handler.py        # Pickle file I/O with locking
-│       ├── summarize_results.py      # Result aggregation to CSV
-│       └── remove_results.py         # Selective result removal
+│       ├── config_reader.py           # YAML configuration parser
+│       ├── storage_handler.py         # Pickle file I/O with locking
+│       ├── summarize_results.py       # Result aggregation to CSV
+│       └── remove_results.py          # Selective result removal
 │
 ├── data/
-│   ├── raw/{pd,lgd}/                 # Raw CSV datasets
-│   └── processed/                    # Cached .npy arrays
+│   ├── raw/{pd,lgd}/                  # Raw CSV datasets
+│   └── processed/                     # Cached .npy arrays (gitignored)
 │
-├── results/experiment{0-3}/
-│   ├── {pd,lgd}/                     # Pickle result files
-│   ├── summary/                      # Aggregated CSVs
-│   └── figures/                      # Generated plots
+├── results/experiment{0-3}/           # Gitignored — generated at runtime
+│   ├── {pd,lgd}/                      # Pickle result files
+│   ├── summary/                       # Aggregated CSVs
+│   └── figures/                       # Generated plots
 │
-├── config_hpo/                       # Per-fold HPO configs (auto-generated)
-├── requirements_local.txt
-└── requirements_vsc.txt
+├── .claude/                           # Claude Code config (gitignored)
+│   └── launch.json                    # Dev server configurations
+├── config_hpo/                        # Per-fold HPO configs (auto-generated, gitignored)
+├── CLAUDE.md                          # Claude Code project instructions
+├── requirements.txt                   # Core dependencies
+├── requirements_local.txt             # Local machine (+ CPU PyTorch)
+└── requirements_vsc.txt               # VSC supercomputer (+ CUDA 11.8 PyTorch)
 ```
 
 ---
