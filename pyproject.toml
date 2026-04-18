@@ -1,0 +1,93 @@
+# ============================================================================
+# TabPFNCredit — pyproject.toml
+# ----------------------------------------------------------------------------
+# This project deliberately keeps a flat `src/` layout (not a renamed package)
+# to preserve backwards-compatibility with every notebook and SLURM script
+# that does `from src.data.preprocessing import ...` / `from src.methods...`.
+#
+# What this file gives you:
+#   * `pip install -e .`   editable install that puts the project's first-party
+#                          packages (`src`, `scripts`) on `sys.path`, so the
+#                          `sys.path.insert(...)` boilerplate at the top of
+#                          every experiment driver becomes a no-op.
+#   * Central linting config (ruff, black) to keep style consistent.
+# ============================================================================
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tabpfncredit"
+version = "0.1.0"
+description = "Benchmarking tabular foundation models for credit risk prediction."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE.txt" }
+authors = [
+    { name = "Andreas Goethals" },
+]
+keywords = [
+    "tabular-learning",
+    "credit-risk",
+    "benchmark",
+    "tabpfn",
+    "talent",
+    "foundation-models",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+# The concrete dependency list lives in requirements*.txt (they pin CUDA-specific
+# wheels via --extra-index-url which is not expressible here). `pip install -e .`
+# installs the package shell; run `pip install -r requirements_local.txt`
+# afterwards to pull the scientific stack.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/andreasgoethals/tabpfncredit"
+Issues = "https://github.com/andreasgoethals/tabpfncredit/issues"
+
+# ----------------------------------------------------------------------------
+# Package discovery
+# ----------------------------------------------------------------------------
+# We expose both `src` and `scripts` as importable top-level packages because
+# the experiment drivers do `from scripts.Experiment1.Experiment1 import ...`
+# and `from scripts._slurm_templates import ...`. Keeping the directory
+# structure unchanged means zero-churn for existing code.
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*"]
+exclude = ["tests*", "venv*", "results*", "data*", "notebooks*"]
+
+# ----------------------------------------------------------------------------
+# Linters / formatters (optional, opt-in via pre-commit)
+# ----------------------------------------------------------------------------
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["venv", "notebooks", "results"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E501",  # line length handled by black
+    "B008",  # allow default arg = function call (common for Optional[Path])
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"

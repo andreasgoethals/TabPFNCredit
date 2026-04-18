@@ -19,36 +19,49 @@ import numpy as np
 def find_optimal_threshold_f1(
     y_true: np.ndarray,
     y_prob: np.ndarray,
-    n_thresholds: int = 100
+    n_thresholds: int = 100,
 ) -> Tuple[float, float]:
     """
-    Find the optimal probability threshold that maximizes F1 score.
-    
+    Find the optimal probability threshold that maximises the F1 score.
+
+    The search grid is a concatenation of three linearly-spaced segments:
+
+    * ``[1e-4, 1e-2]`` -- fine resolution for highly imbalanced regimes
+      (Experiment 3's ``minority_proportion`` as low as 0.01 requires
+      thresholds < 0.01 to peak F1).
+    * ``[0.01, 0.99]``  -- the classical midrange, resolution controlled by
+      ``n_thresholds``.
+    * ``[0.99, 1 - 1e-4]`` -- symmetric fine resolution at the upper tail.
+
     Args:
-        y_true: Ground truth binary labels (0 or 1), shape (n_samples,)
-        y_prob: Predicted probabilities for positive class, shape (n_samples,)
-        n_thresholds: Number of thresholds to test (default: 100)
-        
+        y_true: Ground-truth binary labels, shape ``(n_samples,)``.
+        y_prob: Predicted probabilities for the positive class, shape
+            ``(n_samples,)``.
+        n_thresholds: Number of thresholds to evaluate in the midrange grid.
+            The lower and upper tails always get 20 points each.
+
     Returns:
-        Tuple of (optimal_threshold, best_f1_score)
+        Tuple ``(optimal_threshold, best_f1_score)``.
     """
     from sklearn.metrics import f1_score
-    
-    # Test thresholds from 0.01 to 0.99
-    thresholds = np.linspace(0.01, 0.99, n_thresholds)
-    f1_scores = []
-    
-    for threshold in thresholds:
+
+    thresholds = np.unique(
+        np.concatenate(
+            [
+                np.linspace(1e-4, 1e-2, 20),
+                np.linspace(0.01, 0.99, n_thresholds),
+                np.linspace(0.99, 1.0 - 1e-4, 20),
+            ]
+        )
+    )
+
+    f1_scores = np.empty_like(thresholds)
+    for i, threshold in enumerate(thresholds):
         y_pred_temp = (y_prob >= threshold).astype(int)
-        f1 = f1_score(y_true, y_pred_temp, zero_division=0)
-        f1_scores.append(f1)
-    
-    # Find threshold with maximum F1
-    best_idx = np.argmax(f1_scores)
-    optimal_threshold = thresholds[best_idx]
-    best_f1 = f1_scores[best_idx]
-    
-    return float(optimal_threshold), float(best_f1)
+        f1_scores[i] = f1_score(y_true, y_pred_temp, zero_division=0)
+
+    best_idx = int(np.argmax(f1_scores))
+    return float(thresholds[best_idx]), float(f1_scores[best_idx])
 
 
 def calculate_pd_metrics(

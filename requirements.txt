@@ -1,76 +1,64 @@
 # ============================================
-# TabPFNCredit Requirements
-# Credit Risk Benchmarking with TALENT
+# TabPFNCredit requirements (shared core)
+# ============================================
+# NOTE on TALENT pinning:
+#   TALENT is currently installed from the upstream `main` branch (see last
+#   line of this file). Before submitting the paper / archiving a release,
+#   replace `@main` with an immutable commit SHA, e.g.
+#       TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@<40-char-sha>
+#   You can obtain the SHA that was active at result-generation time with:
+#       pip show TALENT | grep -i version
+#       # or inspect $VSC_DATA/miniconda3/envs/TabPFNCredit/lib/python*/site-packages/TALENT-*.dist-info/
 # ============================================
 
-# ============================================
-# Core Scientific Stack
-# ============================================
+# ---- Core scientific stack ----
 numpy==1.26.4
 pandas==2.2.2
 scipy==1.13.0
 scikit-learn==1.4.2
-pyarrow>=14.0.0
+pyarrow>=14.0.0,<18
 
-# ============================================
-# TALENT Framework Dependencies
-# ============================================
-                
+# ---- TALENT framework deps ----
 delu==0.0.23
 einops==0.8.0
 qhoptim==1.1.0
 category_encoders==2.6.3
-dill
-msgpack>=1.0.5                   
-msgpack-numpy>=0.4.8             
-torchmetrics
-pytorch_lightning
-einx
-safetensors
+dill>=0.3.7,<0.4
+msgpack>=1.0.5,<2
+msgpack-numpy>=0.4.8,<0.5
+torchmetrics>=1.2,<2
+pytorch-lightning>=2.1,<2.6     # pinned upper-bound: >=2.6 introduces breaking changes
+einx>=0.1.3
+safetensors>=0.4.2
 
-
-# ============================================
-# Gradient Boosting Libraries
-# ============================================
+# ---- Gradient boosting ----
 xgboost==2.1.4
 lightgbm==4.6.0
 catboost==1.2.8
 
-# ============================================
-# TALENT Framework 
-# ============================================
-TALENT @ git+https://github.com/LAMDA-Tabular/TALENT
+# ---- TALENT (pin a commit SHA before releasing!) ----
+TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@main
 
-# ============================================
-# Hyperparameter Optimization
-# ============================================
+# ---- HPO ----
 optuna==3.6.1
 
-# ============================================
-# Configuration & Utilities
-# ============================================
+# ---- Config & utilities ----
 packaging==23.1
 PyYAML==6.0.1
 tqdm==4.66.4
 Requests==2.31.0
-typing_extensions>=4.8
-huggingface-hub
+typing_extensions>=4.8,<5
+huggingface-hub>=0.21,<1
 
-# ============================================
-# Credit Risk Evaluation Metrics
-# ============================================
+# ---- Credit-risk metrics ----
 hmeasure==0.1.6
 imbalanced-learn==0.11.0
-statsmodels>=0.14
+statsmodels>=0.14,<0.15
 
-# ============================================
-# Visualization & Analysis
-# ============================================
+# ---- Visualisation ----
 matplotlib==3.9.2
 seaborn==0.13.2
 plotly==5.22.0
 
-# ============================================
-# Interactive Development
-# ============================================
-notebook>=7.0
+# ---- Notebooks ----
+notebook>=7.0,<8

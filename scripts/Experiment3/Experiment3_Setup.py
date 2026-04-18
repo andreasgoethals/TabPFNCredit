@@ -20,6 +20,7 @@ Key differences from Experiment2:
 - All jobs use 72:00:00 time limit (VSC maximum)
 """
 
+import os
 import sys
 import math
 from pathlib import Path
@@ -95,72 +96,67 @@ def generate_gpu_slurm_script(
         mem_flag = f"#SBATCH --mem={memory}"
         exclusive_flag = ""
 
+    notify_email = os.environ.get("TABPFN_SLURM_NOTIFY_EMAIL", "").strip()
+    notify_block = (
+        f"#SBATCH --mail-type=FAIL,TIME_LIMIT,REQUEUE\n"
+        f"#SBATCH --mail-user={notify_email}\n"
+    ) if notify_email else ""
+
     return f"""#!/bin/bash
 #SBATCH --job-name=exp3_{job_type.lower()}{batch_id}
 #SBATCH --cluster={cluster}
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=results/experiment3/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.out
-#SBATCH --error=results/experiment3/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.err
+#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment3/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.out
+#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment3/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.err
 #SBATCH --time={time_limit}
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task={cpus}
 #SBATCH --gpus-per-node={gpus}
 {mem_flag}
 #SBATCH --partition={partition}
-#SBATCH --array={array_range}
+#SBATCH --requeue
+{notify_block}#SBATCH --array={array_range}
 {exclusive_flag}
 
 # ---------------------------------------------------------
-# EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - {job_type.upper()} GPU
-# BATCH {batch_id}: Tasks {start_task}-{end_task-1}
-# ---------------------------------------------------------
-# Memory Strategy: {mem_flag}
-# Fragmentation Fix: YES
-# Each task runs an imbalance curve for ONE method + ONE dataset
-# Loop over minority_proportion happens inside Python
+# EXPERIMENT 3: IMBALANCE - {job_type.upper()} GPU - BATCH {batch_id}
+# Tasks {start_task}-{end_task-1}
+# Memory strategy: {mem_flag}
 # ---------------------------------------------------------
 
-# Force unbuffered I/O
+set -euo pipefail
+sleep $((RANDOM % 60 + 1))
+
 export PYTHONUNBUFFERED=1
-
-# Memory Fragmentation Fix (Crucial for Foundation Models)
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
-# Setup conda from $VSC_DATA
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
+export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH:-}}"
 
-# USE CONDA'S C++ LIBRARIES
-export LD_LIBRARY_PATH="${{VSC_DATA}}/miniconda3/envs/TabPFNCredit/lib:${{LD_LIBRARY_PATH}}"
-
-# Navigate to project
-cd $VSC_DATA/TabPFNCredit
+cd "${{VSC_DATA}}/TabPFNCredit"
+mkdir -p "${{VSC_DATA}}/TabPFNCredit/results/experiment3/logs/slurm"
 
 echo "=========================================="
 echo "EXP 3 - {job_type.upper()} - BATCH {batch_id}"
 echo "=========================================="
-echo "Job ID:       $SLURM_JOB_ID"
-echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Batch:        {batch_id}"
-echo "Task offset:  {start_task}"
-echo "Node:         $SLURMD_NODENAME"
-echo "Memory:       {'100G (Soft Isolation)' if 'Foundation' in job_type else memory}"
-echo "GPU:          $CUDA_VISIBLE_DEVICES"
+echo "Job ID:       ${{SLURM_JOB_ID}}"
+echo "Array ID:     ${{SLURM_ARRAY_TASK_ID}}"
+echo "Node:         ${{SLURMD_NODENAME}}"
+echo "GPU:          ${{CUDA_VISIBLE_DEVICES:-N/A}}"
+echo "Memory:       {'100G (soft isolation)' if 'Foundation' in job_type else memory}"
 echo "=========================================="
 
-# Calculate global task ID from batch offset
 GLOBAL_TASK_ID=$((SLURM_ARRAY_TASK_ID + {start_task}))
 
-# Run GPU orchestrator with global task ID
-python -u scripts/Experiment3/{orchestrator_script} --array_id=$GLOBAL_TASK_ID --verbose
+python -u scripts/Experiment3/{orchestrator_script} --array_id="${{GLOBAL_TASK_ID}}" --verbose
 
-# Exit status
 EXIT_CODE=$?
 echo "=========================================="
-echo "Task completed with exit code: $EXIT_CODE"
+echo "Task completed with exit code: ${{EXIT_CODE}}"
 echo "=========================================="
-exit $EXIT_CODE
+exit ${{EXIT_CODE}}
 """
 
 
@@ -174,65 +170,59 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
     else:
         array_range = f"0-{n_tasks-1}%{max_concurrent}"
 
+    notify_email = os.environ.get("TABPFN_SLURM_NOTIFY_EMAIL", "").strip()
+    notify_block = (
+        f"#SBATCH --mail-type=FAIL,TIME_LIMIT,REQUEUE\n"
+        f"#SBATCH --mail-user={notify_email}\n"
+    ) if notify_email else ""
+
     return f"""#!/bin/bash
 #SBATCH --job-name=exp3_cpu{batch_id}
 #SBATCH --cluster=genius
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=results/experiment3/logs/slurm/cpu{batch_id}_%A_%a.out
-#SBATCH --error=results/experiment3/logs/slurm/cpu{batch_id}_%A_%a.err
+#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment3/logs/slurm/cpu{batch_id}_%A_%a.out
+#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment3/logs/slurm/cpu{batch_id}_%A_%a.err
 #SBATCH --time={MAX_WALLTIME}
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 #SBATCH --partition=batch
-#SBATCH --array={array_range}
+#SBATCH --requeue
+{notify_block}#SBATCH --array={array_range}
 
 # ---------------------------------------------------------
-# EXPERIMENT 3: CLASS IMBALANCE ANALYSIS - CPU
-# BATCH {batch_id}: Tasks {start_task}-{end_task-1}
+# EXPERIMENT 3: IMBALANCE - CPU - BATCH {batch_id}
+# Tasks {start_task}-{end_task-1}
 # ---------------------------------------------------------
-# Cluster: genius | Partition: batch | Memory: 40G
-# Each task runs an imbalance curve for ONE method + ONE dataset
-# Loop over minority_proportion happens inside Python
-# ---------------------------------------------------------
-# STAGGERED START TO PREVENT I/O CONGESTION
-# ---------------------------------------------------------
+
+set -euo pipefail
 sleep $((RANDOM % 60 + 1))
-# ---------------------------------------------------------
-
-# Force unbuffered I/O
 export PYTHONUNBUFFERED=1
 
-# Setup conda from $VSC_DATA
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"
 source activate TabPFNCredit
 
-# Navigate to project
-cd $VSC_DATA/TabPFNCredit
+cd "${{VSC_DATA}}/TabPFNCredit"
+mkdir -p "${{VSC_DATA}}/TabPFNCredit/results/experiment3/logs/slurm"
 
 echo "=========================================="
-echo "EXPERIMENT 3 - IMBALANCE - CPU - BATCH {batch_id}"
+echo "EXPERIMENT 3 - CPU - BATCH {batch_id}"
 echo "=========================================="
-echo "Job ID:       $SLURM_JOB_ID"
-echo "Array ID:     $SLURM_ARRAY_TASK_ID"
-echo "Batch:        {batch_id}"
-echo "Task offset:  {start_task}"
-echo "Node:         $SLURMD_NODENAME"
+echo "Job ID:       ${{SLURM_JOB_ID}}"
+echo "Array ID:     ${{SLURM_ARRAY_TASK_ID}}"
+echo "Node:         ${{SLURMD_NODENAME}}"
 echo "=========================================="
 
-# Calculate global task ID from batch offset
 GLOBAL_TASK_ID=$((SLURM_ARRAY_TASK_ID + {start_task}))
 
-# Run CPU orchestrator with global task ID
-python -u scripts/Experiment3/Experiment3_CPU.py --array_id=$GLOBAL_TASK_ID --verbose
+python -u scripts/Experiment3/Experiment3_CPU.py --array_id="${{GLOBAL_TASK_ID}}" --verbose
 
-# Exit status
 EXIT_CODE=$?
 echo "=========================================="
-echo "Task completed with exit code: $EXIT_CODE"
+echo "Task completed with exit code: ${{EXIT_CODE}}"
 echo "=========================================="
-exit $EXIT_CODE
+exit ${{EXIT_CODE}}
 """
 
 

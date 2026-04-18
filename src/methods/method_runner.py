@@ -67,18 +67,8 @@ except ImportError:
     _HAS_TORCH = False
     torch = None  # type: ignore
 
-# File locking imports
-try:
-    import fcntl
-    HAS_FCNTL = True
-except ImportError:
-    HAS_FCNTL = False
-    # Try portalocker for Windows
-    try:
-        import portalocker
-        HAS_PORTALOCKER = True
-    except ImportError:
-        HAS_PORTALOCKER = False
+# File locking (centralised in src/utils/file_lock.py)
+from src.utils.file_lock import FileLock, atomic_pickle_write  # noqa: E402
 
 # TALENT core utilities
 from TALENT.model.utils import (
@@ -117,70 +107,9 @@ logger = logging.getLogger(__name__)
 
 
 # ======================================================================================
-#                          FILE LOCKING UTILITIES
+#                          HPO CONFIG PERSISTENCE
 # ======================================================================================
-
-class FileLock:
-    """
-    Cross-platform file locking context manager.
-    
-    Supports:
-    - Unix/Linux: fcntl-based locking
-    - Windows: portalocker-based locking
-    - Fallback: Warning if no locking available
-    
-    Usage:
-        with FileLock(path, timeout=30.0):
-            # Perform file operations
-            pass
-    """
-    
-    def __init__(self, filepath: Path, timeout: float = 30.0):
-        self.filepath = filepath
-        self.timeout = timeout
-        self.file_handle = None
-        self.lock_acquired = False
-    
-    def __enter__(self):
-        self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Open file for read+write, create if doesn't exist
-        self.file_handle = open(self.filepath, 'a+')
-        
-        if HAS_FCNTL:
-            # Unix/Linux: fcntl locking
-            try:
-                fcntl.flock(self.file_handle.fileno(), fcntl.LOCK_EX)
-                self.lock_acquired = True
-            except IOError as e:
-                warnings.warn(f"Could not acquire file lock: {e}")
-        
-        elif HAS_PORTALOCKER:
-            # Windows: portalocker
-            try:
-                portalocker.lock(self.file_handle, portalocker.LOCK_EX)
-                self.lock_acquired = True
-            except Exception as e:
-                warnings.warn(f"Could not acquire file lock: {e}")
-        
-        else:
-            # No locking available
-            warnings.warn(
-                "No file locking library available (fcntl or portalocker). "
-                "Concurrent writes may cause data corruption. "
-                "Install portalocker for Windows: pip install portalocker"
-            )
-        
-        return self.file_handle
-    
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.file_handle:
-            if HAS_FCNTL and self.lock_acquired:
-                fcntl.flock(self.file_handle.fileno(), fcntl.LOCK_UN)
-            elif HAS_PORTALOCKER and self.lock_acquired:
-                portalocker.unlock(self.file_handle)
-            
-            self.file_handle.close()
+# FileLock and atomic_pickle_write are imported from src.utils.file_lock.
 
 
 def save_fold_config_safely(
@@ -190,43 +119,48 @@ def save_fold_config_safely(
     n_trials: int,
 ) -> None:
     """
-    Safely save fold config to shared JSON file with file locking.
-    
-    Uses file locking to prevent race conditions when multiple processes
-    write to the same config file simultaneously.
-    
+    Merge this fold's HPO config into the shared JSON file, with locking.
+
+    Prevents race conditions when SLURM array slots for different folds of
+    the same (dataset, method) attempt to update the merged config file
+    concurrently. The file is read, mutated in-memory, and written back
+    while the exclusive lock is held; a ``JSONDecodeError`` triggers a clean
+    restart (file treated as empty), so partial previous writes never
+    cascade.
+
     Args:
-        config_path: Path to shared config file
-        fold_id: Fold identifier
-        hyperparameters: Optimized hyperparameters
-        n_trials: Number of HPO trials used
+        config_path: Path to the shared ``{method}-all-folds.json`` file.
+        fold_id: Fold identifier.
+        hyperparameters: Optimised hyperparameters for this fold.
+        n_trials: Number of HPO trials used (stored as metadata).
     """
-    with FileLock(config_path) as f:
-        # Read existing content
+    with FileLock(config_path, exclusive=True) as f:
         f.seek(0)
         content = f.read()
-        
+
         if content.strip():
             try:
                 all_configs = json.loads(content)
             except json.JSONDecodeError:
-                # File is corrupted, start fresh
                 all_configs = {}
         else:
             all_configs = {}
-        
-        # Add this fold's config
+
         all_configs[f"fold_{fold_id}"] = {
             "hyperparameters": hyperparameters,
             "n_trials": n_trials,
             "timestamp": datetime.now().isoformat(),
         }
-        
-        # Write back
+
         f.seek(0)
         f.truncate()
         f.write(json.dumps(all_configs, indent=2))
         f.flush()
+        try:
+            os.fsync(f.fileno())
+        except (AttributeError, OSError):
+            # fsync may fail on some filesystems (e.g. overlay fs); non-fatal
+            pass
 
 
 # ======================================================================================
@@ -1280,8 +1214,17 @@ def run_talent_method(
                 finally:
                     sys.argv = orig_argv
                 
-                # Override TALENT's computed paths
-                args.save_path = str(dataset_config_dir)
+                # Override TALENT's computed paths.
+                # CRITICAL: each fold gets its OWN save_path subdirectory so that
+                # TALENT's hard-coded `{save_path}/{method}-tuned.json` write cannot
+                # race with concurrent folds of the same (dataset, method) scheduled
+                # on different SLURM array slots. Without this, two folds writing
+                # that file simultaneously could make Optuna short-circuit its
+                # study via the `osp.exists(...tuned.json)` check inside
+                # `tune_hyper_parameters`, silently skipping HPO.
+                fold_save_dir = dataset_config_dir / f"fold_{fold_id}"
+                fold_save_dir.mkdir(parents=True, exist_ok=True)
+                args.save_path = str(fold_save_dir)
                 args.model_path = str(checkpoint_tmp_dir)
                 
                 # Set random seed
@@ -1367,13 +1310,15 @@ def run_talent_method(
                         
                         # Extract hyperparameters from args
                         fold_hyperparams = args.config.get('model', {}).copy()
-                        
-                        # TALENT may save a default config file - remove it to avoid confusion
+
+                        # Remove TALENT's per-fold default dump; the authoritative
+                        # record is the merged `{method}-all-folds.json` produced
+                        # below by `save_fold_config_safely`.
                         talent_default_path = Path(args.save_path) / f"{method}-tuned.json"
                         if talent_default_path.exists():
                             try:
                                 talent_default_path.unlink()
-                            except:
+                            except OSError:
                                 pass
                         
                         # Save to shared file with locking

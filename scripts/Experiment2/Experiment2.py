@@ -27,24 +27,13 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Optional
 
-# File locking imports
-try:
-    import fcntl
-    HAS_FCNTL = True
-except ImportError:
-    HAS_FCNTL = False
-    try:
-        import portalocker
-        HAS_PORTALOCKER = True
-    except ImportError:
-        HAS_PORTALOCKER = False
-
 # Setup paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
+from src.utils.file_lock import FileLock, acquire_lock, release_lock, atomic_pickle_write
 from src.methods.method_runner import run_talent_method
 from src.data.preprocessing import preprocess_dataset
 import gc
@@ -56,38 +45,9 @@ try:
 except ImportError:
     _HAS_TORCH = False
 
-
-def _acquire_lock(file_handle, exclusive: bool = True) -> bool:
-    """Acquire file lock (cross-platform)."""
-    if HAS_FCNTL:
-        try:
-            lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-            fcntl.flock(file_handle.fileno(), lock_type)
-            return True
-        except IOError:
-            return False
-    elif HAS_PORTALOCKER:
-        try:
-            lock_type = portalocker.LOCK_EX if exclusive else portalocker.LOCK_SH
-            portalocker.lock(file_handle, lock_type)
-            return True
-        except Exception:
-            return False
-    return True  # Proceed without locking if unavailable
-
-
-def _release_lock(file_handle) -> None:
-    """Release file lock (cross-platform)."""
-    if HAS_FCNTL:
-        try:
-            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-        except IOError:
-            pass
-    elif HAS_PORTALOCKER:
-        try:
-            portalocker.unlock(file_handle)
-        except Exception:
-            pass
+# Backwards-compatible aliases
+_acquire_lock = acquire_lock
+_release_lock = release_lock
 
 
 def _cleanup_gpu():
@@ -95,6 +55,7 @@ def _cleanup_gpu():
     gc.collect()
     if _HAS_TORCH and torch.cuda.is_available():
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
 
 def get_dataset_size(task_type: str, dataset: str) -> int:
@@ -275,14 +236,11 @@ def run_learning_curve(
     result_file = experiment_path / task_type / f"{dataset}.pkl"
 
     existing_results = {}
-    if result_file.exists():
+    if result_file.exists() and result_file.stat().st_size > 0:
         try:
-            with open(result_file, 'rb') as f:
-                _acquire_lock(f, exclusive=False)
-                try:
-                    existing_results = pickle.load(f)
-                finally:
-                    _release_lock(f)
+            with FileLock(result_file, exclusive=False) as f:
+                f.seek(0)
+                existing_results = pickle.load(f)
 
             # Check which row_limits already have this method completed
             completed_row_limits = [
@@ -434,47 +392,33 @@ def _save_results_incremental(
         try:
             result_file.parent.mkdir(parents=True, exist_ok=True)
 
-            mode = 'r+b' if result_file.exists() else 'w+b'
-
-            with open(result_file, mode) as f:
-                _acquire_lock(f, exclusive=True)
-
-                try:
-                    if mode == 'r+b':
-                        try:
-                            f.seek(0)
-                            results = pickle.load(f)
-                        except (EOFError, pickle.UnpicklingError):
-                            logger.warning("Corrupted file, creating new")
-                            results = {}
-                    else:
+            with FileLock(result_file, exclusive=True) as f:
+                if result_file.stat().st_size > 0:
+                    try:
+                        f.seek(0)
+                        results = pickle.load(f)
+                    except (EOFError, pickle.UnpicklingError):
+                        logger.warning("Corrupted file, creating new")
                         results = {}
+                else:
+                    results = {}
 
-                    # Ensure row_limit key exists (first level, like hpo_mode in Experiment1)
-                    if row_limit not in results:
-                        results[row_limit] = {}
+                # First-level key is the row_limit (mirrors Experiment1's hpo_mode).
+                results.setdefault(row_limit, {})[method] = fold_results
 
-                    # Store results for this method (second level)
-                    results[row_limit][method] = fold_results
-
-                    # Write back
-                    f.seek(0)
-                    f.truncate()
-                    pickle.dump(results, protocol=pickle.HIGHEST_PROTOCOL, file=f)
-                    f.flush()
-                    os.fsync(f.fileno())
-
-                    logger.info(f"Saved results for row_limit={row_limit}")
-
-                finally:
-                    _release_lock(f)
+                # Atomic write: writes {file}.tmp then os.replace().
+                atomic_pickle_write(result_file, results)
+                logger.info(f"Saved results for row_limit={row_limit}")
 
             return  # Success!
 
         except (IOError, OSError, BlockingIOError) as e:
             if attempt < max_retries - 1:
                 wait_time = retry_delay * (2 ** attempt)
-                logger.warning(f"Lock failed (attempt {attempt+1}/{max_retries}), waiting {wait_time:.1f}s")
+                logger.warning(
+                    f"Lock failed (attempt {attempt+1}/{max_retries}), "
+                    f"waiting {wait_time:.1f}s"
+                )
                 time.sleep(wait_time)
             else:
                 logger.error(f"Failed to save after {max_retries} attempts")

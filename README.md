@@ -303,10 +303,32 @@ cd tabpfncredit
 python -m venv venv
 source venv/bin/activate        # Linux/macOS
 # venv\Scripts\activate         # Windows
+
+# 1. Install the project itself as an editable package (pyproject.toml).
+#    This removes the need for the `sys.path.insert(...)` boilerplate at the
+#    top of every experiment driver.
+pip install -e .
+
+# 2. Install the scientific dependency stack.
 pip install -r requirements_local.txt
 ```
 
-For VSC supercomputer, use `requirements_vsc.txt` instead (includes CUDA 11.8 PyTorch builds).
+For VSC supercomputer, use `requirements_vsc.txt` instead (includes CUDA 11.8 PyTorch builds and Annoy as a Faiss alternative):
+
+```bash
+# On a VSC login node:
+module purge
+source "$VSC_DATA/miniconda3/bin/activate"
+conda create -y -n TabPFNCredit python=3.10
+conda activate TabPFNCredit
+cd "$VSC_DATA/TabPFNCredit"
+pip install -e .
+pip install -r requirements_vsc.txt
+```
+
+> **Reproducibility note.** TALENT is currently installed from upstream `main`.
+> Before archiving a release, pin it to a commit SHA in `requirements.txt`:
+> `TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@<40-char-sha>`.
 
 ### 2. Configuration
 
@@ -319,13 +341,27 @@ Each experiment has its own config directory under `scripts/ExperimentN/config/`
 ### 3. Running Experiments
 
 ```bash
-# Generate SLURM scripts
-python scripts/Experiment1/Experiment1_Setup.py
+# (Optional) set a failure-notification address for SLURM scripts:
+export TABPFN_SLURM_NOTIFY_EMAIL="you@kuleuven.be"
 
-# Submit to cluster
-sbatch scripts/Experiment1/Experiment1_GPU.slurm
-sbatch scripts/Experiment1/Experiment1_CPU.slurm
+# Generate the batched SLURM scripts for this experiment. Each batch is
+# capped at 400 tasks to stay under VSC's 500-element `--array` limit.
+python scripts/Experiment1/Experiment1_Setup.py                 # P100 only
+python scripts/Experiment1/Experiment1_Setup.py --foundation-on-wice  # recommended
+
+# Submit every generated file (names are printed by the setup script):
+sbatch scripts/Experiment1/Experiment1_GPU0.slurm
+sbatch scripts/Experiment1/Experiment1_GPU1.slurm
+# ... etc., plus Experiment1_CPU*.slurm and Experiment1_GPU_Foundation*.slurm
 ```
+
+The generated SLURM scripts now:
+
+* use absolute `${VSC_DATA}/TabPFNCredit/...` paths for `--output`/`--error`,
+* set `#SBATCH --requeue` so a node failure automatically re-queues the slot,
+* run under `set -euo pipefail` with `mkdir -p` of the log directory, and
+* optionally add `--mail-type=FAIL --mail-user=...` when
+  `TABPFN_SLURM_NOTIFY_EMAIL` is set at generation time.
 
 ### 4. Jupyter Dev Server
 
@@ -423,6 +459,56 @@ TabPFNCredit/
 ```
 
 ---
+
+## Recent hardening pass
+
+The repository was recently audited end-to-end. The following behaviour-preserving
+improvements are now in place:
+
+**Correctness / reproducibility**
+
+- Fixed a latent race where two concurrent SLURM array slots running different
+  folds of the same `(dataset, method)` could both write TALENT's
+  `{method}-tuned.json` hyperparameter cache. Each fold now has its own
+  `config_hpo/.../HPO_PER_FOLD/fold_{id}/` subdirectory.
+- All per-dataset pickle writes (`results/experiment{1,2,3}/{pd,lgd}/*.pkl`)
+  are now *atomic*: the writer holds an exclusive [`FileLock`](src/utils/file_lock.py),
+  writes to a sibling `*.tmp` file, then `os.replace()`s it into place. A
+  mid-write crash can no longer leave a zero-byte pickle on disk.
+- `find_optimal_threshold_f1` now includes a fine-resolution grid in
+  `[1e-4, 1e-2]` and `[0.99, 1-1e-4]`, which is necessary for Experiment 3's
+  most imbalanced settings (`minority_proportion` down to 0.01).
+
+**Structure / maintainability**
+
+- A single [`src/utils/file_lock.py`](src/utils/file_lock.py) replaces the three
+  duplicated copies of fcntl/portalocker locking that previously lived in
+  `method_runner.py` and the three experiment drivers.
+- `src/utils/config_reader.py` collapses `_load_standard_config`, `_load_experiment2_config`,
+  and `_load_experiment3_config` into a single registry-driven factory.
+- A shared [`scripts/_slurm_templates.py`](scripts/_slurm_templates.py) provides
+  the header/prologue/epilogue strings used by every experiment's SLURM
+  generator.
+
+**VSC / SLURM**
+
+- All SLURM scripts use absolute `${VSC_DATA}/TabPFNCredit/...` log paths,
+  carry `#SBATCH --requeue`, `set -euo pipefail`, and `mkdir -p` so they no
+  longer silently break when `sbatch` is invoked from an unexpected
+  directory.
+- `Experiment1_Setup.py` can now emit a separate wICE H100 batch for
+  foundation models via `--foundation-on-wice`, mirroring the Standard /
+  Foundation split already used by Experiment 2.
+- Optional `TABPFN_SLURM_NOTIFY_EMAIL` environment variable adds
+  `--mail-type=FAIL` directives at generation time.
+
+**Packaging**
+
+- `pyproject.toml` makes the project editable-installable (`pip install -e .`),
+  eliminating `sys.path.insert(...)` boilerplate.
+- `requirements.txt` now bounds the previously-unpinned `pytorch-lightning`,
+  `dill`, `msgpack`, `safetensors`, etc., and flags the TALENT git-URL as a
+  *must-pin-before-release* item.
 
 ## Acknowledgments
 

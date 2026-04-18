@@ -1,31 +1,36 @@
 # ============================================
-# VSC Supercomputer Requirements
-# KU Leuven HPC (P100/V100 GPUs with CUDA 11.8)
+# VSC supercomputer requirements
+# ============================================
+# Target: KU Leuven Genius (P100, CUDA 11.8) and wICE (H100, CUDA 12.x).
+# For the P100 nodes the stock PyTorch 2.0.1+cu118 wheel is the most broadly
+# compatible option; override `torch` below if you need a newer build.
+#
+# Install sequence on VSC (from $VSC_DATA/TabPFNCredit):
+#     module purge
+#     source $VSC_DATA/miniconda3/bin/activate
+#     conda create -y -n TabPFNCredit python=3.10
+#     conda activate TabPFNCredit
+#     pip install -r requirements_vsc.txt
+#
+# NOTE on faiss: on VSC, faiss with GPU support is provided by the module
+#   `SciPy-bundle/2023.07-gfbf-2023a`. Do NOT `pip install faiss-gpu`; it will
+#   either fail or silently install an incompatible CPU build.
 # ============================================
 
-# PyTorch Index for CUDA 11.8 builds
 --extra-index-url https://download.pytorch.org/whl/cu118
 
-# ============================================
-# PyTorch with CUDA 11.8
-# ============================================
+# Pinned PyTorch with CUDA 11.8 (Genius P100).
 torch==2.0.1+cu118
 torchvision==0.15.2+cu118
 torchaudio==2.0.2+cu118
 
-# ============================================
-# Base TabPFNCredit Requirements
-# ============================================
-annoy==1.17.3   
+# ---- Optional: faiss alternative for non-GPU nodes (Annoy) ----
+# TALENT / TabR uses this as a nearest-neighbour index when faiss is unavailable.
+annoy==1.17.3
+
+# ---- Portalocker keeps the file-lock API identical across platforms,
+#      so local-dev pickles are binary-compatible with VSC pickles. ----
+portalocker>=2.8,<3
+
+# Base TabPFNCredit requirements (TALENT, numpy, pandas, sklearn, ...)
 -r requirements.txt
-
-# ============================================
-# NOTE: faiss-gpu Installation
-# ============================================
-# faiss-gpu is provided by VSC system modules
-# Load with: module load SciPy-bundle/2023.07-gfbf-2023a
-# DO NOT install via pip - it will fail!
-# The system module includes faiss with GPU support
-
-
-

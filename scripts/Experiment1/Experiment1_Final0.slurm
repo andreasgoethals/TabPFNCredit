@@ -9,18 +9,21 @@
 #SBATCH --cluster=wice
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=results/experiment1/logs/slurm/final0_%j.out
-#SBATCH --error=results/experiment1/logs/slurm/final0_%j.err
+#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm/final0_%j.out
+#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm/final0_%j.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
 #SBATCH --gpus-per-node=1
 #SBATCH --mem=100G
 #SBATCH --partition=gpu_a100
+#SBATCH --requeue
 
 # ---------------------------------------------------------
 # ENVIRONMENT SETUP
 # ---------------------------------------------------------
+
+set -euo pipefail
 
 # Force unbuffered I/O for real-time logging
 export PYTHONUNBUFFERED=1
@@ -33,10 +36,11 @@ export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
 source activate TabPFNCredit
 
 # Use conda's C++ libraries
-export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${VSC_DATA}/miniconda3/envs/TabPFNCredit/lib:${LD_LIBRARY_PATH:-}"
 
-# Navigate to project directory
-cd $VSC_DATA/TabPFNCredit
+# Navigate to project directory and ensure log dir exists
+cd "${VSC_DATA}/TabPFNCredit"
+mkdir -p "${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm"
 
 # ---------------------------------------------------------
 # JOB INFORMATION

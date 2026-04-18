@@ -15,60 +15,20 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-# File locking imports (cross-platform)
-try:
-    import fcntl
-    HAS_FCNTL = True
-except ImportError:
-    HAS_FCNTL = False
-    try:
-        import portalocker
-        HAS_PORTALOCKER = True
-    except ImportError:
-        HAS_PORTALOCKER = False
-
-
-def _acquire_lock(file_handle, exclusive: bool = True) -> bool:
-    """Acquire file lock (cross-platform)."""
-    if HAS_FCNTL:
-        try:
-            lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-            fcntl.flock(file_handle.fileno(), lock_type)
-            return True
-        except IOError:
-            return False
-    elif HAS_PORTALOCKER:
-        try:
-            lock_type = portalocker.LOCK_EX if exclusive else portalocker.LOCK_SH
-            portalocker.lock(file_handle, lock_type)
-            return True
-        except Exception:
-            return False
-    return True  # Proceed without locking if unavailable
-
-
-def _release_lock(file_handle) -> None:
-    """Release file lock (cross-platform)."""
-    if HAS_FCNTL:
-        try:
-            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-        except IOError:
-            pass
-    elif HAS_PORTALOCKER:
-        try:
-            portalocker.unlock(file_handle)
-        except Exception:
-            pass
-
-
 # Setup paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
+from src.utils.file_lock import FileLock, acquire_lock, release_lock, atomic_pickle_write
 from src.methods.method_runner import run_talent_method
 from src.methods.method_config import NO_HPO_METHODS
+
+# Backwards-compatible aliases (retained so any external scripts that import
+# these helpers from Experiment1 keep working after the refactor).
+_acquire_lock = acquire_lock
+_release_lock = release_lock
 
 # Conditional torch import for GPU cleanup
 try:
@@ -171,14 +131,11 @@ def run_single_method(
     # ==========================================
     result_file = experiment_path / task_type / f"{dataset}.pkl"
     
-    if result_file.exists():
+    if result_file.exists() and result_file.stat().st_size > 0:
         try:
-            with open(result_file, 'rb') as f:
-                _acquire_lock(f, exclusive=False)
-                try:
-                    existing_results = pickle.load(f)
-                finally:
-                    _release_lock(f)
+            with FileLock(result_file, exclusive=False) as f:
+                f.seek(0)
+                existing_results = pickle.load(f)
 
             if hpo_mode in existing_results and method in existing_results[hpo_mode]:
                 logger.info("Already completed, skipping")
@@ -199,61 +156,54 @@ def run_single_method(
         print(f"[COPY] {method} is NO_HPO method - copying results from NO_HPO to HPO")
         
         # Check if NO_HPO results exist
-        if result_file.exists():
+        if result_file.exists() and result_file.stat().st_size > 0:
             try:
-                with open(result_file, 'rb') as f:
-                    _acquire_lock(f, exclusive=False)
-                    try:
-                        existing_results = pickle.load(f)
-                    finally:
-                        _release_lock(f)
+                with FileLock(result_file, exclusive=False) as f:
+                    f.seek(0)
+                    existing_results = pickle.load(f)
 
                 # Check if NO_HPO results exist for this method
                 if 'NO_HPO' in existing_results and method in existing_results['NO_HPO']:
                     logger.info("Found NO_HPO results, copying to HPO")
 
-                    # Copy NO_HPO results to HPO with file locking
+                    # Copy NO_HPO results to HPO under an exclusive lock, then
+                    # write atomically via os.replace so a crash cannot leave
+                    # a zero-byte pickle on disk.
                     max_retries = 10
                     retry_delay = 0.5
 
                     for attempt in range(max_retries):
                         try:
-                            with open(result_file, 'r+b') as f:
-                                _acquire_lock(f, exclusive=True)
-
+                            with FileLock(result_file, exclusive=True) as f:
+                                f.seek(0)
                                 try:
-                                    f.seek(0)
                                     results = pickle.load(f)
+                                except (EOFError, pickle.UnpicklingError):
+                                    logger.warning("Corrupted result file, starting fresh")
+                                    results = {'NO_HPO': {}, 'HPO': {}}
 
-                                    # Ensure HPO key exists
-                                    if 'HPO' not in results:
-                                        results['HPO'] = {}
+                                if 'HPO' not in results:
+                                    results['HPO'] = {}
+                                results['HPO'][method] = results['NO_HPO'][method]
 
-                                    # Copy NO_HPO results to HPO
-                                    results['HPO'][method] = results['NO_HPO'][method]
+                                atomic_pickle_write(result_file, results)
 
-                                    # Write back
-                                    f.seek(0)
-                                    f.truncate()
-                                    pickle.dump(results, protocol=pickle.HIGHEST_PROTOCOL, file=f)
-                                    f.flush()
-                                    os.fsync(f.fileno())
-
-                                    logger.info("Successfully copied NO_HPO results to HPO")
-                                    print(f"[DONE] {dataset}/{method}/{hpo_mode} - copied from NO_HPO")
-
-                                finally:
-                                    _release_lock(f)
-
+                            logger.info("Successfully copied NO_HPO results to HPO")
+                            print(f"[DONE] {dataset}/{method}/{hpo_mode} - copied from NO_HPO")
                             return  # Success!
-                            
+
                         except (IOError, OSError, BlockingIOError) as e:
                             if attempt < max_retries - 1:
                                 wait_time = retry_delay * (2 ** attempt)
-                                logger.warning(f"Lock failed (attempt {attempt+1}/{max_retries}), waiting {wait_time:.1f}s")
+                                logger.warning(
+                                    f"Lock failed (attempt {attempt+1}/{max_retries}), "
+                                    f"waiting {wait_time:.1f}s"
+                                )
                                 time.sleep(wait_time)
                             else:
-                                raise RuntimeError(f"Could not copy results after {max_retries} attempts") from e
+                                raise RuntimeError(
+                                    f"Could not copy results after {max_retries} attempts"
+                                ) from e
                 
                 else:
                     # NO_HPO results don't exist yet
@@ -335,59 +285,50 @@ def run_single_method(
         
         max_retries = 10
         retry_delay = 0.5
-        
+
         for attempt in range(max_retries):
             try:
                 result_file.parent.mkdir(parents=True, exist_ok=True)
 
-                mode = 'r+b' if result_file.exists() else 'w+b'
-
-                with open(result_file, mode) as f:
-                    _acquire_lock(f, exclusive=True)
-
-                    try:
-                        if mode == 'r+b':
-                            try:
-                                f.seek(0)
-                                results = pickle.load(f)
-                            except (EOFError, pickle.UnpicklingError):
-                                logger.warning("Corrupted file, creating new")
-                                results = {'NO_HPO': {}, 'HPO': {}}
-                        else:
+                with FileLock(result_file, exclusive=True) as f:
+                    if result_file.stat().st_size > 0:
+                        try:
+                            f.seek(0)
+                            results = pickle.load(f)
+                        except (EOFError, pickle.UnpicklingError):
+                            logger.warning("Corrupted file, creating new")
                             results = {'NO_HPO': {}, 'HPO': {}}
+                    else:
+                        results = {'NO_HPO': {}, 'HPO': {}}
 
-                        # Ensure structure exists
-                        if hpo_mode not in results:
-                            results[hpo_mode] = {}
+                    # Ensure top-level structure exists for both HPO modes
+                    if hpo_mode not in results:
+                        results[hpo_mode] = {}
 
-                        # Store results
-                        results[hpo_mode][method] = method_results
+                    results[hpo_mode][method] = method_results
 
-                        # For NO_HPO methods, duplicate to HPO key for consistency
-                        if method in NO_HPO_METHODS and hpo_mode == 'NO_HPO':
-                            if 'HPO' not in results:
-                                results['HPO'] = {}
-                            results['HPO'][method] = method_results
-                            logger.info(f"Duplicated NO_HPO results to HPO key for {method}")
+                    # For NO_HPO-only methods (e.g. TabICL), duplicate into the
+                    # HPO bucket so downstream aggregation treats both modes
+                    # uniformly.
+                    if method in NO_HPO_METHODS and hpo_mode == 'NO_HPO':
+                        if 'HPO' not in results:
+                            results['HPO'] = {}
+                        results['HPO'][method] = method_results
+                        logger.info(f"Duplicated NO_HPO results to HPO key for {method}")
 
-                        # Write back
-                        f.seek(0)
-                        f.truncate()
-                        pickle.dump(results, protocol=pickle.HIGHEST_PROTOCOL, file=f)
-                        f.flush()
-                        os.fsync(f.fileno())
-
-                        logger.info("Results saved successfully")
-
-                    finally:
-                        _release_lock(f)
+                    # Atomic write: pickle goes to {file}.tmp then os.replace().
+                    atomic_pickle_write(result_file, results)
+                    logger.info("Results saved successfully")
 
                 break  # Success!
-                
+
             except (IOError, OSError, BlockingIOError) as e:
                 if attempt < max_retries - 1:
                     wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(f"Lock failed (attempt {attempt+1}/{max_retries}), waiting {wait_time:.1f}s")
+                    logger.warning(
+                        f"Lock failed (attempt {attempt+1}/{max_retries}), "
+                        f"waiting {wait_time:.1f}s"
+                    )
                     time.sleep(wait_time)
                 else:
                     logger.error(f"Failed to save after {max_retries} attempts")
