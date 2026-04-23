@@ -59,7 +59,7 @@ def run_single_method(
     Execute ONE method on ONE dataset with ONE HPO mode.
     
     Args:
-        dataset: Dataset name (e.g., '0009.german')
+        dataset: Dataset name (e.g., '0008.german')
         method: Method name (e.g., 'xgboost', 'LogReg')
         task_type: Task type ('pd' or 'lgd')
         hpo_mode: HPO mode ('NO_HPO' or 'HPO')

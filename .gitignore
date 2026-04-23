@@ -21,6 +21,15 @@ images/*
 # ---- Results (ignore completely) ----
 results/
 
+# ---- Figures (keep folder structure, ignore generated PNGs) ----
+# Figures are generated at high DPI by the notebooks; commit selectively if needed.
+figures/**/*.png
+figures/**/*.pdf
+figures/**/*.svg
+figures/**/*.jpg
+figures/**/*.jpeg
+!figures/**/.gitkeep
+
 # ---- Generated HPO configs ----
 config_hpo/
 

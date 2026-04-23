@@ -12,10 +12,10 @@ A rigorous evaluation framework comparing Tabular Foundation Models (TabPFN, Tab
 
 | Task | Type | # Datasets | Key Metrics |
 |------|------|-----------|-------------|
-| **PD** (Probability of Default) | Binary Classification | 15 | AUC, Gini, KS, F1, Brier |
+| **PD** (Probability of Default) | Binary Classification | 14 | AUC, Gini, KS, F1, Brier |
 | **LGD** (Loss Given Default) | Regression (0-1) | 7 | R2, RMSE, MAE, Spearman |
 
-**PD datasets**: `gmsc`, `taiwan_creditcard`, `vehicle_loan`, `lendingclub`, `case_study`, `myhom`, `hackerearth`, `cobranded`, `german`, `bank_status`, `thomas`, `loan_default`, `home_credit`, `hmeq`, `algorithmwatch`
+**PD datasets**: `gmsc`, `taiwan_creditcard`, `vehicle_loan`, `lendingclub`, `myhom`, `hackerearth`, `cobranded`, `german`, `bank_status`, `thomas`, `loan_default`, `home_credit`, `hmeq`, `algorithmwatch`
 
 **LGD datasets**: `heloc`, `loss2`, `axa`, `base_model`, `base_modelisation`, `lgd_freddie`, `lgd_lendingclub`
 
@@ -446,8 +446,19 @@ TabPFNCredit/
 │
 ├── results/experiment{0-3}/           # Gitignored — generated at runtime
 │   ├── {pd,lgd}/                      # Pickle result files
-│   ├── summary/                       # Aggregated CSVs
-│   └── figures/                       # Generated plots
+│   ├── config_hpo/                    # Per-fold HPO configs
+│   ├── logs/                          # Per-method training logs
+│   └── summary/                       # Aggregated CSVs
+│
+├── figures/                           # All generated figures (600 dpi PNG)
+│   ├── data_exploration/              # From Data_Exploration.ipynb
+│   ├── experiment0/{pd,lgd}/          # From Experiment0.ipynb
+│   ├── experiment1/
+│   │   ├── pd/                        # From Experiment1.1-PD.ipynb
+│   │   ├── lgd/                       # From Experiment1.2-LGD.ipynb
+│   │   └── stat/                      # From Experiment1.3-Stat.ipynb
+│   ├── experiment2/{pd,lgd}/          # From Experiment2.ipynb
+│   └── experiment3/pd/                # From Experiment3.ipynb
 │
 ├── .claude/                           # Claude Code config (gitignored)
 │   └── launch.json                    # Dev server configurations

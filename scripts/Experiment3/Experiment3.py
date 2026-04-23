@@ -67,7 +67,7 @@ def get_dataset_class_info(task_type: str, dataset: str) -> dict:
 
     Args:
         task_type: 'pd' (classification only for this experiment)
-        dataset: Dataset name (e.g., '0009.german')
+        dataset: Dataset name (e.g., '0008.german')
 
     Returns:
         Dict with keys: 'minority_proportion', 'n_minority', 'n_majority', 'n_total'
@@ -173,7 +173,7 @@ def run_imbalance_analysis(
     Iterates through all minority proportions and stores results incrementally.
 
     Args:
-        dataset: Dataset name (e.g., '0009.german')
+        dataset: Dataset name (e.g., '0008.german')
         method: Method name (e.g., 'xgboost', 'LogReg')
         task_type: Task type ('pd' only - LGD not supported for imbalance analysis)
         config: Configuration dictionary (must include 'imbalance' section)

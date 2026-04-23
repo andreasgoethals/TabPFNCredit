@@ -64,7 +64,7 @@ def get_dataset_size(task_type: str, dataset: str) -> int:
 
     Args:
         task_type: 'pd' or 'lgd'
-        dataset: Dataset name (e.g., '0009.german')
+        dataset: Dataset name (e.g., '0008.german')
 
     Returns:
         Number of rows in the dataset
@@ -142,7 +142,7 @@ def run_learning_curve(
     Iterates through all row limits and stores results incrementally.
 
     Args:
-        dataset: Dataset name (e.g., '0009.german')
+        dataset: Dataset name (e.g., '0008.german')
         method: Method name (e.g., 'xgboost', 'LogReg')
         task_type: Task type ('pd' or 'lgd')
         config: Configuration dictionary (must include 'learning_curve' section)

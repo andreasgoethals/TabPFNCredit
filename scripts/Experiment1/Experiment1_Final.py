@@ -6,8 +6,8 @@ Reruns a single foundation model task specified via command-line arguments.
 Called by Experiment1_Final0.slurm (mitra) and Experiment1_Final1.slurm (tabicl).
 
 Usage:
-    python Experiment1_Final.py --dataset 0013.home_credit --method mitra --task_type pd --hpo_mode NO_HPO
-    python Experiment1_Final.py --dataset 0013.home_credit --method tabicl --task_type pd --hpo_mode NO_HPO --row_limit 50000
+    python Experiment1_Final.py --dataset 0012.home_credit --method mitra --task_type pd --hpo_mode NO_HPO
+    python Experiment1_Final.py --dataset 0012.home_credit --method tabicl --task_type pd --hpo_mode NO_HPO --row_limit 50000
 """
 
 import sys

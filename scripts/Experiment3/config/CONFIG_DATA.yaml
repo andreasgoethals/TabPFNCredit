@@ -41,21 +41,20 @@ paths:
 # ------------------------------------------------------------
 dataset_pd:
   # Enable or disable datasets here.
-  0001.gmsc: false               # Give Me Some Credit dataset
+  0001.gmsc: false              # Give Me Some Credit dataset
   0002.taiwan_creditcard: true  # Taiwan Credit Card dataset
   0003.vehicle_loan: true
   0004.lendingclub: false
-  0005.case_study: false
-  0006.myhom: false
-  0007.hackerearth: true
-  0008.cobranded: true
-  0009.german: false
-  0010.bank_status: true
-  0011.thomas: false
-  0012.loan_default: true
-  0013.home_credit: true
-  0014.hmeq: false
-  0015.algorithmwatch: true
+  0005.myhom: false
+  0006.hackerearth: true
+  0007.cobranded: true
+  0008.german: false
+  0009.bank_status: true
+  0010.thomas: false
+  0011.loan_default: true
+  0012.home_credit: true
+  0013.hmeq: false
+  0014.algorithmwatch: true
 
 # ------------------------------------------------------------
 # Loss Given Default (LGD) datasets

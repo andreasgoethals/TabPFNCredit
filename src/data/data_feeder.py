@@ -49,7 +49,7 @@ INPUTS
 -------------------------------------------------------------------------------
 You only need to provide:
     - task: "pd" (classification) or "lgd" (regression)
-    - dataset: dataset name (e.g. "0014.hmeq")
+    - dataset: dataset name (e.g. "0013.hmeq")
     - test_size: fraction of data reserved for testing (only used when CV_splits=1)
     - val_size: fraction of remaining training data (without test set) reserved for validation
     - cv_splits: number of cross-validation folds (1 = single split)

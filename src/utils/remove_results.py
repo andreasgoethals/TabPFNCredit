@@ -13,7 +13,7 @@ Usage:
     python -m src.utils.remove_results --experiment experiment1 --method tabpfn --task pd
 
     # Remove specific method from specific dataset
-    python -m src.utils.remove_results --experiment experiment1 --method tabpfn --dataset 0014.hmeq --task pd
+    python -m src.utils.remove_results --experiment experiment1 --method tabpfn --dataset 0013.hmeq --task pd
 
     # Dry run (show what would be removed without making changes)
     python -m src.utils.remove_results --experiment experiment1 --method tabpfn --task pd --dry-run
@@ -386,7 +386,7 @@ Examples:
   python -m src.utils.remove_results --experiment experiment1 --method tabpfn --task pd
 
   # Remove specific method from specific dataset
-  python -m src.utils.remove_results --experiment experiment1 --method tabpfn --dataset 0014.hmeq --task pd
+  python -m src.utils.remove_results --experiment experiment1 --method tabpfn --dataset 0013.hmeq --task pd
 
   # Dry run (show what would be removed)
   python -m src.utils.remove_results --experiment experiment1 --method tabpfn --task pd --dry-run

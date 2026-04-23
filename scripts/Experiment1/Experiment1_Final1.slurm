@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-# EXPERIMENT 1 - FINAL RERUN: 0013.home_credit / tabicl / NO_HPO (50k limit)
+# EXPERIMENT 1 - FINAL RERUN: 0012.home_credit / tabicl / NO_HPO (50k limit)
 # =============================================================================
 # Single task on a dedicated node with 50,000 row limit.
 # =============================================================================
@@ -52,7 +52,7 @@ echo "Job ID:       $SLURM_JOB_ID"
 echo "Node:         $SLURMD_NODENAME"
 echo "GPU:          $CUDA_VISIBLE_DEVICES"
 echo "Memory:       100G (Soft Isolation)"
-echo "Task:         0013.home_credit / tabicl / NO_HPO (50k row limit)"
+echo "Task:         0012.home_credit / tabicl / NO_HPO (50k row limit)"
 echo "=========================================="
 
 # ---------------------------------------------------------
@@ -60,7 +60,7 @@ echo "=========================================="
 # ---------------------------------------------------------
 
 python -u scripts/Experiment1/Experiment1_Final.py \
-    --dataset 0013.home_credit \
+    --dataset 0012.home_credit \
     --method tabicl \
     --task_type pd \
     --hpo_mode NO_HPO \
