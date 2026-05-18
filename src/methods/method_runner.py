@@ -107,6 +107,71 @@ logger = logging.getLogger(__name__)
 
 
 # ======================================================================================
+#                          FOLDS CACHE (process-local)
+# ======================================================================================
+# A small LRU keyed on the DataFeeder constructor args. When the orchestrator
+# calls run_talent_method twice in the same process for the same dataset (e.g.
+# NO_HPO followed by HPO on one method, or several CPU methods on the same
+# dataset), the second call reuses the already-prepared folds dict instead of
+# re-running preprocess_dataset + StratifiedKFold + per-fold winsorize/PCA.
+#
+# Safety: TALENT does not mutate the (N, C, y) arrays it receives -- it builds
+# its own normalised copies inside apply_preprocessing_policies. The cache is
+# process-local, so SLURM array slots remain isolated.
+
+_FOLDS_CACHE: Dict[tuple, Any] = {}
+_FOLDS_CACHE_CAPACITY = 4  # keep at most 4 datasets resident at once
+
+
+def _get_or_prepare_folds(
+    task: str,
+    dataset: str,
+    test_size: float,
+    val_size: float,
+    cv_splits: int,
+    seed: int,
+    row_limit: Optional[int],
+    train_row_limit: Optional[int],
+    sampling: Optional[float],
+    verbose: bool = False,
+):
+    key = (task, dataset, test_size, val_size, cv_splits, seed,
+           row_limit, train_row_limit, sampling)
+    if key in _FOLDS_CACHE:
+        if verbose:
+            print(f"[folds-cache] HIT for {dataset} (train_row_limit={train_row_limit})")
+        return _FOLDS_CACHE[key]
+
+    if verbose:
+        print(f"[folds-cache] MISS for {dataset} (train_row_limit={train_row_limit}) -- preparing")
+
+    feeder = DataFeeder(
+        task=task,
+        dataset=dataset,
+        test_size=test_size,
+        val_size=val_size,
+        cv_splits=cv_splits,
+        seed=seed,
+        row_limit=row_limit,
+        train_row_limit=train_row_limit,
+        sampling=sampling,
+    )
+    folds = feeder.prepare()
+
+    # Evict oldest entry if at capacity (FIFO is fine for typical orchestrator
+    # access patterns -- a single dataset's methods all run consecutively).
+    if len(_FOLDS_CACHE) >= _FOLDS_CACHE_CAPACITY:
+        _FOLDS_CACHE.pop(next(iter(_FOLDS_CACHE)))
+    _FOLDS_CACHE[key] = folds
+    return folds
+
+
+def clear_folds_cache() -> None:
+    """Drop all cached folds. Call after finishing a (dataset, *) bundle."""
+    _FOLDS_CACHE.clear()
+
+
+# ======================================================================================
 #                          HPO CONFIG PERSISTENCE
 # ======================================================================================
 # FileLock and atomic_pickle_write are imported from src.utils.file_lock.
@@ -1109,22 +1174,24 @@ def run_talent_method(
             'cat_nan_policy': not _is_missing(cat_nan_policy),
         }
         
-        # Prepare data with cross-validation folds
+        # Prepare data with cross-validation folds (cached across consecutive
+        # calls in the same process so NO_HPO+HPO bundles and CPU-method
+        # bundles avoid re-running the data preparation).
         if verbose:
             print(f"\nPreparing data with {cv_splits} CV splits...")
-        
-        feeder = DataFeeder(
+
+        folds = _get_or_prepare_folds(
             task=task,
             dataset=dataset,
             test_size=test_size,
             val_size=val_size,
             cv_splits=cv_splits,
             seed=seed,
-            row_limit=global_row_limit,  # Global cap (before splitting)
-            train_row_limit=train_row_limit,  # Training-only cap (after splitting)
+            row_limit=global_row_limit,
+            train_row_limit=train_row_limit,
             sampling=sampling,
+            verbose=verbose,
         )
-        folds = feeder.prepare()
         
         first_fold_id = min(folds.keys())
         

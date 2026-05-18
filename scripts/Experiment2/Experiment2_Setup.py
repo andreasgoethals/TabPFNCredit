@@ -115,7 +115,7 @@ def generate_gpu_slurm_script(
 set -euo pipefail
 
 # Stagger starts to avoid I/O thundering-herd.
-sleep $((RANDOM % 60 + 1))
+sleep $((${SLURM_ARRAY_TASK_ID:-0} % 30))
 
 # Force unbuffered I/O + PyTorch alloc fragmentation mitigation.
 export PYTHONUNBUFFERED=1
@@ -188,7 +188,7 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 # ---------------------------------------------------------
 
 set -euo pipefail
-sleep $((RANDOM % 60 + 1))
+sleep $((${SLURM_ARRAY_TASK_ID:-0} % 30))
 export PYTHONUNBUFFERED=1
 
 export PATH="${{VSC_DATA}}/miniconda3/bin:${{PATH}}"

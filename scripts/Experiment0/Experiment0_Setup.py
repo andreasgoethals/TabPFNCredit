@@ -52,7 +52,7 @@ def generate_gpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------
-sleep $((RANDOM % 60 + 1))
+sleep $((${SLURM_ARRAY_TASK_ID:-0} % 30))
 # ---------------------------------------------------------
 
 # Force unbuffered I/O
@@ -115,7 +115,7 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 # ---------------------------------------------------------
 # STAGGERED START TO PREVENT I/O CONGESTION
 # ---------------------------------------------------------
-sleep $((RANDOM % 60 + 1))
+sleep $((${SLURM_ARRAY_TASK_ID:-0} % 30))
 # ---------------------------------------------------------
 
 # Force unbuffered I/O

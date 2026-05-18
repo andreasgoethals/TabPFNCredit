@@ -126,9 +126,9 @@ SLURM_PROLOGUE = textwrap.dedent(
     # Fail fast on any error; treat unset vars as errors; pipefail.
     set -euo pipefail
 
-    # Stagger array-slot starts by up to 60 s to avoid I/O thundering-herd
-    # on the shared filesystem when hundreds of tasks launch together.
-    sleep $((RANDOM % 60 + 1))
+    # Deterministic stagger (0-29 s) based on the array index avoids the
+    # RANDOM%60 thundering-herd while halving worst-case wallclock overhead.
+    sleep $((${SLURM_ARRAY_TASK_ID:-0} % 30))
 
     # Force unbuffered I/O so SLURM streams Python output in real time.
     export PYTHONUNBUFFERED=1

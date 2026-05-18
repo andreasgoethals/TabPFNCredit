@@ -1,535 +1,346 @@
 # TabPFNCredit
 
-**Benchmarking Tabular Foundation Models for Credit Risk Prediction**
+**Benchmarking Tabular Foundation Models for Credit Risk Prediction.**
 
-A rigorous evaluation framework comparing Tabular Foundation Models (TabPFN, TabPFN v2, TabPFN Real, MITRA, TabICL) against classical ML and deep learning baselines on credit risk prediction tasks. Built on the [TALENT](https://github.com/LAMDA-Tabular/TALENT) framework.
+A rigorous evaluation framework comparing tabular foundation models (TabPFN, TabPFN v2, TabPFN Real, MITRA, TabICL) against classical ML and deep-learning baselines on credit-risk prediction tasks. Built on the [TALENT](https://github.com/LAMDA-Tabular/TALENT) framework.
 
 ---
 
-## Research Overview
+## Tasks, datasets, methods
 
-### Tasks & Datasets
+| Task | Type | Datasets | Key metrics |
+|---|---|---|---|
+| **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier |
+| **LGD** (Loss Given Default)    | Regression on `[0, 1]`  | 7  | R², RMSE, MAE, Spearman |
 
-| Task | Type | # Datasets | Key Metrics |
-|------|------|-----------|-------------|
-| **PD** (Probability of Default) | Binary Classification | 14 | AUC, Gini, KS, F1, Brier |
-| **LGD** (Loss Given Default) | Regression (0-1) | 7 | R2, RMSE, MAE, Spearman |
-
-**PD datasets**: `gmsc`, `taiwan_creditcard`, `vehicle_loan`, `lendingclub`, `myhom`, `hackerearth`, `cobranded`, `german`, `bank_status`, `thomas`, `loan_default`, `home_credit`, `hmeq`, `algorithmwatch`
-
-**LGD datasets**: `heloc`, `loss2`, `axa`, `base_model`, `base_modelisation`, `lgd_freddie`, `lgd_lendingclub`
-
-### Supported Methods (49)
-
-| Category | Methods | Count |
-|----------|---------|-------|
-| **Foundation Models** | TabPFN, TabPFN v2, TabPFN Real, MITRA, TabICL, TabPTM, HyperFast | 7 |
-| **Transformer-Based** | FT-Transformer, SAINT, TabTransformer, AutoInt, ExcelFormer, AMFormer, T2G-Former, TROMPT | 8 |
-| **Deep Tabular** | MLP, ResNet, SNN, RealMLP, MLP-PLR, TabNet, NODE, TabR, GrowNet, DANets, TabCaps, DCN2, TANGOS, PTARL, SwitchTab, DNNR, ModernNCA, BISHOP, ProtoGate, GRANDE, TabAutoPNPNet, TabM, LiMiX | 23 |
-| **Tree Boosting** | XGBoost, CatBoost, LightGBM | 3 |
-| **Classical ML** | LogisticRegression, RandomForest, KNN, SVM, NaiveBayes, NCM, LinearRegression, Dummy | 8 |
-
-All methods are configured in a single registry at `src/methods/method_config.py`.
+49 methods across **foundation models** (TabPFN family, MITRA, TabICL, TabPTM, HyperFast), **transformer-based** (FT-Transformer, SAINT, AutoInt, AMFormer, T2G-Former, TROMPT, …), **deep tabular** (MLP, ResNet, RealMLP, TabNet, NODE, TabR, ModernNCA, TabM, …), **tree boosting** (XGBoost, CatBoost, LightGBM), and **classical ML** (LogReg, RandomForest, KNN, SVM, NaiveBayes, NCM). The full registry — including per-method `cat_policy`, normalisation, output type, and method-intrinsic train/eval row limits — lives in [`src/methods/method_config.py`](src/methods/method_config.py).
 
 ### Experiments
 
-| Experiment | Description | Tasks |
-|-----------|-------------|-------|
-| **Experiment 0** | Pilot study to select methods for the full benchmark | PD + LGD |
-| **Experiment 1** | Full benchmark with NO_HPO and HPO modes | PD + LGD |
-| **Experiment 2** | Learning curve analysis: performance vs training set size | PD + LGD |
-| **Experiment 3** | Class imbalance analysis: performance vs minority proportion | PD only |
+| # | Description | Tasks |
+|---|---|---|
+| **0** | Pilot study to select methods for the full benchmark | PD + LGD |
+| **1** | Full benchmark with `NO_HPO` and `HPO` modes                | PD + LGD |
+| **2** | Learning-curve analysis (performance vs train-set size)     | PD + LGD |
+| **3** | Class-imbalance analysis (performance vs minority proportion) | PD only |
 
 ---
 
-## Data Pipeline
-
-The pipeline is designed to prevent data leakage at every stage. Preprocessing steps that compute statistics (outlier bounds, PCA components, winsorization percentiles) are always fitted on training data only, then applied to validation and test sets.
+## Pipeline at a glance
 
 ```
-                           STAGE 1: Dataset Preparation (once per dataset)
-                          ================================================
-  Raw CSV ──> dataset_preprocessing.py ──> Clean DataFrame
-                                               |
-                                         preprocessing.py
-                                               |
-                                    Separate features by type:
-                                      N.npy (numerical, float32)
-                                      C.npy (categorical, int64, -1=missing)
-                                      y.npy (target)
-                                      info.json (metadata)
-                                               |
-                                         [Cached to disk]
+Stage 1 (once per dataset)
+  Raw CSV -> dataset_preprocessing.py -> preprocessing.py -> {N.npy, C.npy, y.npy, info.json}
 
-                           STAGE 2: Per-Fold Processing (per experiment run)
-                          ====================================================
-                                    data_feeder.py
-                                         |
-                          +----- Optional pre-split operations -----+
-                          |  Global row limit (debugging)           |
-                          |  Resampling (Exp3: class imbalance)     |
-                          +-----------------------------------------+
-                                         |
-                              K-Fold Cross-Validation Split
-                        (StratifiedKFold for PD, KFold for LGD)
-                                         |
-                         +------+------+------+------+
-                         |      |      |      |      |
-                       Fold1  Fold2  Fold3  ... ... FoldK
-                         |
-              +--- Per-fold post-split preprocessing ---+
-              |  (all fitted on TRAINING data only)     |
-              |                                         |
-              |  1. Method train limit (train only)     |
-              |     TabPFN v1/MITRA: 5k                 |
-              |     TabPFN v2/TabICL: 50k               |
-              |     AMFormer/TANGOS: 100k               |
-              |     Stratified subsampling for PD       |
-              |                                         |
-              |  2. Drop near-constant columns          |
-              |     >99% same value in training set     |
-              |     Same columns dropped from val/test  |
-              |                                         |
-              |  3. Remove outliers (training only)     |
-              |     Hybrid: percentile rarity (0.1%)    |
-              |     + IQR magnitude (5x from median)    |
-              |     Val/test rows are never removed     |
-              |                                         |
-              |  4. PCA (if features > 99)              |
-              |     Fit on training, transform val/test |
-              |     Reduces to 99 principal components  |
-              |     Absorbs categoricals into PCA space |
-              |                                         |
-              |  5. Winsorization                       |
-              |     Compute 0.1%-99.9% bounds on train  |
-              |     Clip val/test to those bounds       |
-              +-----------------------------------------+
-                         |
-                   method_runner.py
-                         |
-              +--- TALENT preprocessing ---+
-              |  NaN imputation            |
-              |  Categorical encoding      |
-              |  Normalization             |
-              +----------------------------+
-                         |
-              method.fit(train) + predict(test)
-                         |
-                   method_metrics.py
-                         |
-                  Results (.pkl per dataset)
+Stage 2 (per experiment run)
+  data_feeder.py
+   - optional global row cap / Exp3 imbalance resampling (pre-split, by design)
+   - StratifiedKFold (PD) / KFold (LGD)
+   - per-fold, training-only:
+       * method-specific train cap (e.g. TabPFN v1: 5k, v2: 50k, MITRA: 5k)
+       * drop near-constant columns        (training stats)
+       * outlier removal                   (training stats)
+       * PCA to 99 components if >99 feats (training stats)
+       * winsorize to [0.1%, 99.9%]        (training stats)
+  method_runner.py
+   - process-local folds cache (one DataFeeder.prepare() per dataset per slot)
+   - TALENT preprocessing + method.fit + predict
+   - per-fold HPO via TALENT (config_hpo/{task}/{dataset}/{method}/HPO_PER_FOLD/fold_N/)
+   - probability extraction + LGD clipping to [0, 1] + metric calculation
+   - atomic pickle write (FileLock + .tmp + os.replace)
 ```
 
-### Configurable Parameters
+**Anti-leakage invariants** (enforced in code):
+- Every stats-fitted preprocessor (outliers, winsorize, PCA, near-constant) is fitted on TRAINING data only and applied to val/test.
+- Method-intrinsic train caps subsample training rows only — val/test are never thinned.
+- F1-threshold optimisation uses the VALIDATION set; the chosen threshold is applied to TEST.
+- Per-fold HPO writes go to a per-fold sub-directory so concurrent SLURM array slots cannot race on TALENT's internal `*-tuned.json` cache.
 
-All parameters are configurable via YAML files in `scripts/ExperimentN/config/`:
+**Note on Experiment 3 resampling.** The class-imbalance resampling in [`data_feeder.py`](src/data/data_feeder.py) is applied to the full dataset **before** CV splitting — *intentional design choice*, so that all CV folds (train, val, and test) share the artificial minority ratio. The imbalance curves therefore measure "performance when the deployed distribution is also imbalanced at this ratio," not "performance on a naturally-distributed test set."
 
-| Parameter | Config File | Default (Exp1) | Description |
-|-----------|-------------|---------------:|-------------|
-| `cv_splits` | CONFIG_DATA | 5 | Number of cross-validation folds |
-| `val_size` | CONFIG_DATA | 0.2 | Fraction of training data for validation |
-| `test_size` | CONFIG_DATA | 0.2 | Test fraction (only used if cv_splits=1) |
-| `seed` | CONFIG_DATA | 42 | Random seed for reproducibility |
-| `row_limit` | CONFIG_DATA | null | Global row cap (null = use all rows) |
-| `max_epochs` | CONFIG_EXPERIMENT | 50 | Maximum training epochs (deep methods) |
-| `batch_size` | CONFIG_EXPERIMENT | 255 | Training batch size |
-| `n_trials` | CONFIG_EXPERIMENT | 20 | HPO trials per fold |
-| `early_stopping` | CONFIG_EXPERIMENT | true | Early stopping for deep methods |
-| `early_stopping_patience` | CONFIG_EXPERIMENT | 10 | Patience epochs |
-
----
-
-## Method Preprocessing Policies
-
-Every method's preprocessing requirements are enforced by hard `assert` statements in the TALENT source code. These constraints are not configurable -- they are architectural requirements of each method. The table below documents the complete policy for each method, verified against the TALENT source.
-
-**Global defaults** (applied when a method has no specific override):
-
-| Policy | Default Value | Description |
-|--------|--------------|-------------|
-| `cat_policy` | Per method (see table) | Categorical encoding -- TALENT-enforced |
-| `normalization` | `standard` | StandardScaler (zero mean, unit variance) |
-| `num_policy` | `none` | No numerical feature transformation |
-| `num_nan_policy` | `median` | Impute numerical NaN with column median |
-| `cat_nan_policy` | `new` | Treat categorical NaN as a new category |
-
-### Per-Method Configuration
-
-| Method | Cat Policy | Normalization | Num Policy | Output Type | Tasks | Train Limit | Eval Limit |
-|--------|-----------|---------------|------------|-------------|-------|-------------|------------|
-| **Foundation Models** | | | | | | | |
-| tabpfn | indices | none | none | PROBABILITIES | PD | 5,000 | 50,000 ¹ |
-| tabpfn_v2 | indices | none | none | PROBABILITIES | PD+LGD | 50,000 | 50,000 |
-| tabpfn_real | indices | none | none | PROBABILITIES | PD | 50,000 | 50,000 |
-| mitra | indices | none | none | LOGITS | PD+LGD | 5,000 | 5,000 |
-| tabicl | indices | none | none | PROBABILITIES | PD | 50,000 | 50,000 |
-| tabptm | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| hyperfast | indices | none | none | PROBABILITIES | PD | — | — |
-| **Transformer-Based** | | | | | | | |
-| ftt | indices | standard | none | LOGITS | PD+LGD | — | — |
-| saint | indices | standard | none | LOGITS | PD+LGD | — | — |
-| tabtransformer | indices | standard | none | LOGITS | PD+LGD | — | — |
-| autoint | indices | standard | none | LOGITS | PD+LGD | — | — |
-| excelformer | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| amformer | indices | standard | none | LOGITS | PD+LGD | 100,000 | — |
-| trompt | indices | standard | none | LOGITS | PD+LGD | — | — |
-| t2gformer | indices | standard | none | LOGITS | PD+LGD | — | — |
-| **Deep Tabular** | | | | | | | |
-| mlp | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| resnet | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| snn | indices | standard | none | LOGITS | PD+LGD | — | — |
-| realmlp | indices | standard | none | PROBABILITIES | PD+LGD | — | — |
-| mlp_plr | tabr_ohe | standard | none | LOGITS | PD+LGD | — | — |
-| tabnet | ohe | standard | none | PROBABILITIES | PD+LGD | — | — |
-| node | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| tabr | tabr_ohe | standard | none | LOGITS | PD | — | — |
-| grownet | indices | standard | none | LOGITS | PD+LGD | — | — |
-| danets | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| tabcaps | ohe | standard | none | LOGITS | PD | — | — |
-| dcn2 | indices | standard | none | LOGITS | PD+LGD | — | — |
-| tangos | ohe | standard | none | LOGITS | PD+LGD | 100,000 | — |
-| ptarl | indices | standard | none | LOGITS | PD+LGD | — | — |
-| switchtab | ohe | standard | none | LOGITS | PD+LGD | — | — |
-| dnnr | ohe | standard | none | LOGITS | LGD | — | — |
-| modernNCA | tabr_ohe | standard | none | LOGITS | PD+LGD | — | — |
-| bishop | indices | standard | none | LOGITS | PD+LGD | — | — |
-| protogate | ohe | standard | none | LOGITS | PD | — | — |
-| grande | indices | standard | none | LOGITS | PD | — | — |
-| tabautopnpnet | tabr_ohe | standard | none | LOGITS | PD+LGD | — | — |
-| tabm | indices | standard | none | LOGITS | PD+LGD | — | — |
-| limix | indices | none | none | LOGITS | PD+LGD | — | — |
-| **Tree Boosting** | | | | | | | |
-| xgboost | ohe | standard | none | PROBABILITIES | PD+LGD | — | — |
-| catboost | indices | standard | none | PROBABILITIES | PD+LGD | — | — |
-| lightgbm | ohe | standard | none | PROBABILITIES | PD+LGD | — | — |
-| **Classical ML** | | | | | | | |
-| LogReg | ohe | standard | none | PROBABILITIES | PD | — | — |
-| LinearRegression | ohe | standard | none | CLASS_LABELS | LGD | — | — |
-| RandomForest | ohe | standard | none | PROBABILITIES | PD+LGD | — | — |
-| knn | ohe | standard | none | PROBABILITIES | PD+LGD | — | — |
-| svm | ohe | standard | none | PROBABILITIES | PD+LGD | — | — |
-| NaiveBayes | ohe | standard | none | PROBABILITIES | PD | — | — |
-| NCM | ohe | standard | none | PROBABILITIES | PD | — | — |
-| dummy | ohe | standard | none | PROBABILITIES | PD | — | — |
-
-### Column Definitions
-
-**Cat Policy** -- Categorical feature encoding, enforced by TALENT `assert` statements:
-- **`indices`**: Integer codes passed to learned embedding layers (`nn.Embedding`). Required by methods with embedding-based architectures (transformers, foundation models, CatBoost).
-- **`ohe`**: One-hot encoding, concatenated into the numerical feature matrix. Required by methods without embedding layers (MLP, ResNet, all classical ML except CatBoost). TALENT enforces `assert(cat_policy != 'indices')`.
-- **`tabr_ohe`**: TabR-specific one-hot encoding that keeps numerical and categorical arrays separate. Required by TabR-family methods. TALENT enforces `assert(cat_policy == 'tabr_ohe')`.
-
-Note: Ordinal encoding is never used. Categorical features in credit risk datasets are nominal (e.g., loan purpose, employment type), so ordinal encoding would impose false ordinal relationships.
-
-**Normalization**:
-- **`standard`**: StandardScaler (zero mean, unit variance). Default for most methods.
-- **`none`**: No normalization. Required by foundation models (TabPFN, Mitra, etc.) and LiMiX, which handle normalization internally. Enforced by `assert(args.normalization == 'none')`.
-
-**Num Policy**: Numerical feature encoding (e.g., binning). Set to `none` for all methods -- no numerical transformations are applied.
-
-**Output Type** -- What the method's `predict()` returns for classification:
-- **LOGITS**: Raw network output (unbounded values). Converted to probabilities via softmax (2D) or sigmoid (1D) by `method_runner.py`.
-- **PROBABILITIES**: Calibrated probabilities from `predict_proba()`. Used directly.
-- **CLASS_LABELS**: Continuous predictions (LinearRegression only, regression-only method).
-
-All classification methods return probabilities. In the current TALENT version:
-- **SVM**: `LinearSVC` wrapped in `CalibratedClassifierCV(method='sigmoid', cv=3)` to enable `predict_proba()`
-- **NCM**: Custom `_predict_proba()` computes softmax over negative Euclidean distances to class centroids
-- **NaiveBayes**: Uses `GaussianNB.predict_proba()` directly
-- **Dummy**: Uses `DummyClassifier.predict_proba()`
-- **RealMLP**: Classifier's `predict()` modified to return `predict_proba()` output
-
-**Train Limit / Eval Limit**: Method-intrinsic dataset size caps, applied after CV splitting and independently from the global `row_limit` debug parameter.
-
-- **Train Limit**: Maximum training rows. For ICL foundation models (TabPFN, MITRA, TabICL), this reflects the GPU memory constraint of loading the full training set as a transformer context. For standard deep learning methods with O(N²) attention (AMFormer, TANGOS), it is a practical compute cap to bound training time. Subsampling is stratified for PD tasks to preserve class distribution.
-- **Eval Limit**: Maximum validation/test rows. Only ICL foundation models require this, because their inference cost scales with both N_train and N_test simultaneously (cross-attention between context and query). Standard deep learning and classical methods predict in mini-batches, so they impose no constraint on evaluation set size (shown as —).
-- **tabpfn v1 asymmetry** (5k train / 50k eval): TabPFN v1 processes each test query independently against the fixed training context, so N_test does not add to GPU memory. The larger eval limit maximises evaluation reliability without any architectural cost.
-- **MITRA symmetry** (5k / 5k): Full cross-attention between training context and all test queries means GPU memory scales as O(N_train × N_test); both limits must be equal.
-- All other ICL models (tabpfn_v2, tabpfn_real, tabicl) use equal train and eval limits.
-
-¹ tabpfn eval limit is intentionally 10× the train limit; see explanation above.
+Configurable parameters live in `scripts/Experiment{0-3}/config/CONFIG_{DATA,METHOD,EXPERIMENT}.yaml`. Defaults for Experiment 1 are `cv_splits=5`, `val_size=0.2`, `seed=42`, `max_epochs=50`, `batch_size=255`, `n_trials=20`.
 
 ---
 
 ## Metrics
 
-### PD (Classification)
+**PD (classification):** AUC, Gini, KS, Brier, LogLoss, Average Precision, Accuracy, Balanced Accuracy, F1, Precision, Recall, MCC. Threshold-based metrics use the optimal F1 threshold found on the validation set (no test-set leakage).
 
-| Metric | Type | Description |
-|--------|------|-------------|
-| AUC | Probability-based | Area Under ROC Curve |
-| Gini | Probability-based | 2 * AUC - 1 |
-| KS | Probability-based | Kolmogorov-Smirnov statistic |
-| Brier | Probability-based | Brier score loss |
-| LogLoss | Probability-based | Log loss (cross-entropy) |
-| Avg_Precision | Probability-based | Average precision (PR-AUC) |
-| Accuracy | Threshold-based | Overall accuracy |
-| Balanced_Accuracy | Threshold-based | Mean per-class accuracy |
-| F1 | Threshold-based | F1 score (binary) |
-| Precision | Threshold-based | Precision |
-| Recall | Threshold-based | Recall (sensitivity) |
-| MCC | Threshold-based | Matthews correlation coefficient |
-
-Threshold-based metrics use an optimal threshold determined by maximizing F1 on the **validation set** (no data leakage). The threshold found on the validation set is then applied to the test set.
-
-All classification methods return probabilities, so all probability-based metrics are available for every PD method.
-
-### LGD (Regression)
-
-| Metric | Description |
-|--------|-------------|
-| R2 | Coefficient of determination (R-squared) |
-| MSE | Mean squared error |
-| RMSE | Root mean squared error |
-| MAE | Mean absolute error |
-| MedAE | Median absolute error |
-| Max_Error | Maximum absolute error |
-| Pearson | Pearson correlation coefficient |
-| Spearman | Spearman rank correlation coefficient |
-| MAPE | Mean absolute percentage error |
-| Explained_Variance | Explained variance score |
-
-All LGD predictions are clipped to [0, 1] before metric calculation.
+**LGD (regression):** R², MSE, RMSE, MAE, MedAE, Max Error, Pearson, Spearman, MAPE, Explained Variance. All predictions are clipped to `[0, 1]` before metric calculation.
 
 ---
 
-## Quick Start
-
-### 1. Installation
+## Quick start (local)
 
 ```bash
 git clone https://github.com/andreasgoethals/tabpfncredit.git
 cd tabpfncredit
 python -m venv venv
-source venv/bin/activate        # Linux/macOS
-# venv\Scripts\activate         # Windows
-
-# 1. Install the project itself as an editable package (pyproject.toml).
-#    This removes the need for the `sys.path.insert(...)` boilerplate at the
-#    top of every experiment driver.
-pip install -e .
-
-# 2. Install the scientific dependency stack.
+source venv/bin/activate                   # Linux/macOS
+# venv\Scripts\activate                    # Windows
+pip install -e .                           # editable install removes the sys.path boilerplate
 pip install -r requirements_local.txt
 ```
 
-For VSC supercomputer, use `requirements_vsc.txt` instead (includes CUDA 11.8 PyTorch builds and Annoy as a Faiss alternative):
+Sanity-check a single cell locally before submitting to the cluster:
 
 ```bash
-# On a VSC login node:
-module purge
-source "$VSC_DATA/miniconda3/bin/activate"
-conda create -y -n TabPFNCredit python=3.10
-conda activate TabPFNCredit
-cd "$VSC_DATA/TabPFNCredit"
-pip install -e .
-pip install -r requirements_vsc.txt
+python scripts/Experiment1/Experiment1_GPU.py \
+    --dataset 0008.german --method xgboost --task_type pd --hpo_mode NO_HPO --verbose
 ```
 
-> **Reproducibility note.** TALENT is currently installed from upstream `main`.
-> Before archiving a release, pin it to a commit SHA in `requirements.txt`:
-> `TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@<40-char-sha>`.
-
-### 2. Configuration
-
-Each experiment has its own config directory under `scripts/ExperimentN/config/` with three YAML files:
-
-- **`CONFIG_DATA.yaml`**: Dataset toggles, split settings (`cv_splits`, `val_size`, `seed`, `row_limit`)
-- **`CONFIG_METHOD.yaml`**: Method selection per task (PD/LGD)
-- **`CONFIG_EXPERIMENT.yaml`**: Training parameters (`max_epochs`, `batch_size`, `n_trials`, `early_stopping`)
-
-### 3. Running Experiments
+Jupyter dev server:
 
 ```bash
-# (Optional) set a failure-notification address for SLURM scripts:
-export TABPFN_SLURM_NOTIFY_EMAIL="you@kuleuven.be"
-
-# Generate the batched SLURM scripts for this experiment. Each batch is
-# capped at 400 tasks to stay under VSC's 500-element `--array` limit.
-python scripts/Experiment1/Experiment1_Setup.py                 # P100 only
-python scripts/Experiment1/Experiment1_Setup.py --foundation-on-wice  # recommended
-
-# Submit every generated file (names are printed by the setup script):
-sbatch scripts/Experiment1/Experiment1_GPU0.slurm
-sbatch scripts/Experiment1/Experiment1_GPU1.slurm
-# ... etc., plus Experiment1_CPU*.slurm and Experiment1_GPU_Foundation*.slurm
-```
-
-The generated SLURM scripts now:
-
-* use absolute `${VSC_DATA}/TabPFNCredit/...` paths for `--output`/`--error`,
-* set `#SBATCH --requeue` so a node failure automatically re-queues the slot,
-* run under `set -euo pipefail` with `mkdir -p` of the log directory, and
-* optionally add `--mail-type=FAIL --mail-user=...` when
-  `TABPFN_SLURM_NOTIFY_EMAIL` is set at generation time.
-
-### 4. Jupyter Dev Server
-
-Launch Jupyter from the project root using the venv kernel:
-
-```bash
-# Jupyter Notebook (classic, port 8888)
-venv/Scripts/jupyter notebook --port 8888 --notebook-dir notebooks
-
-# Jupyter Lab (modern UI, port 8889)
 venv/Scripts/jupyter lab --port 8889 --notebook-dir notebooks
 ```
 
-Server configurations are saved in `.claude/launch.json` for use with Claude Code's `preview_start`.
+---
 
-### 5. Analyzing Results
+## Running on VSC (Vlaams Supercomputer Centrum)
 
-Results are stored as pickle files in `results/experimentN/{pd,lgd}/`. Generate summary CSVs:
+This is the canonical workflow for running the benchmark on the KU Leuven VSC clusters (`genius` for P100 GPU + CPU batch, `wice` for H100 GPU).
+
+### 1. First-time setup (login node)
+
+```bash
+# 1) Activate conda
+module purge
+source "$VSC_DATA/miniconda3/bin/activate"
+
+# 2) Create the environment from scratch
+conda create -y -n TabPFNCredit python=3.10
+conda activate TabPFNCredit
+
+# 3) Clone (or sync) the repo into $VSC_DATA
+cd "$VSC_DATA"
+git clone https://github.com/andreasgoethals/tabpfncredit.git TabPFNCredit
+cd TabPFNCredit
+
+# 4) Install
+pip install -e .
+pip install -r requirements_vsc.txt       # CUDA 11.8 PyTorch wheels + Annoy (Faiss alternative)
+```
+
+> **Reproducibility note.** TALENT is currently installed from `main`. Before archiving a release, pin it to a commit SHA:
+> `TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@<40-char-sha>`.
+
+### 2. Configure the run
+
+Each experiment has its own `scripts/Experiment{N}/config/` directory with three YAML files:
+
+| File | Knobs |
+|---|---|
+| `CONFIG_DATA.yaml` | Dataset on/off toggles, `cv_splits`, `val_size`, `test_size`, `seed`, `row_limit` |
+| `CONFIG_METHOD.yaml` | Method on/off toggles per task (PD / LGD) |
+| `CONFIG_EXPERIMENT.yaml` | `max_epochs`, `batch_size`, `n_trials`, `early_stopping` |
+
+Toggle methods/datasets on/off with `true`/`false`. The task type (PD/LGD/BOTH) is auto-inferred from the enabled datasets.
+
+### 3. Generate the SLURM scripts
+
+```bash
+# Optional: failure-notification email is auto-added to the generated #SBATCH block
+export TABPFN_SLURM_NOTIFY_EMAIL="you@kuleuven.be"
+
+# Standard recommended invocation (foundation models go to wICE H100, others to genius P100):
+python scripts/Experiment1/Experiment1_Setup.py --foundation-on-wice
+```
+
+Each Setup script prints a configuration summary (datasets, methods per hardware tier, task counts) and writes batched `.slurm` files of ≤400 array elements each (VSC caps `--array` at 500). The generated scripts:
+
+- use absolute `${VSC_DATA}/TabPFNCredit/...` paths for `--output` / `--error` (so they work regardless of where `sbatch` was invoked from),
+- carry `#SBATCH --requeue` so a node failure re-queues the slot automatically,
+- run under `set -euo pipefail` with `mkdir -p` of the log dir,
+- stagger array-slot starts deterministically by `SLURM_ARRAY_TASK_ID % 30` seconds (avoids the I/O thundering-herd without RANDOM's worst-case 60 s penalty).
+
+#### Task model (Experiment 1)
+
+* **GPU task** = `(dataset, method, task_type)`. Each slot runs *both* `NO_HPO` and `HPO`; the HPO call hits the **process-local folds cache** so the data prep happens once.
+* **CPU task** = `(dataset, task_type)`. Each slot runs *all enabled CPU methods × both HPO modes*, all sharing the cached folds. This collapses the CPU array length from `Ndatasets × Nmethods × 2` to `Ndatasets`.
+* Already-completed `(dataset, method, hpo_mode)` cells are skipped automatically inside each slot (per-method idempotence check in `Experiment1.py`).
+
+#### Submitting
+
+```bash
+sbatch scripts/Experiment1/Experiment1_GPU0.slurm
+sbatch scripts/Experiment1/Experiment1_GPU_Foundation0.slurm
+sbatch scripts/Experiment1/Experiment1_CPU0.slurm
+# (and any additional batch files printed by Setup, e.g. _GPU1.slurm)
+```
+
+The Setup script prints the full list of `sbatch ...` lines at the end so you can copy-paste.
+
+### 4. Monitoring
+
+```bash
+# Queue
+squeue --me                                       # all clusters
+squeue --me -M wice                               # wICE only
+
+# Per-job logs (paths printed by the Setup banner)
+tail -f $VSC_DATA/TabPFNCredit/results/experiment1/logs/slurm/gpu0_<JOBID>_<ARRAYID>.out
+
+# Per-(dataset, method) logs
+ls $VSC_DATA/TabPFNCredit/results/experiment1/logs/pd/
+tail -f $VSC_DATA/TabPFNCredit/results/experiment1/logs/pd/0008.german_xgboost_NO_HPO.log
+
+# Aggregated failure log (one entry per failed cell)
+cat $VSC_DATA/TabPFNCredit/results/experiment1/logs/errors.log
+```
+
+### 5. Partial reruns
+
+The intended workflow when adding methods, fixing config bugs, or invalidating subsets of results:
+
+```bash
+# Wipe specific results
+python src/utils/remove_results.py --experiment experiment1 --method realmlp     # one method, all datasets
+python src/utils/remove_results.py --experiment experiment1 --dataset 0008.german  # one dataset, all methods
+
+# Build a focused SLURM array that runs ONLY the missing (dataset, method, hpo_mode) cells
+python scripts/retry_failed.py --experiment experiment1 --dry-run                  # preview
+python scripts/retry_failed.py --experiment experiment1                            # writes _Retry_GPU.slurm + _Retry_CPU.slurm
+python scripts/retry_failed.py --experiment experiment1 --tasks gpu                # GPU-only retry
+
+sbatch scripts/Experiment1/Experiment1_Retry_GPU.slurm
+sbatch scripts/Experiment1/Experiment1_Retry_CPU.slurm
+```
+
+`retry_failed.py` also handles the **new-method case**: if you enable a previously-disabled method in `CONFIG_METHOD.yaml`, every `(dataset, that_method, hpo_mode)` cell is reported as missing and queued. The retry script uses each orchestrator's single-cell mode (`--dataset … --method … --task_type … --hpo_mode …`) so the array runs exactly the missing cells, no over-execution.
+
+### 6. Focused Setup (skip-the-config-edit shortcut)
+
+Instead of editing `CONFIG_METHOD.yaml` for a small focused rerun, narrow the Setup with allow-lists:
+
+```bash
+# Only emit SLURM scripts for two specific methods on two specific datasets
+python scripts/Experiment1/Experiment1_Setup.py \
+    --foundation-on-wice \
+    --methods-only "xgboost,catboost" \
+    --datasets-only "0008.german,0013.hmeq"
+```
+
+The filters propagate into the generated SLURM scripts so the array-runtime task list matches the Setup-time count.
+
+### 7. Aggregating results
+
+When the SLURM jobs are done, aggregate the per-dataset pickles into summary CSVs:
 
 ```bash
 python src/utils/summarize_results.py --experiment experiment1
+# outputs:
+#   results/experiment1/summary/summary_{pd,lgd}_raw.csv          (one row per fold)
+#   results/experiment1/summary/summary_{pd,lgd}_aggregated.csv   (mean +/- std across folds)
+#   results/experiment1/summary/pivot_{pd,lgd}_{AUC,F1,R2}_{no_hpo,hpo}.csv
 ```
 
-Analysis notebooks in `notebooks/`:
+Then open the analysis notebooks (see below) to generate the figures.
 
-| Notebook | Purpose |
-|----------|---------|
-| `Experiment0.ipynb` | Method selection from pilot study |
-| `Experiment1.1-PD.ipynb` | PD benchmark: heatmaps, distributions, ranks, dataset correlations, training time, all-metrics bar charts |
-| `Experiment1.2-LGD.ipynb` | LGD benchmark: heatmaps, distributions, ranks, dataset correlations, training time, all-metrics bar charts |
-| `Experiment1.3-Stat.ipynb` | Statistical analysis: Friedman + Iman-Davenport omnibus test, Nemenyi CD diagram (all methods), Wilcoxon signed-rank + Holm pairwise tests, PAMA, bootstrap rank CIs, Win/Loss + significance matrix, effect sizes (Vargha-Delaney A), pairwise scatter plots |
-| `Experiment2.ipynb` | Learning curves: performance vs training set size |
-| `Experiment3.ipynb` | Class imbalance: performance vs minority proportion |
-| `Data_Exploration.ipynb` | Dataset characteristics analysis |
-| `Individual_Method_Runner.ipynb` | Debug and test individual methods |
+### 8. VSC troubleshooting
 
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `sbatch: error: Batch script contains DOS line breaks (\r\n)` | File was edited on Windows | `dos2unix scripts/Experiment1/Experiment1_GPU0.slurm` |
+| `OOM kill` on `home_credit` foundation runs | P100 too small | Re-run with `--foundation-on-wice` and submit the `_Foundation*.slurm` |
+| Job sits in `PD` (pending) for hours | Cluster busy | `sprio --me` to see priority; consider `--partition=interactive` for sanity tests |
+| `ModuleNotFoundError: No module named 'TALENT'` inside the job | Wrong conda env | First line of the job logs prints the env; verify `source activate TabPFNCredit` resolved |
+| Pickle reads `[]` or 0-byte mid-write | Pre-hardening bug | Should not happen anymore — writes are atomic via `FileLock` + `os.replace`. Re-run with `retry_failed.py` |
+| Two folds racing on `{method}-tuned.json` | Pre-hardening bug | Should not happen anymore — TALENT writes go to `HPO_PER_FOLD/fold_{N}/`. Re-run if stale config files predate the fix |
+| `srun: error: --gpus-per-node not allowed` | Submitting wICE-bound script to genius (or vice versa) | The Setup script tags the right cluster in `#SBATCH --cluster=`; submit unmodified files |
 
 ---
 
-## Repository Structure
+## Analysing results (notebooks)
+
+Aggregated CSVs feed the analysis notebooks under [`notebooks/`](notebooks). Figures are saved as **vector PDF at dpi=150** into [`figures/`](figures), bucketed per experiment:
+
+| Notebook | Output |
+|---|---|
+| `Experiment0.ipynb`            | Pilot-study method selection |
+| `Experiment1.1-PD.ipynb`       | PD benchmark: heatmaps, distributions, ranks, training time |
+| `Experiment1.2-LGD.ipynb`      | LGD benchmark: heatmaps, distributions, ranks, training time |
+| `Experiment1.3-Stat.ipynb`     | Friedman/Iman-Davenport, Nemenyi CD, Wilcoxon+Holm, PAMA, bootstrap CIs, win/loss matrix |
+| `Experiment2.ipynb`            | Learning curves vs training set size |
+| `Experiment3.ipynb`            | Class-imbalance curves vs minority proportion |
+| `Data_Exploration.ipynb`       | Dataset characteristic plots |
+| `Individual_Method_Runner.ipynb` | Debug / test individual methods one-off |
+
+---
+
+## Repository layout
 
 ```
 TabPFNCredit/
-├── notebooks/                         # Analysis & visualization
-│   ├── Experiment0.ipynb              # Pilot study method selection
-│   ├── Experiment1.1-PD.ipynb         # Experiment 1: PD visualizations & metrics
-│   ├── Experiment1.2-LGD.ipynb        # Experiment 1: LGD visualizations & metrics
-│   ├── Experiment1.3-Stat.ipynb       # Experiment 1: Statistical analysis
-│   ├── Experiment{2-3}.ipynb          # Learning curves & class imbalance
-│   ├── Data_Exploration.ipynb         # Dataset characteristics
-│   └── Individual_Method_Runner.ipynb # Method debugging
-│
+├── notebooks/                        # Analysis notebooks (PDF figures, dpi=150)
 ├── scripts/
-│   └── Experiment{0-3}/
-│       ├── config/
-│       │   ├── CONFIG_DATA.yaml       # Dataset + split settings
-│       │   ├── CONFIG_METHOD.yaml     # Method selection (PD/LGD)
-│       │   └── CONFIG_EXPERIMENT.yaml # Training parameters
-│       ├── ExperimentN.py             # Main experiment runner
-│       ├── ExperimentN_Setup.py       # SLURM script generator
-│       └── ExperimentN_*.slurm        # Generated SLURM scripts
-│
+│   ├── Experiment{0-3}/
+│   │   ├── config/                   # CONFIG_DATA / CONFIG_METHOD / CONFIG_EXPERIMENT YAML
+│   │   ├── ExperimentN.py            # Per-cell runner (shared by GPU and CPU orchestrators)
+│   │   ├── ExperimentN_{GPU,CPU}.py  # Orchestrators -- accept --array_id or single-cell args
+│   │   ├── ExperimentN_Setup.py      # Generates batched .slurm files
+│   │   └── ExperimentN_*.slurm       # Generated, do not edit by hand
+│   ├── _slurm_templates.py           # Shared SLURM header / prologue / epilogue
+│   └── retry_failed.py               # Scans pickles, emits a retry SLURM array
 ├── src/
 │   ├── data/
-│   │   ├── preprocessing.py           # Load/cache TALENT-format arrays
-│   │   ├── dataset_preprocessing.py   # Per-dataset raw data cleaning
-│   │   └── data_feeder.py             # CV splitting + post-split preprocessing
+│   │   ├── preprocessing.py          # Load/cache TALENT-format arrays
+│   │   ├── dataset_preprocessing.py  # Per-dataset raw cleaning
+│   │   └── data_feeder.py            # CV split + per-fold post-split preprocessing
 │   ├── methods/
-│   │   ├── method_config.py           # Single-source-of-truth method registry
-│   │   ├── method_runner.py           # TALENT method wrapper
-│   │   ├── method_metrics.py          # PD and LGD metric calculation
-│   │   └── method_debugger.py         # Quick method testing
+│   │   ├── method_config.py          # Single-source-of-truth method registry
+│   │   ├── method_runner.py          # TALENT wrapper + process-local folds cache
+│   │   ├── method_metrics.py         # PD and LGD metrics
+│   │   └── method_debugger.py        # Quick method testing
 │   └── utils/
-│       ├── config_reader.py           # YAML configuration parser
-│       ├── storage_handler.py         # Pickle file I/O with locking
-│       ├── summarize_results.py       # Result aggregation to CSV
-│       └── remove_results.py          # Selective result removal
-│
+│       ├── config_reader.py          # YAML configuration loader
+│       ├── file_lock.py              # FileLock + atomic pickle write
+│       ├── storage_handler.py        # Pickle I/O paths
+│       ├── summarize_results.py      # Aggregate pickles to CSV
+│       └── remove_results.py         # Selective result removal
 ├── data/
-│   ├── raw/{pd,lgd}/                  # Raw CSV datasets
-│   └── processed/                     # Cached .npy arrays (gitignored)
-│
-├── results/experiment{0-3}/           # Gitignored — generated at runtime
-│   ├── {pd,lgd}/                      # Pickle result files
-│   ├── config_hpo/                    # Per-fold HPO configs
-│   ├── logs/                          # Per-method training logs
-│   └── summary/                       # Aggregated CSVs
-│
-├── figures/                           # All generated figures (600 dpi PNG)
-│   ├── data_exploration/              # From Data_Exploration.ipynb
-│   ├── experiment0/{pd,lgd}/          # From Experiment0.ipynb
-│   ├── experiment1/
-│   │   ├── pd/                        # From Experiment1.1-PD.ipynb
-│   │   ├── lgd/                       # From Experiment1.2-LGD.ipynb
-│   │   └── stat/                      # From Experiment1.3-Stat.ipynb
-│   ├── experiment2/{pd,lgd}/          # From Experiment2.ipynb
-│   └── experiment3/pd/                # From Experiment3.ipynb
-│
-├── .claude/                           # Claude Code config (gitignored)
-│   └── launch.json                    # Dev server configurations
-├── config_hpo/                        # Per-fold HPO configs (auto-generated, gitignored)
-├── CLAUDE.md                          # Claude Code project instructions
-├── requirements.txt                   # Core dependencies
-├── requirements_local.txt             # Local machine (+ CPU PyTorch)
-└── requirements_vsc.txt               # VSC supercomputer (+ CUDA 11.8 PyTorch)
+│   ├── raw/{pd,lgd}/                 # Raw CSV datasets
+│   └── processed/                    # Cached .npy arrays (gitignored)
+├── results/experiment{0-3}/          # Generated at runtime, gitignored
+└── figures/                          # All generated figures (vector PDF, dpi=150)
 ```
 
 ---
 
-## Recent hardening pass
+## Hardening already in place
 
-The repository was recently audited end-to-end. The following behaviour-preserving
-improvements are now in place:
+**Correctness / reproducibility.**
+- Per-fold HPO config directories (`config_hpo/.../fold_{id}/`) prevent the race where two concurrent array slots on different folds collide on TALENT's `{method}-tuned.json` cache.
+- Pickle writes go through `FileLock` + `os.replace()` so a mid-write crash leaves either the old file or the new file, never a zero-byte stub.
+- `find_optimal_threshold_f1` adds a fine grid in `[1e-4, 1e-2]` and `[0.99, 1-1e-4]` — necessary for Experiment 3's `minority_proportion=0.01` regime where the optimum threshold can be sub-1%.
 
-**Correctness / reproducibility**
+**Throughput / VSC ergonomics.**
+- **Folds cache** in `method_runner` (process-local, LRU capacity 4). NO_HPO + HPO for the same method share folds; all CPU methods on one dataset share folds.
+- **Bundled tasks** cut the GPU array length ~2× and the CPU array length by `|cpu_methods| × 2`.
+- **Deterministic sleep stagger** (`SLURM_ARRAY_TASK_ID % 30`) replaces the previous `RANDOM%60` thundering-herd while halving the worst-case wallclock penalty.
+- **Retry helper** (`scripts/retry_failed.py`) so partial reruns submit only the missing cells.
+- **Filter CLI** on `Experiment1_Setup.py` (`--methods-only`, `--datasets-only`) for focused regeneration without editing the YAML; filters are threaded through to the orchestrators so array indices stay in sync.
+- All SLURM scripts use absolute `${VSC_DATA}/TabPFNCredit/...` paths, carry `#SBATCH --requeue`, run under `set -euo pipefail`, and optionally add `--mail-type=FAIL` if `TABPFN_SLURM_NOTIFY_EMAIL` is set at generation time.
+- Foundation models run on wICE H100 (soft isolation via `--mem=100G`) while standard GPU methods stay on genius P100; toggle with `Experiment1_Setup.py --foundation-on-wice`.
 
-- Fixed a latent race where two concurrent SLURM array slots running different
-  folds of the same `(dataset, method)` could both write TALENT's
-  `{method}-tuned.json` hyperparameter cache. Each fold now has its own
-  `config_hpo/.../HPO_PER_FOLD/fold_{id}/` subdirectory.
-- All per-dataset pickle writes (`results/experiment{1,2,3}/{pd,lgd}/*.pkl`)
-  are now *atomic*: the writer holds an exclusive [`FileLock`](src/utils/file_lock.py),
-  writes to a sibling `*.tmp` file, then `os.replace()`s it into place. A
-  mid-write crash can no longer leave a zero-byte pickle on disk.
-- `find_optimal_threshold_f1` now includes a fine-resolution grid in
-  `[1e-4, 1e-2]` and `[0.99, 1-1e-4]`, which is necessary for Experiment 3's
-  most imbalanced settings (`minority_proportion` down to 0.01).
+**Structure / packaging.**
+- One `FileLock` (`src/utils/file_lock.py`) replaces three duplicated locking implementations.
+- One `config_reader` factory replaces the three per-experiment loaders.
+- `scripts/_slurm_templates.py` centralises SLURM header / prologue / epilogue.
+- `pyproject.toml` makes the project `pip install -e .`-able (no more `sys.path.insert(...)` at the top of every script).
+- `requirements.txt` bounds previously-unpinned `pytorch-lightning`, `dill`, `msgpack`, `safetensors`, etc., and flags the TALENT git URL as must-pin-before-release.
 
-**Structure / maintainability**
-
-- A single [`src/utils/file_lock.py`](src/utils/file_lock.py) replaces the three
-  duplicated copies of fcntl/portalocker locking that previously lived in
-  `method_runner.py` and the three experiment drivers.
-- `src/utils/config_reader.py` collapses `_load_standard_config`, `_load_experiment2_config`,
-  and `_load_experiment3_config` into a single registry-driven factory.
-- A shared [`scripts/_slurm_templates.py`](scripts/_slurm_templates.py) provides
-  the header/prologue/epilogue strings used by every experiment's SLURM
-  generator.
-
-**VSC / SLURM**
-
-- All SLURM scripts use absolute `${VSC_DATA}/TabPFNCredit/...` log paths,
-  carry `#SBATCH --requeue`, `set -euo pipefail`, and `mkdir -p` so they no
-  longer silently break when `sbatch` is invoked from an unexpected
-  directory.
-- `Experiment1_Setup.py` can now emit a separate wICE H100 batch for
-  foundation models via `--foundation-on-wice`, mirroring the Standard /
-  Foundation split already used by Experiment 2.
-- Optional `TABPFN_SLURM_NOTIFY_EMAIL` environment variable adds
-  `--mail-type=FAIL` directives at generation time.
-
-**Packaging**
-
-- `pyproject.toml` makes the project editable-installable (`pip install -e .`),
-  eliminating `sys.path.insert(...)` boilerplate.
-- `requirements.txt` now bounds the previously-unpinned `pytorch-lightning`,
-  `dill`, `msgpack`, `safetensors`, etc., and flags the TALENT git-URL as a
-  *must-pin-before-release* item.
+---
 
 ## Acknowledgments
 
-- **[TALENT Framework](https://github.com/LAMDA-Tabular/TALENT)** -- Unified interface for tabular methods
-- **[TabPFN](https://github.com/automl/TabPFN)** -- Tabular foundation model
-- **VSC (Vlaams Supercomputer Centrum)** -- Computational resources
+- **[TALENT Framework](https://github.com/LAMDA-Tabular/TALENT)** — Unified interface for tabular methods.
+- **[TabPFN](https://github.com/automl/TabPFN)** — Tabular foundation model.
+- **VSC (Vlaams Supercomputer Centrum)** — Computational resources.
 
 ## License
 
-MIT License -- see [LICENSE.txt](LICENSE.txt) for details.
+MIT — see [LICENSE.txt](LICENSE.txt).
 
 ## Contact
 
