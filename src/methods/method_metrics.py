@@ -1,295 +1,289 @@
-# src/methods/method_metrics.py
-"""
-Metric calculation functions for credit risk benchmarking.
+"""Credit-risk metrics for TabPFNCredit (wrapper-specific layer over TALENT).
 
-This module provides comprehensive metric calculations for:
-- PD (Probability of Default): Binary classification metrics
-- LGD (Loss Given Default): Regression metrics
+What this module does
+---------------------
+TALENT now computes the bread-and-butter classification metrics
+(Accuracy, F1, Precision, Recall, balanced accuracy, LogLoss, AUC) **plus
+calibration metrics (Brier, ECE)** for every classifier, and tunes the
+decision threshold on the validation split automatically. So this module
+is reduced to credit-risk-specific KPIs that TALENT does not carry:
 
-These functions calculate all metrics internally rather than relying on
-TALENT's metric computation, ensuring consistency and control over the
-evaluation process.
+* **Gini coefficient** (`2 * AUC - 1`) -- the standard credit-risk
+  discrimination metric.
+* **KS statistic** -- maximum vertical distance between the cumulative
+  distributions of positives and negatives.
+* **MAPE with zero-exclusion bookkeeping** -- LGD targets can be exactly
+  zero (no loss), so MAPE excludes them and reports the count for
+  transparency.
+* **Spearman / Pearson correlations** -- LGD rank-correlation reporting.
+
+TALENT's tuned-threshold metrics are surfaced via :func:`enrich_pd_metrics`
+and :func:`enrich_lgd_metrics`, which take a TALENT ``RunResult`` plus the
+ground-truth labels and return the full credit-risk metric dictionary.
+
+Historical helpers
+------------------
+``find_optimal_threshold_f1`` and the local Brier block were deleted --
+TALENT's ``model/lib/threshold.tune_threshold`` and
+``model/lib/calibration.{brier_score, expected_calibration_error}``
+supersede them.
 """
 
 from __future__ import annotations
-from typing import Dict, Optional, Tuple, Union
+
+from typing import Any, Dict, Mapping, Optional
+
 import numpy as np
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    f1_score,
+    log_loss,
+    matthews_corrcoef,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+    mean_absolute_error,
+    mean_squared_error,
+    median_absolute_error,
+    max_error,
+    explained_variance_score,
+    r2_score,
+)
+from scipy import stats
 
 
-def find_optimal_threshold_f1(
-    y_true: np.ndarray,
-    y_prob: np.ndarray,
-    n_thresholds: int = 100,
-) -> Tuple[float, float]:
+# ============================================================================
+#  Constants
+# ============================================================================
+
+# sklearn's log_loss requires probabilities in (0, 1); pin both ends.
+_LOG_EPS = 1e-15
+# Threshold below which a correlation denominator is treated as 0.
+_CORR_EPS = 1e-10
+
+
+# ============================================================================
+#  Credit-risk specific helpers
+# ============================================================================
+
+def _safe(fn, *args, **kwargs) -> float:
+    """Call ``fn(*args, **kwargs)`` and return NaN on exception."""
+    try:
+        return float(fn(*args, **kwargs))
+    except Exception:
+        return float("nan")
+
+
+def gini_from_auc(auc: float) -> float:
+    """Gini coefficient: ``2 * AUC - 1``. Returns NaN if AUC is NaN."""
+    if auc is None or np.isnan(auc):
+        return float("nan")
+    return float(2.0 * auc - 1.0)
+
+
+def ks_statistic(y_true: np.ndarray, y_prob: np.ndarray) -> float:
+    """Kolmogorov-Smirnov statistic for binary classification.
+
+    Computes the maximum vertical distance between the empirical CDFs of
+    the positive-class probability for positives vs. negatives. Standard
+    credit-scoring KPI; ranges in ``[0, 1]``, larger is better.
     """
-    Find the optimal probability threshold that maximises the F1 score.
+    y_true = np.asarray(y_true).ravel()
+    y_prob = np.asarray(y_prob).ravel()
+    pos = y_prob[y_true == 1]
+    neg = y_prob[y_true == 0]
+    if len(pos) == 0 or len(neg) == 0:
+        return float("nan")
+    return _safe(lambda: stats.ks_2samp(pos, neg).statistic)
 
-    The search grid is a concatenation of three linearly-spaced segments:
 
-    * ``[1e-4, 1e-2]`` -- fine resolution for highly imbalanced regimes
-      (Experiment 3's ``minority_proportion`` as low as 0.01 requires
-      thresholds < 0.01 to peak F1).
-    * ``[0.01, 0.99]``  -- the classical midrange, resolution controlled by
-      ``n_thresholds``.
-    * ``[0.99, 1 - 1e-4]`` -- symmetric fine resolution at the upper tail.
-
-    Args:
-        y_true: Ground-truth binary labels, shape ``(n_samples,)``.
-        y_prob: Predicted probabilities for the positive class, shape
-            ``(n_samples,)``.
-        n_thresholds: Number of thresholds to evaluate in the midrange grid.
-            The lower and upper tails always get 20 points each.
-
-    Returns:
-        Tuple ``(optimal_threshold, best_f1_score)``.
-    """
-    from sklearn.metrics import f1_score
-
-    thresholds = np.unique(
-        np.concatenate(
-            [
-                np.linspace(1e-4, 1e-2, 20),
-                np.linspace(0.01, 0.99, n_thresholds),
-                np.linspace(0.99, 1.0 - 1e-4, 20),
-            ]
-        )
-    )
-
-    f1_scores = np.empty_like(thresholds)
-    for i, threshold in enumerate(thresholds):
-        y_pred_temp = (y_prob >= threshold).astype(int)
-        f1_scores[i] = f1_score(y_true, y_pred_temp, zero_division=0)
-
-    best_idx = int(np.argmax(f1_scores))
-    return float(thresholds[best_idx]), float(f1_scores[best_idx])
-
+# ============================================================================
+#  PD (binary classification) metrics
+# ============================================================================
 
 def calculate_pd_metrics(
-    y_true: np.ndarray, 
-    y_prob: Optional[np.ndarray], 
+    y_true: np.ndarray,
+    y_prob: Optional[np.ndarray],
     y_pred: np.ndarray,
-    val_y_true: Optional[np.ndarray] = None,
-    val_y_prob: Optional[np.ndarray] = None
+    *,
+    threshold: Optional[float] = None,
+    talent_metrics: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, float]:
+    """Compute the full credit-risk PD metric set.
+
+    Parameters
+    ----------
+    y_true : (N,) ndarray
+        Ground-truth binary labels (0 = non-default, 1 = default).
+    y_prob : (N, 2) or (N,) ndarray, optional
+        Predicted probabilities of the positive class. Required for
+        threshold-independent metrics (AUC / LogLoss / Brier / KS / Gini).
+    y_pred : (N,) ndarray
+        Hard predictions, already produced with the **tuned threshold**
+        (TALENT does this; see ``RunResult.predict_labels``).
+    threshold : float, optional
+        The decision threshold used to produce ``y_pred``. Stored as a
+        metric for transparency.
+    talent_metrics : mapping, optional
+        Metrics dict from ``RunResult.metrics`` (keyed by
+        ``RunResult.metric_names``). If supplied, we forward TALENT's
+        Brier/ECE/AUC/LogLoss directly rather than recomputing.
+
+    Returns
+    -------
+    dict
+        Keys: ``Accuracy``, ``Balanced_Accuracy``, ``Precision``,
+        ``Recall``, ``F1``, ``MCC``, ``AUC``, ``LogLoss``, ``Brier``,
+        ``ECE``, ``Gini``, ``KS``, ``Optimal_Threshold``.
     """
-    Calculate comprehensive classification metrics for PD (Probability of Default) task.
-    
-    IMPROVED THRESHOLD LOGIC:
-    This function prevents data leakage by allowing the optimal threshold to be
-    calculated on a separate validation set, then applied to the current (test) set.
-    
-    Logic:
-    1. If val_y_true and val_y_prob are provided:
-       - Find optimal threshold using Validation data.
-       - Apply that threshold to Current (Test) y_prob to get predictions.
-    2. If validation data is NOT provided:
-       - Find optimal threshold using Current data (standard behavior for val evaluation).
-       - Apply that threshold to Current y_prob.
-    
-    Args:
-        y_true: Ground truth binary labels (0 or 1)
-        y_prob: Predicted probabilities for positive class (0.0 to 1.0)
-        y_pred: Predicted binary labels (ignored if y_prob is present)
-        val_y_true: (Optional) Ground truth labels of the VALIDATION set
-        val_y_prob: (Optional) Predicted probabilities of the VALIDATION set
-        
-    Returns:
-        Dictionary mapping metric names to float values.
-    """
-    from sklearn.metrics import (
-        roc_auc_score, average_precision_score, accuracy_score,
-        balanced_accuracy_score, f1_score, precision_score, recall_score,
-        brier_score_loss, log_loss, matthews_corrcoef
-    )
-    from scipy import stats
-    
-    metrics: Dict[str, float] = {}
-    
-    # Ensure arrays are 1D
     y_true = np.asarray(y_true).ravel()
     y_pred = np.asarray(y_pred).ravel()
-    if y_prob is not None:
-        y_prob = np.asarray(y_prob).ravel()
-    
-    # Check if we have both classes in the target
-    has_both_classes = len(np.unique(y_true)) > 1
-    
-    # ==========================================================================
-    # THRESHOLD OPTIMIZATION
-    # ==========================================================================
-    
-    optimal_threshold = 0.5 # Default
-    threshold_source = "default"
 
+    pos_proba: Optional[np.ndarray] = None
     if y_prob is not None:
-        # Check if validation data is available for optimization
-        if val_y_true is not None and val_y_prob is not None:
-            # OPTIMIZE ON VALIDATION SET (Correct for Test Evaluation)
-            val_y_true = np.asarray(val_y_true).ravel()
-            val_y_prob = np.asarray(val_y_prob).ravel()
-            
-            if len(np.unique(val_y_true)) > 1:
-                optimal_threshold, _ = find_optimal_threshold_f1(val_y_true, val_y_prob)
-                threshold_source = "validation"
-            else:
-                # Fallback if validation set is single-class (rare)
-                optimal_threshold = 0.5
-        elif has_both_classes:
-            # OPTIMIZE ON CURRENT SET (Correct for Val Evaluation, or fallback)
-            optimal_threshold, _ = find_optimal_threshold_f1(y_true, y_prob)
-            threshold_source = "self"
-        
-        # Apply the determined threshold to the CURRENT probabilities
-        y_pred = (y_prob >= optimal_threshold).astype(int)
-        
-        metrics['Optimal_Threshold'] = optimal_threshold
-        # metrics['Threshold_Source'] = 1.0 if threshold_source == "validation" else 0.0 # Optional debug
-    else:
-        metrics['Optimal_Threshold'] = np.nan
-    
-    # ==========================================================================
-    # Probability-based metrics (require y_prob)
-    # ==========================================================================
-    
-    # AUC-ROC
-    try:
-        if y_prob is not None and has_both_classes:
-            metrics['AUC'] = float(roc_auc_score(y_true, y_prob))
-            metrics['Gini'] = 2 * metrics['AUC'] - 1
+        y_prob = np.asarray(y_prob)
+        if y_prob.ndim == 2 and y_prob.shape[1] == 2:
+            pos_proba = y_prob[:, 1]
+        elif y_prob.ndim == 1:
+            pos_proba = y_prob
+
+    metrics: Dict[str, float] = {}
+
+    # Hard-prediction metrics (already use the tuned threshold from TALENT)
+    metrics["Accuracy"] = _safe(accuracy_score, y_true, y_pred)
+    metrics["Balanced_Accuracy"] = _safe(balanced_accuracy_score, y_true, y_pred)
+    metrics["F1"] = _safe(lambda: f1_score(y_true, y_pred, zero_division=0))
+    metrics["Precision"] = _safe(lambda: precision_score(y_true, y_pred, zero_division=0))
+    metrics["Recall"] = _safe(lambda: recall_score(y_true, y_pred, zero_division=0))
+    metrics["MCC"] = _safe(matthews_corrcoef, y_true, y_pred)
+
+    # Threshold-independent probability metrics.
+    if talent_metrics is not None:
+        # Forward TALENT's calibration / AUC / LogLoss directly when available.
+        for key in ("AUC", "LogLoss", "Brier", "ECE"):
+            if key in talent_metrics:
+                metrics[key] = float(talent_metrics[key])
+    if "AUC" not in metrics:
+        if pos_proba is not None and len(np.unique(y_true)) == 2:
+            metrics["AUC"] = _safe(roc_auc_score, y_true, pos_proba)
         else:
-            metrics['AUC'] = np.nan
-            metrics['Gini'] = np.nan
-    except Exception:
-        metrics['AUC'] = np.nan
-        metrics['Gini'] = np.nan
-    
-    # Average Precision (PR-AUC)
-    try:
-        if y_prob is not None and has_both_classes:
-            metrics['Avg_Precision'] = float(average_precision_score(y_true, y_prob))
+            metrics["AUC"] = float("nan")
+    if "LogLoss" not in metrics:
+        if pos_proba is not None:
+            clipped = np.clip(pos_proba, _LOG_EPS, 1.0 - _LOG_EPS)
+            metrics["LogLoss"] = _safe(log_loss, y_true, clipped)
         else:
-            metrics['Avg_Precision'] = np.nan
-    except Exception:
-        metrics['Avg_Precision'] = np.nan
-    
-    # KS Statistic
-    try:
-        if y_prob is not None and has_both_classes:
-            pos_probs = y_prob[y_true == 1]
-            neg_probs = y_prob[y_true == 0]
-            if len(pos_probs) > 0 and len(neg_probs) > 0:
-                ks_stat, _ = stats.ks_2samp(pos_probs, neg_probs)
-                metrics['KS'] = float(ks_stat)
-            else:
-                metrics['KS'] = np.nan
-        else:
-            metrics['KS'] = np.nan
-    except Exception:
-        metrics['KS'] = np.nan
-    
-    # Brier Score
-    try:
-        if y_prob is not None:
-            metrics['Brier'] = float(brier_score_loss(y_true, y_prob))
-        else:
-            metrics['Brier'] = np.nan
-    except Exception:
-        metrics['Brier'] = np.nan
-    
-    # Log Loss
-    try:
-        if y_prob is not None:
-            # Clip probabilities to avoid log(0)
-            y_prob_clipped = np.clip(y_prob, 1e-15, 1 - 1e-15)
-            metrics['LogLoss'] = float(log_loss(y_true, y_prob_clipped))
-        else:
-            metrics['LogLoss'] = np.nan
-    except Exception:
-        metrics['LogLoss'] = np.nan
-    
-    # ==========================================================================
-    # Prediction-based metrics (calculated using Optimized Threshold)
-    # ==========================================================================
-    
-    # Accuracy
-    metrics['Accuracy'] = float(accuracy_score(y_true, y_pred))
-    
-    # Balanced Accuracy
-    metrics['Balanced_Accuracy'] = float(balanced_accuracy_score(y_true, y_pred))
-    
-    # F1 Score
-    metrics['F1'] = float(f1_score(y_true, y_pred, zero_division=0))
-    
-    # Precision
-    metrics['Precision'] = float(precision_score(y_true, y_pred, zero_division=0))
-    
-    # Recall
-    metrics['Recall'] = float(recall_score(y_true, y_pred, zero_division=0))
-    
-    # MCC
-    metrics['MCC'] = float(matthews_corrcoef(y_true, y_pred))
-    
+            metrics["LogLoss"] = float("nan")
+    metrics.setdefault("Brier", float("nan"))
+    metrics.setdefault("ECE", float("nan"))
+
+    # Credit-risk specific
+    metrics["Gini"] = gini_from_auc(metrics["AUC"])
+    metrics["KS"] = ks_statistic(y_true, pos_proba) if pos_proba is not None else float("nan")
+    metrics["Optimal_Threshold"] = float(threshold) if threshold is not None else float("nan")
+
     return metrics
 
+
+# ============================================================================
+#  LGD (regression) metrics
+# ============================================================================
 
 def calculate_lgd_metrics(
-    y_true: np.ndarray, 
-    y_pred: np.ndarray
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    *,
+    talent_metrics: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, float]:
+    """Compute the full credit-risk LGD metric set.
+
+    Predictions are expected to be already clipped to ``[0, 1]``. The
+    expected-loss-style metrics (MAPE with zero exclusion, Pearson and
+    Spearman correlation) are wrapper-specific; the rest mirror standard
+    sklearn regression metrics and are computed locally for parity with
+    the PD report shape.
     """
-    Calculate comprehensive regression metrics for LGD (Loss Given Default) task.
-    Predictions should be clipped to [0, 1] before calling this function.
-    """
-    from sklearn.metrics import (
-        r2_score, mean_squared_error, mean_absolute_error,
-        explained_variance_score, median_absolute_error, max_error
-    )
-    from scipy import stats
-    
-    metrics: Dict[str, float] = {}
-    
-    # Ensure arrays are 1D
     y_true = np.asarray(y_true).ravel()
     y_pred = np.asarray(y_pred).ravel()
-    
-    # Error metrics
-    try:
-        metrics['R2'] = float(r2_score(y_true, y_pred))
-    except Exception:
-        metrics['R2'] = np.nan
-    
-    metrics['MSE'] = float(mean_squared_error(y_true, y_pred))
-    metrics['RMSE'] = float(np.sqrt(metrics['MSE']))
-    metrics['MAE'] = float(mean_absolute_error(y_true, y_pred))
-    metrics['MedAE'] = float(median_absolute_error(y_true, y_pred))
-    metrics['MaxError'] = float(max_error(y_true, y_pred))
-    metrics['Explained_Variance'] = float(explained_variance_score(y_true, y_pred))
-    
-    # MAPE (Mean Absolute Percentage Error) - exclude zeros to avoid division by zero
-    # Note: Excluding y_true=0 samples is standard practice for MAPE but affects comparability
+
+    metrics: Dict[str, float] = {}
+
+    # Standard regression metrics
+    metrics["R2"] = _safe(r2_score, y_true, y_pred)
+    mse = _safe(mean_squared_error, y_true, y_pred)
+    metrics["MSE"] = mse
+    metrics["RMSE"] = float(np.sqrt(mse)) if not np.isnan(mse) else float("nan")
+    metrics["MAE"] = _safe(mean_absolute_error, y_true, y_pred)
+    metrics["MedAE"] = _safe(median_absolute_error, y_true, y_pred)
+    metrics["MaxError"] = _safe(max_error, y_true, y_pred)
+    metrics["Explained_Variance"] = _safe(explained_variance_score, y_true, y_pred)
+
+    # MAPE with zero-exclusion bookkeeping
     mask = y_true != 0
-    n_zeros_excluded = len(y_true) - mask.sum()
-    if mask.sum() > 0:
-        mape = np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100
-        metrics['MAPE'] = float(mape)
+    n_zeros_excluded = int(len(y_true) - int(mask.sum()))
+    if int(mask.sum()) > 0:
+        metrics["MAPE"] = float(
+            np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100.0
+        )
     else:
-        metrics['MAPE'] = np.nan
-    # Store count of excluded zeros for transparency in results
-    metrics['MAPE_n_zeros_excluded'] = int(n_zeros_excluded)
+        metrics["MAPE"] = float("nan")
+    metrics["MAPE_n_zeros_excluded"] = n_zeros_excluded
     if n_zeros_excluded > 0:
-        pct_excluded = 100 * n_zeros_excluded / len(y_true)
-        metrics['MAPE_pct_zeros_excluded'] = float(pct_excluded)
-    
-    # Correlation metrics
-    if np.std(y_pred) > 1e-10 and np.std(y_true) > 1e-10:
-        metrics['Pearson_Corr'] = float(np.corrcoef(y_true, y_pred)[0, 1])
+        metrics["MAPE_pct_zeros_excluded"] = float(100.0 * n_zeros_excluded / len(y_true))
+
+    # Correlations
+    if np.std(y_pred) > _CORR_EPS and np.std(y_true) > _CORR_EPS:
+        metrics["Pearson_Corr"] = float(np.corrcoef(y_true, y_pred)[0, 1])
     else:
-        metrics['Pearson_Corr'] = np.nan
-    
+        metrics["Pearson_Corr"] = float("nan")
     try:
-        spearman_corr, _ = stats.spearmanr(y_true, y_pred)
-        metrics['Spearman_Corr'] = float(spearman_corr)
+        spearman, _ = stats.spearmanr(y_true, y_pred)
+        metrics["Spearman_Corr"] = float(spearman)
     except Exception:
-        metrics['Spearman_Corr'] = np.nan
-    
+        metrics["Spearman_Corr"] = float("nan")
+
     return metrics
+
+
+# ============================================================================
+#  RunResult bridge -- consume TALENT.run() output directly
+# ============================================================================
+
+def enrich_pd_metrics(run_result: Any, y_true: np.ndarray) -> Dict[str, float]:
+    """Build a full PD metric dict from a TALENT ``RunResult`` + ground truth.
+
+    Uses ``RunResult.predict_proba`` (already standardized to (N, 2)),
+    ``RunResult.predict_labels`` (already produced with the tuned
+    threshold), and forwards TALENT's calibration metrics directly.
+    """
+    talent_metrics = dict(zip(run_result.metric_names, run_result.metrics))
+    return calculate_pd_metrics(
+        y_true=y_true,
+        y_prob=run_result.predict_proba,
+        y_pred=run_result.predict_labels,
+        threshold=run_result.threshold,
+        talent_metrics=talent_metrics,
+    )
+
+
+def enrich_lgd_metrics(run_result: Any, y_true: np.ndarray) -> Dict[str, float]:
+    """Build a full LGD metric dict from a TALENT ``RunResult`` + ground truth.
+
+    Predictions are clipped to ``[0, 1]`` first (LGD targets live in that
+    range), then standard regression metrics + credit-risk specific
+    extras are computed.
+    """
+    raw = np.asarray(run_result.predictions).ravel()
+    clipped = np.clip(raw, 0.0, 1.0)
+    return calculate_lgd_metrics(y_true=y_true, y_pred=clipped)
+
+
+__all__ = [
+    "calculate_pd_metrics",
+    "calculate_lgd_metrics",
+    "enrich_pd_metrics",
+    "enrich_lgd_metrics",
+    "gini_from_auc",
+    "ks_statistic",
+]

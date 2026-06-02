@@ -113,17 +113,25 @@ class FileLock:
 
     _warned_missing_backend = False
 
-    def __init__(self, filepath: os.PathLike, exclusive: bool = True, timeout: float = 30.0):
+    def __init__(
+        self,
+        filepath: os.PathLike,
+        exclusive: bool = True,
+        timeout: float = 30.0,
+        binary: bool = False,
+    ):
         self.filepath = Path(filepath)
         self.exclusive = exclusive
         self.timeout = timeout  # Reserved for future backoff-aware backends
+        self.binary = binary  # Open in 'a+b' instead of 'a+' (needed for pickle).
         self._fh: BinaryIO | None = None
         self._acquired = False
 
     def __enter__(self) -> BinaryIO:
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        # 'a+' creates-if-missing, preserves existing content, allows read+write
-        self._fh = open(self.filepath, "a+")
+        # 'a+' / 'a+b' creates-if-missing, preserves existing content, allows read+write
+        mode = "a+b" if self.binary else "a+"
+        self._fh = open(self.filepath, mode)
         self._fh.seek(0)
         self._acquired = acquire_lock(self._fh, exclusive=self.exclusive)
         if not self._acquired and not (_HAS_FCNTL or _HAS_PORTALOCKER):

@@ -19,7 +19,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tabpfncredit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Benchmarking tabular foundation models for credit risk prediction."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -90,4 +90,17 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q --strict-markers"
+markers = [
+    "smoke: minimal end-to-end run on synthetic data (replaces method_debugger.py)",
+    "slow: tests that take more than ~30s",
+    "gpu: tests that require a CUDA device",
+]
+addopts = "-ra --strict-markers"
+
+[project.scripts]
+tabpfncredit = "src.cli:app"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["src", "TALENT"]

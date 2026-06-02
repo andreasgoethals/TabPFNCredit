@@ -1,1013 +1,289 @@
-"""
-TALENT Method Configuration and Preprocessing Requirements
+"""TabPFNCredit method configuration -- thin layer over TALENT's registry.
 
-This module provides a centralized configuration system for all TALENT methods,
-using a single-source-of-truth registry pattern. Each method is defined exactly
-once with all its properties, eliminating the possibility of inconsistencies
-between separate sets.
+History
+-------
+Previously this module carried a 1000-line *duplicate* `MethodSpec` registry
+with 14 derived sets. TALENT now exposes its own `MethodSpec` registry plus
+a typed `RunResult` / `build_args` API; everything that lived here was
+redundant.
 
-Organization:
-    1. Method Registry (single dataclass per method)
-    2. Derived Sets (computed from registry, never manually maintained)
-    3. Preprocessing Policy Application
-    4. Validation (runs at import time)
+This module is now ~150 lines and does only what is **wrapper-specific**:
 
-Usage:
-    from src.methods.method_config import METHOD_REGISTRY, DEEP_METHODS, GPU_METHODS
-    from src.methods.method_config import apply_preprocessing_policies
+* :class:`PreprocessingConfig`: TabPFNCredit policy defaults that differ from
+  TALENT's stock defaults (e.g. ``cat_policy='ohe'`` for methods that
+  forbid ``indices`` -- credit-risk categoricals are never ordinal).
+* :func:`derive_method_set`: build any subset (``DEEP_METHODS``,
+  ``GPU_METHODS``, ``FOUNDATION_METHODS``, ...) by filtering TALENT's
+  registry. No manual maintenance, no risk of desync.
+* A handful of named module-level constants that the rest of the codebase
+  imports today; they are *computed* from TALENT at import time so they
+  stay in sync automatically.
 
-Design decisions documented:
-    - Categorical encoding: Categories in credit risk datasets are NEVER ordinal.
-      Therefore, ordinal encoding is never used as a default.
-      Methods that support 'indices' (embedding-based) use indices.
-      Methods that forbid 'indices' use 'ohe' (one-hot encoding).
-      Methods with specialised handling (TabR family) use 'tabr_ohe'.
-
-    - Output types verified against TALENT source code (updated version):
-      * Methods using predict_proba() → PROBABILITIES
-      * Methods using model(X) raw forward pass → LOGITS
-      * SVM uses CalibratedClassifierCV wrapping LinearSVC → predict_proba() → PROBABILITIES
-      * NCM has custom _predict_proba() (softmax over negative distances) → PROBABILITIES
-      * NaiveBayes uses GaussianNB.predict_proba() → PROBABILITIES
-      * Dummy uses model.predict_proba() → PROBABILITIES
-      * RealMLP classifier's predict() modified to return predict_proba() → PROBABILITIES
-      * LinearRegression is regression-only → CLASS_LABELS (continuous predictions)
-
-    - TALENT constraints verified from assert statements in each method class:
-      * assert(args.cat_policy == 'indices') → must use indices
-      * assert(args.cat_policy != 'indices') → must NOT use indices
-      * assert(args.cat_policy == 'ohe') → must use ohe
-      * assert(args.cat_policy == 'tabr_ohe') → must use tabr_ohe
+Drop-in compatibility
+---------------------
+The public names ``DEEP_METHODS``, ``CLASSICAL_METHODS``, ``GPU_METHODS``,
+``LOGIT_METHODS``, ``PROBABILITY_METHODS``, ``CLASS_LABEL_METHODS``,
+``NO_HPO_METHODS``, ``FOUNDATION_METHODS``, ``METHOD_ROW_LIMITS``,
+``METHOD_TEST_VAL_LIMITS``, ``REQUIRES_NO_NORMALIZATION``,
+``REQUIRES_STANDARD_NORMALIZATION``, ``REQUIRES_NO_NUM_ENCODING``,
+``REQUIRES_CAT_INDICES``, ``REQUIRES_CAT_OHE``, ``REQUIRES_CAT_TABR_OHE``,
+``FORBIDS_CAT_INDICES``, ``TABPFN_VARIANTS``, and
+:func:`apply_preprocessing_policies` / :func:`apply_method_row_limit`
+remain importable -- everywhere the wrapper used them, the call site is
+unchanged.
 """
 
 from __future__ import annotations
-import typing as ty
+
 from dataclasses import dataclass
-from enum import Enum
+from typing import Any, Optional, Set
 
-# Type aliases
-MethodName = str
-MethodSet = ty.Set[MethodName]
-
-
-# ======================================================================================
-#                    SECTION 1: ENUMERATIONS
-# ======================================================================================
-
-class OutputType(Enum):
-    """What a method's predict() returns for classification tasks.
-
-    Verified by reading each method's predict() in TALENT source code.
-    """
-    LOGITS = "logits"              # Raw network output; needs softmax/sigmoid
-    PROBABILITIES = "probabilities" # predict_proba() output; already [0,1] summing to 1
-    CLASS_LABELS = "class_labels"   # Hard predictions (0/1); no probability available
-
-
-class Hardware(Enum):
-    """Where the method runs."""
-    GPU = "gpu"
-    CPU = "cpu"
-
-
-class Architecture(Enum):
-    """High-level architecture category."""
-    DEEP = "deep"
-    CLASSICAL = "classical"
-
-
-class CatPolicy(Enum):
-    """Categorical encoding policy.
-
-    Maps directly to TALENT's cat_policy argument. The value is the exact
-    string TALENT expects.
-    """
-    INDICES = "indices"      # Keep as integer codes for embedding layers
-    OHE = "ohe"              # Standard one-hot encoding, concatenated into N
-    TABR_OHE = "tabr_ohe"   # TabR-specific OHE (separate N and C arrays)
-
-
-# ======================================================================================
-#                    SECTION 2: METHOD REGISTRY
-# ======================================================================================
-
-@dataclass(frozen=True)
-class MethodSpec:
-    """Immutable specification for a single TALENT method.
-
-    This is the SINGLE SOURCE OF TRUTH for each method's configuration.
-    All derived sets (GPU_METHODS, LOGIT_METHODS, etc.) are computed from
-    this registry, so they can never go out of sync.
-
-    Attributes:
-        name:              Canonical TALENT method name (case-sensitive)
-        hardware:          GPU or CPU execution
-        architecture:      Deep learning or classical ML
-        output_type:       What predict() returns (logits, probabilities, or class labels)
-        cat_policy:        Required categorical encoding policy
-        normalization:     Required normalization ('none', 'standard', or None for default)
-        num_policy:        Required numerical encoding ('none' or None for default)
-        train_row_limit:   Max training rows (None = no limit)
-        test_val_limit:    Max val/test rows for inference (None = no limit)
-        supports_hpo:      Whether HPO is meaningful for this method
-        notes:             Human-readable notes about design decisions
-    """
-    name: str
-    hardware: Hardware
-    architecture: Architecture
-    output_type: OutputType
-    cat_policy: CatPolicy
-    normalization: ty.Optional[str] = None      # None = use default (standard)
-    num_policy: ty.Optional[str] = None         # None = use default
-    train_row_limit: ty.Optional[int] = None
-    test_val_limit: ty.Optional[int] = None
-    supports_hpo: bool = True
-    notes: str = ""
-
-
-# -------------------------------------------------------------------------------------
-# Registry: Every method defined exactly once.
-#
-# cat_policy rationale:
-#   - INDICES: TALENT source has `assert(args.cat_policy == 'indices')`.
-#     Used by methods with learned embedding layers for categorical features.
-#   - OHE: TALENT source has `assert(args.cat_policy != 'indices')`.
-#     Since our categorical features are NEVER ordinal, we use OHE instead
-#     of ordinal encoding to avoid imposing false ordinal relationships.
-#   - TABR_OHE: TALENT source has `assert(args.cat_policy == 'tabr_ohe')`.
-#     Specialized OHE that keeps N and C arrays separate.
-#
-# output_type rationale:
-#   Verified by reading each method's predict() in:
-#     TALENT/model/methods/*.py
-#     TALENT/model/classical_methods/*.py
-#   See notes field for specifics.
-# -------------------------------------------------------------------------------------
-
-_REGISTRY_LIST: ty.List[MethodSpec] = [
-    # ==================================================================================
-    # FOUNDATION MODELS
-    # ==================================================================================
-    MethodSpec(
-        name="tabpfn",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        train_row_limit=5_000,
-        test_val_limit=50_000,
-        supports_hpo=False,
-        notes=(
-            "TabPFN v1 (Hollmann et al., 2022). In-context learning: the entire training set "
-            "is loaded as a transformer context at inference time. Original paper designed for "
-            "≤1,024 training samples; the library was later extended to ~10,000 before "
-            "performance degrades. train_row_limit=5,000 is a conservative practical cap. "
-            "test_val_limit=50,000 is deliberately larger: inference queries are processed "
-            "one-by-one against the fixed context (no quadratic N_test cost), so large "
-            "evaluation sets are fine. predict_proba() returns calibrated probabilities."
-        ),
-    ),
-    MethodSpec(
-        name="tabpfn_v2",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        train_row_limit=50_000,
-        test_val_limit=50_000,
-        supports_hpo=False,
-        notes=(
-            "TabPFN v2 (Hollmann et al., 2025). Extended ICL architecture supports larger "
-            "context windows than v1, with efficient chunked inference. train_row_limit=50,000 "
-            "reflects the practical GPU memory ceiling (~16–24 GB) for our credit datasets "
-            "(10–50 features). Matches test_val_limit=50,000 for a consistent 1:1 "
-            "train-to-inference ratio. predict_proba() returns probabilities."
-        ),
-    ),
-    MethodSpec(
-        name="tabpfn_real",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        train_row_limit=50_000,
-        test_val_limit=50_000,
-        supports_hpo=False,
-        notes=(
-            "TabPFN v2 in 'Real' mode (Hollmann et al., 2025). Same architecture as tabpfn_v2 "
-            "but with real-data fine-tuning enabled. Identical row limits: train_row_limit=50,000 "
-            "and test_val_limit=50,000 (1:1 ratio). Uses the same PFN_v2.py class. "
-            "predict_proba() returns probabilities."
-        ),
-    ),
-    MethodSpec(
-        name="mitra",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        train_row_limit=5_000,
-        test_val_limit=5_000,
-        supports_hpo=False,
-        notes=(
-            "MITRA foundation model. ICL with cross-attention between training context and "
-            "test queries: GPU memory scales as O(N_train × N_test), so train_row_limit and "
-            "test_val_limit are both capped at 5,000 to prevent OOM. The symmetric 1:1 ratio "
-            "reflects this joint memory constraint. Has custom predict() returning raw logits "
-            "(not predict_proba()); softmax applied externally."
-        ),
-    ),
-    MethodSpec(
-        name="tabicl",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        train_row_limit=50_000,
-        test_val_limit=50_000,
-        supports_hpo=False,
-        notes=(
-            "TabICL (Qu et al., 2024). ICL model explicitly evaluated up to 30,000 training "
-            "samples in the paper; train_row_limit=50,000 is a conservative extension of that "
-            "range. test_val_limit=50,000 matches train_row_limit for a consistent 1:1 ratio — "
-            "inference uses the full training context, so N_test is bounded by the same "
-            "GPU memory budget as N_train. predict_proba() returns probabilities."
-        ),
-    ),
-    MethodSpec(
-        name="tabptm",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        normalization="standard",
-        num_policy="none",
-        supports_hpo=False,
-        notes="TabPTM. assert(cat_policy == 'ohe'). model(X_meta) returns raw logits.",
-    ),
-    MethodSpec(
-        name="hyperfast",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        supports_hpo=False,
-        notes="HyperFast. assert(cat_policy == 'indices'). predict_proba() returns probs.",
-    ),
-
-    # ==================================================================================
-    # BASIC NEURAL ARCHITECTURES
-    # ==================================================================================
-    MethodSpec(
-        name="mlp",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="MLP. assert(cat_policy != 'indices'). Uses base Method.predict() → model(X) logits.",
-    ),
-    MethodSpec(
-        name="resnet",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="ResNet. assert(cat_policy != 'indices'). Uses base Method.predict() → logits.",
-    ),
-    MethodSpec(
-        name="snn",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="Self-Normalizing NN. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="realmlp",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        notes="RealMLP. assert(cat_policy == 'indices'). Classifier's predict() modified to "
-              "return predict_proba() output (calibrated probabilities).",
-    ),
-    MethodSpec(
-        name="mlp_plr",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.TABR_OHE,
-        num_policy="none",
-        notes="MLP with PLR embeddings. assert(cat_policy == 'tabr_ohe'). Base predict() → logits.",
-    ),
-
-    # ==================================================================================
-    # TRANSFORMER-BASED ARCHITECTURES
-    # ==================================================================================
-    MethodSpec(
-        name="ftt",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="FT-Transformer. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="saint",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="SAINT. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="tabtransformer",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="TabTransformer. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="trompt",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="TROMPT. assert(cat_policy == 'indices'). Has own predict() but returns model(X) logits.",
-    ),
-    MethodSpec(
-        name="autoint",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="AutoInt. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="excelformer",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="ExcelFormer. assert(cat_policy != 'indices'). Has own predict() with model() → logits.",
-    ),
-    MethodSpec(
-        name="amformer",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        train_row_limit=100_000,
-        notes=(
-            "AMFormer. assert(cat_policy == 'indices'). Row-wise self-attention is O(N²) over "
-            "the training set, making training memory and time grow quadratically. "
-            "train_row_limit=100,000 is a practical compute cap to bound training cost; "
-            "no test_val_limit needed (mini-batch inference has no N_test memory constraint). "
-            "Base predict() → logits."
-        ),
-    ),
-    MethodSpec(
-        name="t2gformer",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="T2G-Former. assert(cat_policy == 'indices'). Own predict() but model(X) → logits.",
-    ),
-
-    # ==================================================================================
-    # DEEP TABULAR SPECIALISTS
-    # ==================================================================================
-    MethodSpec(
-        name="tabnet",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="TabNet. assert(cat_policy != 'indices'). predict_proba() returns probabilities.",
-    ),
-    MethodSpec(
-        name="node",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="NODE. assert(cat_policy != 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="tabr",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.TABR_OHE,
-        num_policy="none",
-        notes="TabR. assert(cat_policy == 'tabr_ohe'). Own predict() but model() → logits.",
-    ),
-    MethodSpec(
-        name="grownet",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="GrowNet. assert(cat_policy == 'indices'). Own predict(): model.forward() → logits.",
-    ),
-    MethodSpec(
-        name="danets",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="DANets. assert(cat_policy != 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="tabcaps",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="TabCaps. assert(cat_policy != 'indices'). model.predict() returns logits "
-              "(not sklearn predict_proba).",
-    ),
-    MethodSpec(
-        name="dcn2",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="DCN v2. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="tangos",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        train_row_limit=100_000,
-        notes=(
-            "TANGOS. assert(cat_policy != 'indices'). train_row_limit=100,000 is a practical "
-            "compute cap to bound training time and memory (standard mini-batch training, not "
-            "ICL). No test_val_limit needed (mini-batch inference has no N_test constraint). "
-            "Base predict() → logits."
-        ),
-    ),
-    MethodSpec(
-        name="ptarl",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="PTARL. assert(cat_policy == 'indices'). Own predict() but uses test() → logits.",
-    ),
-    MethodSpec(
-        name="switchtab",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="SwitchTab. assert(cat_policy != 'indices'). assert(C is None) after encoding. "
-              "Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="dnnr",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="DNNR. assert(cat_policy != 'indices'). model.predict(X) returns raw output.",
-    ),
-
-    # ==================================================================================
-    # ADVANCED / REGULARIZED / NOVEL
-    # ==================================================================================
-    MethodSpec(
-        name="modernNCA",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.TABR_OHE,
-        num_policy="none",
-        notes="ModernNCA. assert(cat_policy == 'tabr_ohe'). Own predict() but model() → logits.",
-    ),
-    MethodSpec(
-        name="bishop",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="BISHOP. assert(cat_policy == 'indices'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="protogate",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.OHE,
-        notes="ProtoGate. assert(cat_policy != 'indices'). Own predict() but proto_predict() → logits.",
-    ),
-    MethodSpec(
-        name="grande",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="GRANDE. assert(cat_policy == 'indices'). Own predict() but model(X) → logits.",
-    ),
-    MethodSpec(
-        name="tabautopnpnet",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.TABR_OHE,
-        num_policy="none",
-        notes="TabAutoPNPNet. assert(cat_policy == 'tabr_ohe'). Base predict() → logits.",
-    ),
-    MethodSpec(
-        name="tabm",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        notes="TabM. assert(cat_policy == 'indices'). model(X).mean(1) → logits.",
-    ),
-    MethodSpec(
-        name="limix",
-        hardware=Hardware.GPU,
-        architecture=Architecture.DEEP,
-        output_type=OutputType.LOGITS,
-        cat_policy=CatPolicy.INDICES,
-        normalization="none",
-        num_policy="none",
-        notes="LiMiX. assert(cat_policy == 'indices'), assert(normalization == 'none'), "
-              "assert(num_policy == 'none'). Mixup-based. Base predict() → logits.",
-    ),
-
-    # ==================================================================================
-    # TREE-BASED GRADIENT BOOSTING (Classical, but run on GPU nodes)
-    # ==================================================================================
-    MethodSpec(
-        name="xgboost",
-        hardware=Hardware.GPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="XGBoost. assert(cat_policy != 'indices') in TALENT. predict_proba() for classification. "
-              "OHE used because features are not ordinal.",
-    ),
-    MethodSpec(
-        name="catboost",
-        hardware=Hardware.GPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.INDICES,
-        notes="CatBoost. assert(cat_policy == 'indices'). Has native categorical support. "
-              "predict_proba() for classification.",
-    ),
-    MethodSpec(
-        name="lightgbm",
-        hardware=Hardware.GPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="LightGBM. Inherits XGBoost in TALENT: assert(cat_policy != 'indices'). "
-              "predict_proba() via XGBoost parent. OHE because features are not ordinal.",
-    ),
-
-    # ==================================================================================
-    # CLASSICAL ML (CPU only)
-    # ==================================================================================
-    MethodSpec(
-        name="RandomForest",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="Inherits KNN in TALENT: assert(cat_policy != 'indices'). predict_proba(). "
-              "OHE because features are not ordinal (trees could handle ordinal but we "
-              "standardise across all classical methods for fairness).",
-    ),
-    MethodSpec(
-        name="LogReg",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="LogisticRegression. assert(cat_policy != 'indices'). predict_proba(). "
-              "OHE required: ordinal encoding would impose false linear relationships.",
-    ),
-    MethodSpec(
-        name="LinearRegression",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.CLASS_LABELS,
-        cat_policy=CatPolicy.OHE,
-        supports_hpo=False,
-        notes="LinearRegression (regression only). assert(cat_policy != 'indices'). "
-              "model.predict() returns continuous values. OHE required.",
-    ),
-    MethodSpec(
-        name="knn",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="KNeighbors. assert(cat_policy != 'indices'). predict_proba() for classification. "
-              "OHE required: ordinal encoding distorts distance metrics.",
-    ),
-    MethodSpec(
-        name="svm",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        notes="LinearSVC wrapped in CalibratedClassifierCV(method='sigmoid', cv=3) for "
-              "classification → predict_proba(). LinearSVR for regression. "
-              "assert(cat_policy != 'indices'). OHE required.",
-    ),
-    MethodSpec(
-        name="NaiveBayes",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        supports_hpo=False,
-        notes="GaussianNB. Inherits NCM → assert(cat_policy != 'indices'). "
-              "Uses predict_proba() for classification. OHE required.",
-    ),
-    MethodSpec(
-        name="NCM",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        supports_hpo=False,
-        notes="NearestCentroid. assert(cat_policy != 'indices'). Custom _predict_proba() "
-              "computes softmax over negative Euclidean distances to class centroids. OHE required.",
-    ),
-    MethodSpec(
-        name="dummy",
-        hardware=Hardware.CPU,
-        architecture=Architecture.CLASSICAL,
-        output_type=OutputType.PROBABILITIES,
-        cat_policy=CatPolicy.OHE,
-        supports_hpo=False,
-        notes="DummyClassifier/Regressor. assert(cat_policy != 'indices'). "
-              "Uses predict_proba() for classification. Baseline only.",
-    ),
-]
-
-
-# Build the registry as an immutable lookup dict
-METHOD_REGISTRY: ty.Dict[str, MethodSpec] = {spec.name: spec for spec in _REGISTRY_LIST}
-
-# Verify no duplicate names
-assert len(METHOD_REGISTRY) == len(_REGISTRY_LIST), (
-    f"Duplicate method names in registry! "
-    f"Expected {len(_REGISTRY_LIST)}, got {len(METHOD_REGISTRY)}"
+# Re-export TALENT's enums so legacy `from src.methods.method_config import
+# OutputType` keeps working.
+from TALENT.model.method_registry import (
+    Architecture,
+    Hardware,
+    METHOD_REGISTRY,
+    MethodSpec,
+    OutputType,
+    list_methods,
 )
 
+MethodSet = Set[str]
 
-# ======================================================================================
-#                    SECTION 3: DERIVED SETS (computed from registry)
-# ======================================================================================
-# These are NEVER manually maintained. They are computed from METHOD_REGISTRY.
 
-# Hardware categorization
-GPU_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.hardware == Hardware.GPU
-}
-CPU_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.hardware == Hardware.CPU
-}
+# ============================================================================
+#  Wrapper-policy defaults
+# ============================================================================
 
-# Architecture categorization
-DEEP_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.architecture == Architecture.DEEP
-}
-CLASSICAL_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.architecture == Architecture.CLASSICAL
-}
+@dataclass(frozen=True)
+class PreprocessingConfig:
+    """TabPFNCredit defaults that differ from TALENT's stock defaults.
 
-# Output type categorization
-LOGIT_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.output_type == OutputType.LOGITS
-}
-PROBABILITY_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.output_type == OutputType.PROBABILITIES
-}
-CLASS_LABEL_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.output_type == OutputType.CLASS_LABELS
-}
+    Rationale: credit-risk categoricals are never ordinal, so the wrapper
+    opts for one-hot encoding by default whenever a method does **not**
+    require ``indices``. NaN policies favour deterministic behaviour over
+    training-set statistics.
+    """
 
-# Foundation models (pre-trained, limited context)
+    cat_policy_for_ohe_methods: str = "ohe"
+    cat_policy_for_indices_methods: str = "indices"
+    cat_policy_for_tabr_methods: str = "tabr_ohe"
+    normalization_default: str = "standard"
+    num_policy_default: str = "none"
+    num_nan_policy_default: str = "median"
+    cat_nan_policy_default: str = "new"
+
+
+DEFAULTS = PreprocessingConfig()
+
+
+# ============================================================================
+#  Registry-derived sets (computed once at import time)
+# ============================================================================
+
+def derive_method_set(**predicate: Any) -> MethodSet:
+    """Return the set of method names matching the given filter.
+
+    Keys map directly onto :class:`MethodSpec` fields; values are compared
+    with equality (or membership if the value is a tuple/list/set).
+
+    Examples
+    --------
+    >>> derive_method_set(architecture=Architecture.DEEP)
+    {'mlp', 'resnet', 'tabpfn_v3', ...}
+    """
+    out: MethodSet = set()
+    for spec in METHOD_REGISTRY.values():
+        ok = True
+        for key, value in predicate.items():
+            field_value = getattr(spec, key, None)
+            if isinstance(value, (tuple, list, set)):
+                if field_value not in value:
+                    ok = False
+                    break
+            else:
+                if field_value != value:
+                    ok = False
+                    break
+        if ok:
+            out.add(spec.name)
+    return out
+
+
+# Architecture / hardware partitions
+DEEP_METHODS: MethodSet = derive_method_set(architecture=Architecture.DEEP)
+CLASSICAL_METHODS: MethodSet = derive_method_set(architecture=Architecture.CLASSICAL)
+GPU_METHODS: MethodSet = derive_method_set(hardware=Hardware.GPU)
+CPU_METHODS: MethodSet = derive_method_set(hardware=Hardware.CPU)
+
+# Output-type partitions
+LOGIT_METHODS: MethodSet = derive_method_set(output_type=OutputType.LOGITS)
+PROBABILITY_METHODS: MethodSet = derive_method_set(output_type=OutputType.PROBABILITIES)
+CLASS_LABEL_METHODS: MethodSet = derive_method_set(output_type=OutputType.CLASS_LABELS)
+
+# HPO support
+NO_HPO_METHODS: MethodSet = derive_method_set(supports_hpo=False)
+HPO_METHODS: MethodSet = derive_method_set(supports_hpo=True)
+
+# Foundation models = in-context learners with bounded context, unified
+# with the well-known foundation family names so users can still filter
+# by "is it a foundation model".
+_FOUNDATION_NAMES = {
+    "tabpfn", "tabpfn_v2", "tabpfn_v2_5", "tabpfn_v3", "tabpfn_real",
+    "tabicl", "tabicl_v2", "mitra", "limix", "tabdpt", "hyperfast", "tabptm",
+}
 FOUNDATION_METHODS: MethodSet = {
-    'tabpfn', 'tabpfn_v2', 'tabpfn_real', 'mitra', 'tabicl', 'tabptm',
+    name for name in METHOD_REGISTRY
+    if name in _FOUNDATION_NAMES
+    or METHOD_REGISTRY[name].train_row_limit is not None
 }
 
-# Methods without meaningful HPO
-NO_HPO_METHODS: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if not spec.supports_hpo
-}
+# The TabPFN family, derived from the canonical name prefix.
+TABPFN_VARIANTS: MethodSet = {n for n in METHOD_REGISTRY if n.startswith("tabpfn")}
 
-# Categorical encoding requirement sets (for backward compatibility)
+# Preprocessing requirements -- queried from MethodSpec
 REQUIRES_CAT_INDICES: MethodSet = {
     name for name, spec in METHOD_REGISTRY.items()
-    if spec.cat_policy == CatPolicy.INDICES
+    if spec.cat_policy is not None and tuple(spec.cat_policy) == ("indices",)
 }
 REQUIRES_CAT_OHE: MethodSet = {
     name for name, spec in METHOD_REGISTRY.items()
-    if spec.cat_policy == CatPolicy.OHE
+    if spec.cat_policy is not None and tuple(spec.cat_policy) == ("ohe",)
 }
 REQUIRES_CAT_TABR_OHE: MethodSet = {
     name for name, spec in METHOD_REGISTRY.items()
-    if spec.cat_policy == CatPolicy.TABR_OHE
+    if spec.cat_policy is not None and tuple(spec.cat_policy) == ("tabr_ohe",)
 }
 
-# TabPFN family
-TABPFN_VARIANTS: MethodSet = {'tabpfn', 'tabpfn_v2', 'tabpfn_real'}
-
-# Normalization requirements
-REQUIRES_NO_NORMALIZATION: MethodSet = {
+# Fix the historical bug: FORBIDS_CAT_INDICES is *any* method whose
+# allowed `cat_policy` set excludes 'indices'. The old definition aliased
+# this to REQUIRES_CAT_OHE, silently omitting tabr_ohe methods.
+FORBIDS_CAT_INDICES: MethodSet = {
     name for name, spec in METHOD_REGISTRY.items()
-    if spec.normalization == "none"
+    if spec.cat_policy is not None and "indices" not in spec.cat_policy
+}
+
+REQUIRES_NO_NORMALIZATION: MethodSet = {
+    name for name, spec in METHOD_REGISTRY.items() if spec.normalization == "none"
 }
 REQUIRES_STANDARD_NORMALIZATION: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.normalization == "standard"
+    name for name, spec in METHOD_REGISTRY.items() if spec.normalization == "standard"
 }
-
-# Numerical encoding requirements
 REQUIRES_NO_NUM_ENCODING: MethodSet = {
-    name for name, spec in METHOD_REGISTRY.items()
-    if spec.num_policy == "none"
+    name for name, spec in METHOD_REGISTRY.items() if spec.num_policy == "none"
 }
 
-# Row limits
-METHOD_ROW_LIMITS: ty.Dict[str, int] = {
+# Row-limit dictionaries: pulled directly from `MethodSpec.train_row_limit`.
+METHOD_ROW_LIMITS: dict = {
     name: spec.train_row_limit
     for name, spec in METHOD_REGISTRY.items()
     if spec.train_row_limit is not None
 }
-METHOD_TEST_VAL_LIMITS: ty.Dict[str, int] = {
-    name: spec.test_val_limit
-    for name, spec in METHOD_REGISTRY.items()
-    if spec.test_val_limit is not None
-}
 
-# Legacy compatibility: FORBIDS_CAT_INDICES is now just REQUIRES_CAT_OHE
-# (methods that can't use indices must use OHE since we never use ordinal)
-FORBIDS_CAT_INDICES: MethodSet = REQUIRES_CAT_OHE
+# Test/val limits default to the training limit. Override here if a
+# specific method needs a different cap.
+METHOD_TEST_VAL_LIMITS: dict = dict(METHOD_ROW_LIMITS)
 
 
-# ======================================================================================
-#                    SECTION 4: PREPROCESSING DEFAULTS
-# ======================================================================================
+# ============================================================================
+#  Args helpers
+# ============================================================================
 
-@dataclass(frozen=True)
-class PreprocessingConfig:
-    """Default preprocessing strategies for tabular data."""
-    cat_policy: str = 'ohe'              # Changed from 'ordinal' — categories are never ordinal
-    num_policy: str = 'none'
-    normalization: str = 'standard'
-    num_nan_policy: str = 'median'
-    cat_nan_policy: str = 'new'
+_MISSING_SENTINELS = {None, "", "none", "None", "NONE", "default"}
 
 
-DEFAULT_PREPROCESSING = PreprocessingConfig()
-
-
-# ======================================================================================
-#                    SECTION 5: HELPER FUNCTIONS
-# ======================================================================================
-
-# Sentinel values indicating "missing" or "not specified"
-_MISSING_SENTINELS: ty.Set[ty.Any] = {None, "", "nothing", "Nothing", "NONE", "None"}
-
-
-def _is_missing(value: ty.Any) -> bool:
-    """Check if a value represents 'missing' or 'not specified'."""
+def _is_missing(value: Any) -> bool:
+    """Return True iff the user did not specify a value."""
     try:
         return value in _MISSING_SENTINELS
     except TypeError:
         return False
 
 
-def apply_preprocessing_policies(
-    args: ty.Any,
-    method: MethodName,
-    user_specified: ty.Dict[str, bool]
-) -> None:
-    """
-    Apply preprocessing policy defaults and method-specific requirements.
-    Modifies the args namespace in-place.
+def apply_preprocessing_policies(args: Any, method: str, user_specified: Optional[dict] = None) -> None:
+    """Fill in TabPFNCredit's preferred defaults on ``args`` before calling TALENT.
 
-    Priority:
-    1. Method-specific requirements (from registry) — always enforced
-    2. User-specified values — used if compatible with method
-    3. Defaults from PreprocessingConfig — fallback
+    TALENT validates and enforces method preprocessing constraints itself
+    (via :meth:`MethodSpec.validate_args`); this helper is reduced to
+    *default-filling*. It does not raise on conflicts -- if the user set
+    something incompatible, ``TALENT.build_args`` will raise a readable
+    ``ValueError``.
     """
-    if method not in METHOD_REGISTRY:
-        raise ValueError(f"Unknown method: '{method}'. Not in METHOD_REGISTRY.")
-
+    user_specified = user_specified or {}
     spec = METHOD_REGISTRY[method]
 
-    # Step 1: Apply defaults for any missing values
-    for attr in ['cat_policy', 'num_policy', 'normalization', 'num_nan_policy', 'cat_nan_policy']:
-        if _is_missing(getattr(args, attr, None)):
-            default_value = getattr(DEFAULT_PREPROCESSING, attr)
-            setattr(args, attr, default_value)
+    def _set_if_missing(attr: str, value: Any) -> None:
+        if user_specified.get(attr, False):
+            return
+        current = getattr(args, attr, None)
+        if _is_missing(current):
+            setattr(args, attr, value)
 
-    # Step 2: Enforce method-specific categorical encoding
-    required_cat = spec.cat_policy.value
-    if user_specified.get('cat_policy', False):
-        if args.cat_policy != required_cat:
-            raise ValueError(
-                f"{method} requires cat_policy='{required_cat}' "
-                f"but got '{args.cat_policy}'"
-            )
+    # cat_policy
+    if spec.cat_policy is not None:
+        _set_if_missing("cat_policy", spec.cat_policy[0])
     else:
-        args.cat_policy = required_cat
+        _set_if_missing("cat_policy", DEFAULTS.cat_policy_for_ohe_methods)
 
-    # Step 3: Enforce normalization if required
+    # normalization
     if spec.normalization is not None:
-        if user_specified.get('normalization', False):
-            if args.normalization != spec.normalization:
-                raise ValueError(
-                    f"{method} requires normalization='{spec.normalization}' "
-                    f"but got '{args.normalization}'"
-                )
-        else:
-            args.normalization = spec.normalization
-
-    # Step 4: Enforce numerical encoding if required
-    if spec.num_policy is not None:
-        if user_specified.get('num_policy', False):
-            if args.num_policy != spec.num_policy:
-                raise ValueError(
-                    f"{method} requires num_policy='{spec.num_policy}' "
-                    f"but got '{args.num_policy}'"
-                )
-        else:
-            args.num_policy = spec.num_policy
-
-    # Also enforce num_policy='none' for tabr_ohe methods
-    # (TALENT's tabr_ohe methods skip numerical encoding internally)
-    if spec.cat_policy == CatPolicy.TABR_OHE:
-        if user_specified.get('num_policy', False):
-            if args.num_policy != 'none':
-                raise ValueError(
-                    f"{method} (tabr_ohe) requires num_policy='none' "
-                    f"but got '{args.num_policy}'"
-                )
-        else:
-            args.num_policy = 'none'
-
-
-def apply_method_row_limit(
-    method: MethodName,
-    row_limit: ty.Optional[int]
-) -> ty.Optional[int]:
-    """
-    Apply method-specific row limits for methods with dataset size constraints.
-    Returns effective row limit respecting both user and method constraints.
-    """
-    if method not in METHOD_ROW_LIMITS:
-        return row_limit
-
-    method_max = METHOD_ROW_LIMITS[method]
-
-    if row_limit is None:
-        return method_max
+        _set_if_missing("normalization", spec.normalization)
     else:
-        return min(row_limit, method_max)
+        _set_if_missing("normalization", DEFAULTS.normalization_default)
+
+    # num_policy
+    if spec.num_policy is not None:
+        _set_if_missing("num_policy", spec.num_policy)
+    else:
+        _set_if_missing("num_policy", DEFAULTS.num_policy_default)
+
+    # NaN policies -- not constrained by TALENT, wrapper picks safe defaults
+    _set_if_missing("num_nan_policy", DEFAULTS.num_nan_policy_default)
+    _set_if_missing("cat_nan_policy", DEFAULTS.cat_nan_policy_default)
 
 
-# ======================================================================================
-#                    SECTION 6: VALIDATION (runs at import time)
-# ======================================================================================
+def apply_method_row_limit(args: Any, method: str) -> Optional[int]:
+    """Return the training-set row limit for ``method`` (or None)."""
+    return METHOD_ROW_LIMITS.get(method)
 
-def validate_configuration() -> None:
-    """
-    Validate that the configuration is internally consistent.
-    Called at import time to fail fast on any misconfiguration.
-    """
-    all_methods = DEEP_METHODS | CLASSICAL_METHODS
-    all_hardware = GPU_METHODS | CPU_METHODS
 
-    # 1. Every method must appear in exactly one hardware set and one architecture set
-    assert all_methods == all_hardware, (
-        f"Hardware/Architecture mismatch.\n"
-        f"  In hardware but not architecture: {all_hardware - all_methods}\n"
-        f"  In architecture but not hardware: {all_methods - all_hardware}"
+# ============================================================================
+#  Validation
+# ============================================================================
+
+def _validate_registry_invariants() -> None:
+    """Sanity-check the derived sets at import time."""
+    assert DEEP_METHODS.isdisjoint(CLASSICAL_METHODS), (
+        f"Method appears in both DEEP and CLASSICAL: "
+        f"{DEEP_METHODS & CLASSICAL_METHODS}"
     )
-
-    # 2. Hardware sets must be disjoint
-    overlap_hw = GPU_METHODS & CPU_METHODS
-    assert not overlap_hw, f"Methods in both GPU and CPU: {overlap_hw}"
-
-    # 3. Architecture sets must be disjoint
-    overlap_arch = DEEP_METHODS & CLASSICAL_METHODS
-    assert not overlap_arch, f"Methods in both DEEP and CLASSICAL: {overlap_arch}"
-
-    # 4. Output type sets must be exhaustive and disjoint
-    all_output = LOGIT_METHODS | PROBABILITY_METHODS | CLASS_LABEL_METHODS
-    assert all_output == all_methods, (
-        f"Methods without output type: {all_methods - all_output}"
+    assert FOUNDATION_METHODS <= (DEEP_METHODS | CLASSICAL_METHODS), (
+        "All foundation methods must be registered as deep or classical"
     )
-    assert not (LOGIT_METHODS & PROBABILITY_METHODS), (
-        f"Methods in both LOGIT and PROBABILITY: {LOGIT_METHODS & PROBABILITY_METHODS}"
-    )
-    assert not (LOGIT_METHODS & CLASS_LABEL_METHODS), (
-        f"Methods in both LOGIT and CLASS_LABEL: {LOGIT_METHODS & CLASS_LABEL_METHODS}"
-    )
-    assert not (PROBABILITY_METHODS & CLASS_LABEL_METHODS), (
-        f"Methods in both PROBABILITY and CLASS_LABEL: {PROBABILITY_METHODS & CLASS_LABEL_METHODS}"
-    )
-
-    # 5. Cat policy sets must be exhaustive
-    all_cat = REQUIRES_CAT_INDICES | REQUIRES_CAT_OHE | REQUIRES_CAT_TABR_OHE
-    assert all_cat == all_methods, (
-        f"Methods without cat_policy: {all_methods - all_cat}"
-    )
-
-    # 6. TabPFN variants should return probabilities
-    assert TABPFN_VARIANTS.issubset(PROBABILITY_METHODS), (
-        f"TabPFN variants not returning probabilities: {TABPFN_VARIANTS - PROBABILITY_METHODS}"
-    )
-
-    # 7. No HPO methods must be a subset of all methods
-    assert NO_HPO_METHODS.issubset(all_methods), (
-        f"NO_HPO methods not in registry: {NO_HPO_METHODS - all_methods}"
-    )
-
-    # 8. Row limit methods must be in registry
-    for name in METHOD_ROW_LIMITS:
-        assert name in METHOD_REGISTRY, f"Row limit method not in registry: {name}"
-    for name in METHOD_TEST_VAL_LIMITS:
-        assert name in METHOD_REGISTRY, f"Test/val limit method not in registry: {name}"
+    assert "tabpfn_v3" in TABPFN_VARIANTS, "TabPFN v3 missing from family"
+    assert "tabicl_v2" in METHOD_REGISTRY, "TabICL v2 missing from registry"
+    assert "tabpfn_v2_5" in METHOD_REGISTRY, "TabPFN v2.5 missing from registry"
+    assert "tabdpt" in METHOD_REGISTRY, "TabDPT missing from registry"
 
 
-# Run validation at import time — fail fast on any misconfiguration
-validate_configuration()
+_validate_registry_invariants()
 
 
-# ======================================================================================
-#                    SECTION 7: DIAGNOSTICS (for __main__ usage)
-# ======================================================================================
-
-if __name__ == "__main__":
-    print("[OK] Configuration validation passed at import time")
-
-    print(f"\n{'='*70}")
-    print("METHOD CONFIGURATION SUMMARY")
-    print(f"{'='*70}")
-    print(f"Total methods: {len(METHOD_REGISTRY)}")
-    print(f"  GPU: {len(GPU_METHODS)}")
-    print(f"  CPU: {len(CPU_METHODS)}")
-    print(f"  Deep: {len(DEEP_METHODS)}")
-    print(f"  Classical: {len(CLASSICAL_METHODS)}")
-    print(f"  No-HPO: {len(NO_HPO_METHODS)}")
-
-    print(f"\nOutput types:")
-    print(f"  Logits: {len(LOGIT_METHODS)}")
-    print(f"  Probabilities: {len(PROBABILITY_METHODS)}")
-    print(f"  Class labels: {len(CLASS_LABEL_METHODS)}")
-
-    print(f"\nCategorical encoding:")
-    print(f"  indices: {len(REQUIRES_CAT_INDICES)}")
-    print(f"  ohe: {len(REQUIRES_CAT_OHE)}")
-    print(f"  tabr_ohe: {len(REQUIRES_CAT_TABR_OHE)}")
-
-    print(f"\nRow limits:")
-    for name, limit in sorted(METHOD_ROW_LIMITS.items()):
-        print(f"  {name}: {limit:,} training rows")
-
-    print(f"\n{'='*70}")
-    print("\nPer-method details:")
-    print(f"{'='*70}")
-    for name, spec in sorted(METHOD_REGISTRY.items()):
-        print(
-            f"  {name:20s} | {spec.hardware.value:3s} | {spec.architecture.value:9s} | "
-            f"{spec.output_type.value:14s} | cat={spec.cat_policy.value:8s} | "
-            f"norm={str(spec.normalization):8s} | hpo={spec.supports_hpo}"
-        )
+__all__ = [
+    "Architecture", "Hardware", "OutputType",
+    "PreprocessingConfig", "DEFAULTS",
+    "DEEP_METHODS", "CLASSICAL_METHODS",
+    "GPU_METHODS", "CPU_METHODS",
+    "LOGIT_METHODS", "PROBABILITY_METHODS", "CLASS_LABEL_METHODS",
+    "NO_HPO_METHODS", "HPO_METHODS",
+    "FOUNDATION_METHODS", "TABPFN_VARIANTS",
+    "REQUIRES_CAT_INDICES", "REQUIRES_CAT_OHE", "REQUIRES_CAT_TABR_OHE",
+    "FORBIDS_CAT_INDICES",
+    "REQUIRES_NO_NORMALIZATION", "REQUIRES_STANDARD_NORMALIZATION",
+    "REQUIRES_NO_NUM_ENCODING",
+    "METHOD_ROW_LIMITS", "METHOD_TEST_VAL_LIMITS",
+    "derive_method_set",
+    "apply_preprocessing_policies", "apply_method_row_limit",
+    "_is_missing",
+]

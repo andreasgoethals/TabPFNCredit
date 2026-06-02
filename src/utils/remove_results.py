@@ -33,17 +33,11 @@ import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
-# File locking imports
-try:
-    import fcntl
-    HAS_FCNTL = True
-except ImportError:
-    HAS_FCNTL = False
-    try:
-        import portalocker
-        HAS_PORTALOCKER = True
-    except ImportError:
-        HAS_PORTALOCKER = False
+# BUG FIX: this module used to duplicate ~40 lines of locking code. Route
+# through the canonical FileLock so the read-modify-write happens under a
+# single exclusive lock (previously the file was reopened between read
+# and write, allowing a concurrent writer to slip in and lose updates).
+from src.utils.file_lock import FileLock
 
 # Setup logging
 logging.basicConfig(
@@ -70,55 +64,19 @@ def _find_project_root() -> Path:
     return Path.cwd()
 
 
-def _acquire_lock(file_handle, exclusive: bool = True) -> bool:
-    """
-    Acquire a file lock (cross-platform).
+# NOTE: _acquire_lock / _release_lock are deprecated. Use FileLock instead.
+# Kept temporarily as no-op shims so any external imports do not break.
 
-    Args:
-        file_handle: Open file handle
-        exclusive: If True, exclusive lock. If False, shared lock.
-
-    Returns:
-        True if lock acquired, False otherwise
-    """
-    if HAS_FCNTL:
-        try:
-            lock_type = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-            fcntl.flock(file_handle.fileno(), lock_type)
-            return True
-        except IOError as e:
-            logger.warning(f"Could not acquire file lock (fcntl): {e}")
-            return False
-
-    elif HAS_PORTALOCKER:
-        try:
-            lock_type = portalocker.LOCK_EX if exclusive else portalocker.LOCK_SH
-            portalocker.lock(file_handle, lock_type)
-            return True
-        except Exception as e:
-            logger.warning(f"Could not acquire file lock (portalocker): {e}")
-            return False
-
-    else:
-        logger.warning(
-            "No file locking library available. "
-            "Ensure no other processes are modifying result files."
-        )
-        return True  # Proceed without locking
+def _acquire_lock(file_handle, exclusive: bool = True) -> bool:  # pragma: no cover
+    raise NotImplementedError(
+        "_acquire_lock has been removed. Use `from src.utils.file_lock import FileLock`."
+    )
 
 
-def _release_lock(file_handle) -> None:
-    """Release file lock (cross-platform)."""
-    if HAS_FCNTL:
-        try:
-            fcntl.flock(file_handle.fileno(), fcntl.LOCK_UN)
-        except IOError:
-            pass
-    elif HAS_PORTALOCKER:
-        try:
-            portalocker.unlock(file_handle)
-        except Exception:
-            pass
+def _release_lock(file_handle) -> None:  # pragma: no cover
+    raise NotImplementedError(
+        "_release_lock has been removed. Use `from src.utils.file_lock import FileLock`."
+    )
 
 
 def remove_method_from_results(
@@ -173,47 +131,42 @@ def process_pickle_file(
     removed_keys = []
 
     try:
-        # Read the file
-        with open(filepath, 'rb') as f:
-            if not _acquire_lock(f, exclusive=False):
-                logger.error(f"Could not acquire read lock for {filepath}")
-                return False, []
-
+        # BUG FIX: hold ONE exclusive lock across the entire read-modify-
+        # write so concurrent writers cannot slip in between read and
+        # write (the previous code reopened the file mid-cycle, producing
+        # lost updates under SLURM array concurrency).
+        with FileLock(filepath, exclusive=True, binary=True) as f:
+            f.seek(0)
             try:
                 results = pickle.load(f)
-            finally:
-                _release_lock(f)
-
-        # Check if method exists in results
-        method_found = False
-        for hpo_mode in ['NO_HPO', 'HPO']:
-            if hpo_mode in results and isinstance(results[hpo_mode], dict):
-                if method in results[hpo_mode]:
-                    method_found = True
-                    removed_keys.append(f"{hpo_mode}/{method}")
-
-        if not method_found:
-            logger.debug(f"Method '{method}' not found in {filepath.name}")
-            return False, []
-
-        if dry_run:
-            logger.info(f"[DRY RUN] Would remove from {filepath.name}: {removed_keys}")
-            return True, removed_keys
-
-        # Remove the method
-        results, removed_keys = remove_method_from_results(results, method)
-
-        # Write back with exclusive lock
-        with open(filepath, 'wb') as f:
-            if not _acquire_lock(f, exclusive=True):
-                logger.error(f"Could not acquire write lock for {filepath}")
+            except (EOFError, pickle.UnpicklingError):
+                logger.warning(f"Empty or corrupt pickle at {filepath}; skipping")
                 return False, []
 
-            try:
-                pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
-                f.flush()
-            finally:
-                _release_lock(f)
+            # Check if method exists in results
+            method_found = False
+            for hpo_mode in ('NO_HPO', 'HPO'):
+                if hpo_mode in results and isinstance(results[hpo_mode], dict):
+                    if method in results[hpo_mode]:
+                        method_found = True
+                        removed_keys.append(f"{hpo_mode}/{method}")
+
+            if not method_found:
+                logger.debug(f"Method '{method}' not found in {filepath.name}")
+                return False, []
+
+            if dry_run:
+                logger.info(f"[DRY RUN] Would remove from {filepath.name}: {removed_keys}")
+                return True, removed_keys
+
+            # Remove the method
+            results, removed_keys = remove_method_from_results(results, method)
+
+            # Write back through the same lock
+            f.seek(0)
+            f.truncate()
+            pickle.dump(results, f, protocol=pickle.HIGHEST_PROTOCOL)
+            f.flush()
 
         logger.info(f"Modified {filepath.name}: removed {removed_keys}")
         return True, removed_keys

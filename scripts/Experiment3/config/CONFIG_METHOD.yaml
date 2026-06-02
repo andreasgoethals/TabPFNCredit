@@ -39,8 +39,12 @@ methods:
     # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
     tabpfn: true          # TabPFN v1 (classification)
     tabpfn_v2: true       # TabPFN v2 (classification)
-    tabpfn_real: true     # TabPFN Real
-    tabicl: true          # TabICL
+    tabpfn_v2_5: true     # TabPFN v2.5
+    tabpfn_v3: true       # TabPFN v3
+    tabpfn_real: true     # Real-TabPFN
+    tabicl: true          # TabICL v1
+    tabicl_v2: true       # TabICL v2
+    tabdpt: true          # TabDPT
     tabptm: false         # TabPTM
     mitra: true           # MITRA
     hyperfast: false      # HyperFast
@@ -98,6 +102,10 @@ methods:
     xgboost: false
     svm: false
     tabpfn_v2: false
+    tabpfn_v2_5: false
+    tabpfn_v3: false
+    tabicl_v2: false
+    tabdpt: false
     tabptm: false
     mitra: false
     ftt: false

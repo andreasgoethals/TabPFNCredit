@@ -34,12 +34,16 @@ methods:
     # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
     #    (Pre-trained on large datasets or priors to work out-of-the-box)
     tabpfn: true          # TabPFN v1 (classification)
-    tabpfn_v2: true       # TabPFN v2 (classification) 
-    tabpfn_real: true     # TabPFN Real 
-    tabicl: true          # TabICL
+    tabpfn_v2: true       # TabPFN v2 (classification)
+    tabpfn_v2_5: true     # TabPFN v2.5 (PriorLabs Nov 2025; requires `tabpfn>=8.0.0`)
+    tabpfn_v3: true       # TabPFN v3 (PriorLabs 2026; ~1M-row context)
+    tabpfn_real: true     # Real-TabPFN
+    tabicl: true          # TabICL v1
+    tabicl_v2: true       # TabICL v2 (ICML 2026; supports classification + regression)
+    tabdpt: true          # TabDPT (Layer 6 AI; ICL + retrieval)
     tabptm: false         # TabPTM
-    mitra: true          # MITRA 
-    hyperfast: true      # HyperFast
+    mitra: true           # MITRA
+    hyperfast: true       # HyperFast
 
     # 2. Transformer-based Architectures
     #    (Utilize self-attention mechanisms adapted for tabular data)
@@ -103,8 +107,12 @@ methods:
 
     # 1. Foundation Models & PFNs
     tabpfn_v2: true        # TabPFN v2 (supports regression)
+    tabpfn_v2_5: true      # TabPFN v2.5 (supports regression)
+    tabpfn_v3: true        # TabPFN v3 (supports regression)
+    tabicl_v2: true        # TabICL v2 (regression support added in ICML 2026)
+    tabdpt: true           # TabDPT (supports regression)
     tabptm: false          # TabPTM
-    mitra: true           # MITRA 
+    mitra: true            # MITRA
 
     # 2. Transformer-based Architectures
     ftt: true             # Feature Tokenizer Transformer

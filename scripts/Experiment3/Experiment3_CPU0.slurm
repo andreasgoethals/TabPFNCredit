@@ -18,7 +18,7 @@
 # ---------------------------------------------------------
 
 set -euo pipefail
-sleep $((RANDOM % 60 + 1))
+sleep $((SLURM_ARRAY_TASK_ID % 30))  # deterministic stagger, avoids thundering-herd I/O
 export PYTHONUNBUFFERED=1
 
 export PATH="${VSC_DATA}/miniconda3/bin:${PATH}"
