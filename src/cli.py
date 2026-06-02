@@ -55,7 +55,7 @@ from src.methods.method_config import (  # noqa: E402
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
 from src.utils.config_reader import load_config  # noqa: E402
-from src.utils.result_io import save_fold, update_method_summary  # noqa: E402
+from src.utils.result_io import save_method  # noqa: E402
 
 app = typer.Typer(
     add_completion=False,
@@ -176,15 +176,17 @@ def cmd_run(
 
     if write_results:
         results_root = _PROJECT_ROOT / "results"
-        hpo_mode = "HPO" if tune else "NO_HPO"
-        for fold_id, fold in fold_results.items():
-            save_fold(fold, base=results_root, experiment=experiment.lower(), hpo_mode=hpo_mode)
-        update_method_summary(
+        save_method(
             fold_results,
-            base=results_root, experiment=experiment.lower(),
-            task=task, dataset=dataset, method=method, hpo_mode=hpo_mode,
+            base=results_root,
+            experiment=experiment.lower(),
+            task=task,
+            dataset=dataset,
+            method=method,
         )
-        console.print(f"[blue]Results written under {results_root / experiment.lower()}[/blue]")
+        console.print(
+            f"[blue]Results written under {results_root / experiment.lower()}[/blue]"
+        )
 
 
 @app.command("slurm-task")

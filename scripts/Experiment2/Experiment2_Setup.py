@@ -94,8 +94,8 @@ def generate_gpu_slurm_script(
 #SBATCH --cluster={cluster}
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.out
-#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/slurm/{job_type.lower()}{batch_id}_%A_%a.err
+#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/{job_type.lower()}{batch_id}_%A_%a.out
+#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/{job_type.lower()}{batch_id}_%A_%a.err
 #SBATCH --time={time_limit}
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task={cpus}
@@ -172,8 +172,8 @@ def generate_cpu_slurm_script(batch_id, start_task, end_task, max_concurrent):
 #SBATCH --cluster=genius
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/slurm/cpu{batch_id}_%A_%a.out
-#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/slurm/cpu{batch_id}_%A_%a.err
+#SBATCH --output=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/cpu{batch_id}_%A_%a.out
+#SBATCH --error=${{VSC_DATA}}/TabPFNCredit/results/experiment2/logs/cpu{batch_id}_%A_%a.err
 #SBATCH --time=72:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8

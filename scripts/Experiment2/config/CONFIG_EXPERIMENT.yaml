@@ -1,32 +1,42 @@
 # =============================================================================
 # CONFIG_EXPERIMENT.yaml - EXPERIMENT 2: LEARNING CURVE ANALYSIS
 # =============================================================================
-# Purpose: Evaluate how method performance degrades as training rows decrease.
-# Constraint: No HPO (Hyperparameter Optimization) - use default parameters.
+# Purpose: how do the best methods' metrics scale with training-set size?
+# Constraint: no HPO (defaults only).
+# Methods enabled (in CONFIG_METHOD.yaml): tabpfn_v3, tabicl_v2, xgboost,
+#                                          LogReg (PD), LinearRegression (LGD).
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Standard Training Variables
+# Standard training knobs
 # -----------------------------------------------------------------------------
-max_epochs: 50                    # Maximum training epochs for deep methods
-batch_size: 255                   # Training batch size
-n_trials: 1                       # NO HPO - always 1 trial (use defaults)
-early_stopping: true              # Enable early stopping
-early_stopping_patience: 10       # Wait 10 epochs before stopping
+max_epochs: 50
+batch_size: 255
+n_trials: 1                       # NO HPO
+early_stopping: true
+early_stopping_patience: 10
 
 # -----------------------------------------------------------------------------
-# Learning Curve Control Parameters
+# Learning-curve sweep -- configurable PER TASK
 # -----------------------------------------------------------------------------
-# These control how we vary the training set size to analyze performance degradation.
+# For each task we walk row_limit DOWN from row_max to row_min in steps of
+# row_step. DataFeeder caps the full dataset to row_limit BEFORE splitting,
+# so the train portion is row_limit * (1 - test_size - val_size).
 #
-# Algorithm:
-#   1. Start: current = min(dataset_size, row_max)
-#   2. First step: If current is not a multiple of row_step,
-#      align to nearest lower multiple of row_step
-#      Example: dataset=8500, step=1000 -> sequence starts [8500, 8000, 7000, ...]
-#   3. Continue: Decrease by row_step until row_min is reached
-#   4. For each row_limit: Run method with that training size
+# Defaults:
+#   PD  -- sweep from 20 000 down to row_min in 5-row steps, only datasets
+#          with >= 20 000 rows are used (the rest are auto-skipped).
+#   LGD -- sweep from  5 000 down to row_min in 5-row steps, only datasets
+#          with >=  5 000 rows are used.
 # -----------------------------------------------------------------------------
-row_max: 15000                   # Upper bound for row limit
-row_min: 100                     # Lower bound for row limit (stop here)
-row_step: 100                    # Step size for decreasing rows
+learning_curve:
+  pd:
+    row_max: 20000
+    row_min: 100
+    row_step: 5
+    min_dataset_size: 20000   # datasets smaller than this are skipped automatically
+  lgd:
+    row_max: 5000
+    row_min: 100
+    row_step: 5
+    min_dataset_size: 5000

@@ -54,12 +54,52 @@ class ExperimentSpec:
 # --------------------------------------------------------------------------- #
 
 def _validate_learning_curve(params: Dict[str, Any]) -> None:
-    if params["row_min"] > params["row_max"]:
-        raise ValueError(
-            f"row_min ({params['row_min']}) cannot exceed row_max ({params['row_max']})"
-        )
-    if params["row_step"] <= 0:
-        raise ValueError(f"row_step must be positive, got {params['row_step']}")
+    """Validate the per-task learning_curve block.
+
+    Shape::
+
+        learning_curve:
+          pd:  {row_max: ..., row_min: ..., row_step: ..., min_dataset_size: ...}
+          lgd: {row_max: ..., row_min: ..., row_step: ..., min_dataset_size: ...}
+
+    The legacy flat shape (``row_max`` / ``row_min`` / ``row_step`` at the
+    top level) is still accepted for backwards compatibility; it gets
+    duplicated into both ``pd`` and ``lgd`` so the per-task helpers can
+    read a unified shape downstream.
+    """
+    # Backwards-compat: legacy flat keys
+    if "row_max" in params and "pd" not in params:
+        legacy = {
+            "row_max": params["row_max"],
+            "row_min": params["row_min"],
+            "row_step": params["row_step"],
+            "min_dataset_size": params.get("min_dataset_size", 0),
+        }
+        params["pd"] = dict(legacy)
+        params["lgd"] = dict(legacy)
+        for k in ("row_max", "row_min", "row_step", "min_dataset_size"):
+            params.pop(k, None)
+
+    for task in ("pd", "lgd"):
+        if task not in params:
+            raise ValueError(
+                f"learning_curve.{task} block missing; "
+                f"required keys: row_max, row_min, row_step, min_dataset_size"
+            )
+        block = params[task]
+        for key in ("row_max", "row_min", "row_step"):
+            if key not in block:
+                raise ValueError(f"learning_curve.{task}.{key} is required")
+        if block["row_min"] > block["row_max"]:
+            raise ValueError(
+                f"learning_curve.{task}: row_min ({block['row_min']}) "
+                f"cannot exceed row_max ({block['row_max']})"
+            )
+        if block["row_step"] <= 0:
+            raise ValueError(
+                f"learning_curve.{task}: row_step must be positive, got {block['row_step']}"
+            )
+        block.setdefault("min_dataset_size", 0)
 
 
 def _validate_imbalance(params: Dict[str, Any]) -> None:
@@ -89,7 +129,9 @@ _EXPERIMENT_REGISTRY: Dict[str, ExperimentSpec] = {
     "Experiment2": ExperimentSpec(
         name="Experiment2",
         extra_section="learning_curve",
-        extra_params=["row_max", "row_min", "row_step"],
+        # Per-task block now lives at learning_curve.{pd,lgd}; the validator
+        # also accepts legacy flat keys for backwards-compat.
+        extra_params=[],
         validator=_validate_learning_curve,
     ),
     "Experiment3": ExperimentSpec(
@@ -192,14 +234,29 @@ def load_config(experiment_name: str) -> Dict[str, Any]:
     config = _base_config(data_config, method_config, experiment_config)
 
     # Append extra section if this experiment declares one.
+    #
+    # Two shapes are supported per experiment:
+    #   1. A nested block keyed by ``spec.extra_section`` (current Experiment 2):
+    #        learning_curve:
+    #          pd:  {row_max: ..., row_min: ..., row_step: ..., ...}
+    #          lgd: {row_max: ..., row_min: ..., row_step: ..., ...}
+    #   2. Legacy flat keys (Experiment 3 still uses this):
+    #        minority_proportion_min: ...
+    #        minority_proportion_max: ...
+    #        minority_proportion_step: ...
     if spec.extra_section is not None:
-        for param in spec.extra_params:
-            if param not in experiment_config:
-                raise ValueError(
-                    f"Missing required parameter '{param}' in CONFIG_EXPERIMENT.yaml "
-                    f"for {spec.name}"
-                )
-        extras = {p: experiment_config[p] for p in spec.extra_params}
+        if spec.extra_section in experiment_config:
+            # Nested shape -- copy the block verbatim
+            extras = dict(experiment_config[spec.extra_section])
+        else:
+            # Legacy flat shape -- collect ``extra_params`` keys
+            for param in spec.extra_params:
+                if param not in experiment_config:
+                    raise ValueError(
+                        f"Missing required parameter '{param}' in CONFIG_EXPERIMENT.yaml "
+                        f"for {spec.name}"
+                    )
+            extras = {p: experiment_config[p] for p in spec.extra_params}
         if spec.validator is not None:
             spec.validator(extras)
         config[spec.extra_section] = extras

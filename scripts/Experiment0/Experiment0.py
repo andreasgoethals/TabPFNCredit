@@ -21,6 +21,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
+from src.utils.logging_setup import configure_task_logging, task_timer
+from src.utils.result_io import save_method
 from src.methods.method_runner import run_talent_method
 from src.methods.method_config import NO_HPO_METHODS
 
@@ -50,78 +52,44 @@ def run_single_method(
     # Experiment0 always uses NO_HPO
     hpo_mode = 'NO_HPO'
     tune = False
-    
+
     # Initialize storage
     storage = StorageHandler(experiment_name)
     experiment_path = storage.get_experiment_path()
-    
-    # ==========================================
-    # ENSURE ALL DIRECTORIES EXIST
-    # ==========================================
     experiment_path.mkdir(parents=True, exist_ok=True)
     (experiment_path / "pd").mkdir(exist_ok=True)
     (experiment_path / "lgd").mkdir(exist_ok=True)
-    (experiment_path / "logs").mkdir(exist_ok=True)
-    
-    # ==========================================
-    # SETUP LOGGING
-    # ==========================================
-    log_dir = experiment_path / "logs" / task_type
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / f"{dataset}_{method}.log"
-    
-    logger = logging.getLogger(f"{experiment_name}.{dataset}.{method}")
-    logger.setLevel(logging.INFO if verbose else logging.WARNING)
-    logger.handlers.clear()
-    
-    formatter = logging.Formatter(
-        f'%(asctime)s - [{method}] - %(levelname)s - %(message)s'
+
+    # ------------------------------------------------------------------
+    # Hybrid + minimal logging (per-task detail + summary + errors)
+    # ------------------------------------------------------------------
+    log_file = configure_task_logging(
+        experiment=experiment_name,
+        dataset=dataset,
+        method=method,
+        task=task_type,
+        results_root=experiment_path.parent,
+        verbose=verbose,
     )
-    
-    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    
-    if verbose:
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-    
-    # ==========================================
-    # PRINT BANNER
-    # ==========================================
-    print(f"\n{'='*70}")
-    print(f"EXPERIMENT 0 - METHOD VALIDATION")
-    print(f"{dataset} | {method} | {task_type}")
-    print(f"{'='*70}")
-    print(f"Node:       {os.environ.get('SLURMD_NODENAME', 'LOCAL')}")
-    print(f"Job ID:     {os.environ.get('SLURM_JOB_ID', 'N/A')}")
-    print(f"Array ID:   {os.environ.get('SLURM_ARRAY_TASK_ID', 'N/A')}")
-    print(f"Log file:   {log_file}")
-    print(f"{'='*70}\n")
-    
-    logger.info(f"Starting on node {os.environ.get('SLURMD_NODENAME', 'unknown')}")
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "node=%s job=%s array=%s log=%s",
+        os.environ.get('SLURMD_NODENAME', 'LOCAL'),
+        os.environ.get('SLURM_JOB_ID', '-'),
+        os.environ.get('SLURM_ARRAY_TASK_ID', '-'),
+        log_file,
+    )
     
     # ==========================================
     # CHECK IF ALREADY COMPLETED
     # ==========================================
     result_file = experiment_path / task_type / f"{dataset}.pkl"
     
-    if result_file.exists():
-        try:
-            with open(result_file, 'rb') as f:
-                fcntl.flock(f.fileno(), fcntl.LOCK_SH)
-                try:
-                    existing_results = pickle.load(f)
-                finally:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-            
-            if method in existing_results:
-                logger.info("Already completed, skipping")
-                print(f"[SKIP] {dataset}/{method} - already done")
-                return
-        except Exception as e:
-            logger.warning(f"Could not check existing results: {e}")
+    # Skip if a per-(dataset, method) JSON already exists with all folds.
+    method_json = experiment_path / task_type / dataset / f"{method}.json"
+    if method_json.exists():
+        logger.info("Already completed (%s); skipping", method_json)
+        return
     
     # ==========================================
     # BUILD PARAMETERS
@@ -148,116 +116,32 @@ def run_single_method(
     }
     
     try:
-        # ==========================================
-        # TRAINING & PREDICTION
-        # ==========================================
-        logger.info("Training started")
-        print(f"[TRAIN] {dataset}/{method}")
-        
-        t_start = time.time()
-        method_results = run_talent_method(**experiment_params)
-        t_total = time.time() - t_start
-        
-        logger.info(f"Training completed in {t_total:.1f}s")
-        
-        # ==========================================
-        # VALIDATE RESULTS
-        # ==========================================
-        if not method_results or len(method_results) == 0:
+        with task_timer(f"{dataset}/{method}/{task_type}", logger):
+            method_results = run_talent_method(**experiment_params)
+
+        if not method_results:
             raise RuntimeError("run_talent_method returned empty results")
+
+        # Per-(dataset, method) JSON + npz -- no locks needed.
+        save_method(
+            method_results,
+            base=experiment_path.parent,
+            experiment=experiment_name,
+            task=task_type,
+            dataset=dataset,
+            method=method,
+        )
+        # Headline metric for the summary log
+        first = next(iter(method_results.values()))
+        headline = first["metrics"].get("AUC" if task_type == "pd" else "RMSE", "n/a")
+        logger.info("metric=%s value=%s folds=%d",
+                    "AUC" if task_type == "pd" else "RMSE",
+                    f"{headline:.4f}" if isinstance(headline, (int, float)) else headline,
+                    len(method_results))
         
-        expected_folds = config['split']['cv_splits']
-        if len(method_results) != expected_folds:
-            logger.warning(
-                f"Expected {expected_folds} folds, got {len(method_results)}"
-            )
-        
-        for fold_id, fold_results in method_results.items():
-            required_fields = ['y_true', 'y_pred', 'metrics', 'train_time']
-            missing = [f for f in required_fields if f not in fold_results]
-            if missing:
-                raise RuntimeError(
-                    f"Fold {fold_id} missing required fields: {missing}"
-                )
-        
-        logger.info(f"Results validated: {len(method_results)} folds")
-        
-        # ==========================================
-        # SAVE RESULTS (with file locking)
-        # ==========================================
-        logger.info("Saving results")
-        
-        max_retries = 10
-        retry_delay = 0.5
-        
-        for attempt in range(max_retries):
-            try:
-                result_file.parent.mkdir(parents=True, exist_ok=True)
-                
-                mode = 'r+b' if result_file.exists() else 'w+b'
-                
-                with open(result_file, mode) as f:
-                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-                    
-                    try:
-                        if mode == 'r+b':
-                            try:
-                                f.seek(0)
-                                results = pickle.load(f)
-                            except (EOFError, pickle.UnpicklingError):
-                                logger.warning("Corrupted file, creating new")
-                                results = {}
-                        else:
-                            results = {}
-                        
-                        # Store results (flat structure, no HPO nesting)
-                        results[method] = method_results
-                        
-                        # Write back
-                        f.seek(0)
-                        f.truncate()
-                        pickle.dump(results, protocol=pickle.HIGHEST_PROTOCOL, file=f)
-                        f.flush()
-                        os.fsync(f.fileno())
-                        
-                        logger.info("Results saved successfully")
-                        
-                    finally:
-                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
-                
-                break  # Success!
-                
-            except (IOError, OSError, BlockingIOError) as e:
-                if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(
-                        f"Lock failed (attempt {attempt+1}/{max_retries}), "
-                        f"waiting {wait_time:.1f}s"
-                    )
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"Failed to save after {max_retries} attempts")
-                    raise RuntimeError(f"Could not save results: {result_file}") from e
-        
-        logger.info("Task completed successfully")
-        print(f"[DONE] {dataset}/{method}")
-        
-    except Exception as e:
-        logger.error(f"Task failed: {e}", exc_info=True)
-        print(f"[FAIL] {dataset}/{method}: {str(e)}")
-        
-        # Log to consolidated error file
-        error_log = experiment_path / "logs" / "errors.log"
-        error_log.parent.mkdir(exist_ok=True)
-        
-        with open(error_log, 'a') as ef:
-            ef.write(f"\n{'='*70}\n")
-            ef.write(f"FAILED: {dataset}/{method}\n")
-            ef.write(f"Time: {datetime.now().isoformat()}\n")
-            ef.write(f"Error: {str(e)}\n")
-            ef.write(f"Node: {os.environ.get('SLURMD_NODENAME', 'N/A')}\n")
-            ef.write(f"{'='*70}\n")
-        
+    except Exception:
+        # task_timer already logged the traceback at ERROR level; that lands
+        # in both the per-task .log and errors.log via configure_task_logging.
         raise
 
 

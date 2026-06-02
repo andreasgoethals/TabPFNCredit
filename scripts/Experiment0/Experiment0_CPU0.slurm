@@ -8,8 +8,8 @@
 #SBATCH --mem=20G
 #SBATCH --partition=batch
 #SBATCH --time=02:00:00
-#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment0/logs/slurm/cpu0_%A_%a.out
-#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment0/logs/slurm/cpu0_%A_%a.err
+#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment0/logs/cpu0_%A_%a.out
+#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment0/logs/cpu0_%A_%a.err
 #SBATCH --requeue
 #SBATCH --array=0-132%32
 

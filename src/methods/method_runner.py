@@ -31,11 +31,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import tempfile
-from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
@@ -72,7 +69,6 @@ from src.methods.method_config import (
 )
 from src.methods.method_metrics import enrich_pd_metrics, enrich_lgd_metrics
 from src.methods.cost_metrics import cost_sensitive_summary
-from src.utils.file_lock import FileLock
 
 
 # ============================================================================
@@ -149,41 +145,6 @@ def clear_folds_cache() -> None:
     """Drop all cached folds from disk + memory."""
     if _MEMORY is not None:
         _MEMORY.clear(warn=False)
-
-
-# ============================================================================
-#  HPO config persistence (per-fold merged JSON, SLURM-safe)
-# ============================================================================
-
-def save_fold_config_safely(
-    config_path: Path,
-    fold_id: int,
-    hyperparameters: dict,
-    n_trials: int,
-) -> None:
-    """Merge this fold's HPO config into the shared JSON file, under exclusive lock."""
-    with FileLock(config_path, exclusive=True) as f:
-        f.seek(0)
-        content = f.read()
-        try:
-            all_configs = json.loads(content) if content.strip() else {}
-        except json.JSONDecodeError:
-            all_configs = {}
-
-        all_configs[f"fold_{fold_id}"] = {
-            "hyperparameters": hyperparameters,
-            "n_trials": n_trials,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        f.seek(0)
-        f.truncate()
-        f.write(json.dumps(all_configs, indent=2))
-        f.flush()
-        try:
-            os.fsync(f.fileno())
-        except (AttributeError, OSError):
-            pass
 
 
 # ============================================================================
@@ -416,7 +377,6 @@ def _run_one_fold(
     evaluate_option: str,
     user_overrides: Dict[str, Any],
     checkpoint_dir: Path,
-    merged_hpo_config_path: Optional[Path],
 ) -> _FoldResult:
     spec = get_method_spec(method)
     args = _build_talent_args(
@@ -448,15 +408,6 @@ def _run_one_fold(
         n_trials=n_trials,
         save_path=str(checkpoint_dir),
     )
-
-    # Persist HPO config (per-fold merged JSON)
-    if tune and merged_hpo_config_path is not None:
-        save_fold_config_safely(
-            config_path=merged_hpo_config_path,
-            fold_id=fold_id,
-            hyperparameters=dict(run_result.config.get("model", {})),
-            n_trials=n_trials,
-        )
 
     # Build credit-risk metrics
     y_test = _to_numpy(test_data[2]["test"])
@@ -599,23 +550,16 @@ def run_talent_method(
         sampling=sampling,
     )
 
-    # Checkpoint root: persistent so SLURM job retries resume. Falls
-    # back to a tempdir if the project root is read-only.
+    # Checkpoint root: persistent so SLURM job retries resume. Each fold
+    # gets its own hashed subdir below; this is just the parent.
     config_base_dir = (
         Path(config_base_dir) if config_base_dir is not None else _PROJECT_ROOT
     )
-    base_config_dir = config_base_dir / "config_hpo"
+    checkpoints_root = config_base_dir / ".checkpoints" / task.lower() / dataset / method
     try:
-        base_config_dir.mkdir(parents=True, exist_ok=True)
+        checkpoints_root.mkdir(parents=True, exist_ok=True)
     except OSError:
-        base_config_dir = Path(tempfile.mkdtemp(prefix=f"talent_{dataset}_{method}_"))
-
-    mode_subdir = "HPO_PER_FOLD" if tune else "NO_HPO"
-    dataset_config_dir = base_config_dir / task.lower() / dataset / method / mode_subdir
-    dataset_config_dir.mkdir(parents=True, exist_ok=True)
-    merged_hpo_config_path = (
-        dataset_config_dir / f"{method}-all-folds.json" if tune else None
-    )
+        checkpoints_root = Path(tempfile.mkdtemp(prefix=f"talent_{dataset}_{method}_"))
 
     user_overrides: Dict[str, Any] = {}
     for attr, value in (
@@ -654,7 +598,7 @@ def run_talent_method(
         test_data = (N_test, C_test, y_test)
 
         checkpoint_dir = _stable_checkpoint_dir(
-            base=dataset_config_dir,
+            base=checkpoints_root,
             task=task, dataset=dataset, method=method,
             fold_id=fold_id, seed=seed,
             config=model_config or fit_config,
@@ -680,7 +624,6 @@ def run_talent_method(
                 evaluate_option=evaluate_option,
                 user_overrides=user_overrides,
                 checkpoint_dir=checkpoint_dir,
-                merged_hpo_config_path=merged_hpo_config_path,
             )
             results[fold_id] = fr.to_dict()
         except Exception:
@@ -717,6 +660,5 @@ __all__ = [
     "run_talent_method",
     "get_available_methods",
     "validate_method",
-    "save_fold_config_safely",
     "clear_folds_cache",
 ]

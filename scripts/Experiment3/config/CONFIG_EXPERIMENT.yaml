@@ -1,39 +1,28 @@
 # =============================================================================
-# CONFIG_EXPERIMENT.yaml - EXPERIMENT 3: CLASS IMBALANCE ANALYSIS
+# CONFIG_EXPERIMENT.yaml -- EXPERIMENT 3: CLASS IMBALANCE ANALYSIS
 # =============================================================================
-# Purpose: Evaluate how method performance varies with different minority class
-#          proportions (class imbalance levels).
-# Constraint: No HPO (Hyperparameter Optimization) - use default parameters.
+# Purpose: how robust are the best methods to severe class imbalance?
+# Constraint: no HPO. PD task only (LGD is regression).
+# Methods enabled (in CONFIG_METHOD.yaml): tabpfn_v3, tabicl_v2, xgboost, LogReg.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Standard Training Variables
+# Standard training knobs
 # -----------------------------------------------------------------------------
-max_epochs: 50                    # Maximum training epochs for deep methods
-batch_size: 255                   # Training batch size
-n_trials: 1                       # NO HPO - always 1 trial (use defaults)
-early_stopping: true              # Enable early stopping
-early_stopping_patience: 10       # Wait 10 epochs before stopping
+max_epochs: 50
+batch_size: 255
+n_trials: 1                       # NO HPO
+early_stopping: true
+early_stopping_patience: 10
 
 # -----------------------------------------------------------------------------
-# Class Imbalance Control Parameters
+# Imbalance sweep
 # -----------------------------------------------------------------------------
-# These control how we vary the minority class proportion to analyze
-# performance across different imbalance levels.
-#
-# Algorithm:
-#   1. Start: current = minority_proportion_max (most balanced)
-#   2. Iterate: Decrease by minority_proportion_step until min is reached
-#   3. For each minority_proportion: Resample dataset to achieve that ratio
-#   4. Run method and evaluate performance
-#
-# Example:
-#   minority_proportion_max=0.50, min=0.01, step=0.05
-#   -> Sequence: [0.50, 0.45, 0.40, 0.35, 0.30, 0.25, 0.20, 0.15, 0.10, 0.05, 0.01]
-#
-# NOTE: The sampling parameter in DataFeeder handles the actual resampling.
-#       It undersamples the majority class to achieve the target minority proportion.
+# We undersample the majority class until the minority proportion hits the
+# target. The sweep walks DOWN from `max` to `min` in increments of `step`.
+# Defaults (per your request): 0.15 -> 0.0025 in steps of 0.0005
+# (= 295 points per dataset, per method).
 # -----------------------------------------------------------------------------
-minority_proportion_max: 0.10    # Upper bound (most balanced - 50/50 split)
-minority_proportion_min: 0.0025    # Lower bound (highly imbalanced - 1% minority)
-minority_proportion_step: 0.0025   # Step size for decreasing minority proportion
+minority_proportion_max: 0.15
+minority_proportion_min: 0.0025
+minority_proportion_step: 0.0005

@@ -9,8 +9,8 @@
 #SBATCH --mem=100G
 #SBATCH --partition=gpu_a100
 #SBATCH --time=72:00:00
-#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment3/logs/slurm/foundation0_%A_%a.out
-#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment3/logs/slurm/foundation0_%A_%a.err
+#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment3/logs/foundation0_%A_%a.out
+#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment3/logs/foundation0_%A_%a.err
 #SBATCH --requeue
 #SBATCH --array=0-39%8
 

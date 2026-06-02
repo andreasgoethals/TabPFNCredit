@@ -9,8 +9,8 @@
 #SBATCH --cluster=wice
 #SBATCH --account=lp_verbekelab
 #SBATCH --nodes=1
-#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm/final0_%j.out
-#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/slurm/final0_%j.err
+#SBATCH --output=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/final0_%j.out
+#SBATCH --error=${VSC_DATA}/TabPFNCredit/results/experiment1/logs/final0_%j.err
 #SBATCH --time=48:00:00
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
