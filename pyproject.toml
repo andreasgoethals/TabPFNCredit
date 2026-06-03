@@ -1,44 +1,22 @@
 # ============================================================================
 # TabPFNCredit -- pyproject.toml
 # ----------------------------------------------------------------------------
-# Single source of truth for the runtime + optional dependencies. There are
-# exactly two install profiles:
+# Two install profiles -- pick ONE:
 #
-#   * `pip install -e ".[local]"`
-#       Everything you need to run on a local machine:
-#         - all runtime deps (TALENT, sklearn, polars, typer, ...)
-#         - CPU PyTorch + faiss-cpu (no CUDA required)
-#         - dev tools (pytest, ruff, black, isort, mypy, pre-commit, nbstripout)
-#         - portalocker (Windows-friendly cross-process file lock)
-#       Use this on a Windows / macOS / Linux workstation without a GPU,
-#       or with a GPU but where you only intend to develop / smoke-test.
+#   pip install -e ".[local]"   # CPU PyTorch + faiss-cpu + dev tools
+#   pip install -e ".[hpc]"     # CUDA 12.1 PyTorch + annoy + dev tools
 #
-# That's it. There is no [dev] or [all] profile -- both `local` and `hpc`
-# already include the dev tooling.
+# Python 3.10 - 3.12 supported, 3.12 recommended. 3.13 / 3.14 are blocked
+# (many scientific deps still lack wheels for them).
 #
-#   * `pip install -e ".[hpc]"`
-#       Everything you need to run on a SLURM-based HPC cluster:
-#         - all runtime deps
-#         - CUDA 12.1 PyTorch wheels (wICE H100 / A100; for older CUDA
-#           11.8 GPUs like Genius P100 add
-#           `--index-url https://download.pytorch.org/whl/cu118`)
-#         - annoy (replaces faiss-gpu, which on many clusters is
-#           installed as a module and must NOT be pip-installed)
-#         - dev tools (same as local) so we can run pytest on the cluster
-#         - portalocker (kept for parity)
-#
-# Python version -- 3.10 to 3.12 supported, 3.12 recommended.
-# Python 3.13/3.14 are blocked by `requires-python` because several
-# scientific deps (numpy < 2.1, scikit-learn < 1.7, hmeasure, ...) do
-# not ship wheels for them yet and the source builds fail.
+# Resolution time
+# ---------------
+# Foundation-model packages (tabpfn / tabicl / tabdpt) release weekly with
+# overlapping transitive deps -- if we leave their ranges open pip can
+# spend 30+ minutes backtracking. We therefore pin them to exact known-
+# good versions below. To bump one, change just that line + re-resolve.
 # ============================================================================
 
-# We use the hatchling build backend (PEP 660 editable installs) rather
-# than setuptools. setuptools writes a ``<package>.egg-info/`` directory
-# into the source tree on every ``pip install -e .`` and regenerates it
-# again on every subsequent run; hatchling skips that entirely and keeps
-# all install metadata in ``site-packages``. Net effect: no
-# ``tabpfncredit.egg-info/`` clutter next to the code.
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -48,12 +26,6 @@ name = "tabpfncredit"
 version = "0.3.0"
 description = "Benchmarking tabular foundation models for credit risk prediction."
 readme = "README.md"
-# Python 3.13+ lacks Cython-built wheels for several of our deps
-# (numpy < 2.1, scikit-learn < 1.7, hmeasure, msgpack-numpy, ...). Pip
-# then falls back to source builds that pull yanked numpy release
-# candidates and fail with a confusing error. We cap to <3.13 so users
-# get an immediate, readable "Python 3.13 / 3.14 not supported" message
-# from pip instead. **Recommended: Python 3.12.**
 requires-python = ">=3.10,<3.13"
 license = { file = "LICENSE.txt" }
 authors = [
@@ -81,12 +53,14 @@ classifiers = [
 # ----------------------------------------------------------------------------
 # Core runtime dependencies (always installed)
 # ----------------------------------------------------------------------------
+# Most pins are ranges; the foundation-model packages are EXACT pins on
+# purpose -- see the resolution-time comment at the top of the file.
 dependencies = [
-    # ---- Core scientific stack ----
-    "numpy>=1.26,<2.3",
+    # ---- Core scientific stack (avoid 1.x numpy / sklearn 1.4 on Py3.12) ----
+    "numpy>=2.0,<2.3",
     "pandas>=2.2,<3",
     "scipy>=1.13,<2",
-    "scikit-learn>=1.4,<2",
+    "scikit-learn>=1.5,<2",
     "pyarrow>=14,<22",
 
     # ---- TALENT framework deps ----
@@ -107,10 +81,15 @@ dependencies = [
     "lightgbm>=4.6,<5",
     "catboost>=1.2.8,<2",
 
-    # ---- Tabular foundation models (TALENT delegates) ----
-    "tabpfn>=8.0.0,<9",
-    "tabicl>=2.0.0,<3",
-    "tabdpt>=1.0,<2",
+    # ---- Tabular foundation models -- EXACT pins so pip never backtracks ----
+    "tabpfn==8.0.5",
+    "tabicl==2.1.1",
+    "tabdpt==1.1.14",
+    # tabdpt 1.1.14 transitively requires `omegaconf>=2.1`, `faiss-cpu<1.13`.
+    # Pinning omegaconf>=2.3 here avoids the antlr4 source-build fallback
+    # that pip would otherwise hit (antlr4-python3-runtime 4.8 has no wheel
+    # and takes minutes to compile from source).
+    "omegaconf>=2.3,<3",
 
     # ---- HPO ----
     "optuna>=3.6,<4",
@@ -141,11 +120,14 @@ dependencies = [
     # ---- Aggregation ----
     "polars>=1.0,<2",
 
-    # ---- Notebooks ----
-    "notebook>=7.0,<8",
+    # ---- Notebook kernel ----
+    # NOTE: we don't ship the full `notebook` / JupyterLab packages -- those
+    # pull in ~30 transitive deps (jupyter-server, tornado, ...) and slow
+    # resolution to a crawl. `ipykernel` is enough to register the venv
+    # as a Jupyter kernel; open the notebooks via VSCode's Jupyter
+    # extension, or `pip install notebook` separately if you need
+    # `jupyter notebook` on the CLI.
     "ipython>=8,<10",
-    # ipykernel is what `jupyter` actually runs inside each notebook;
-    # without it `jupyter notebook` opens but the kernel never starts.
     "ipykernel>=6,<7",
 
     # ---- TALENT (pin a commit SHA before archiving a release) ----
@@ -159,16 +141,12 @@ dependencies = [
 
 # Local-workstation profile -- CPU PyTorch + dev tools. Self-contained.
 local = [
-    # CPU PyTorch. If you have a CUDA GPU locally and want to use it, use
-    # the [vsc] extras instead -- they ship the CUDA wheels.
-    "torch>=2.1,<3",
-    "torchvision>=0.16,<1",
-    # tabdpt pins faiss-cpu<1.13 transitively; we therefore cap below
-    # 1.13 to keep the resolver happy. The range still covers the
-    # versions that TALENT's TabR retrieval indexer was tested on.
+    # Torch 2.4 / 2.5 ship Py3.12 wheels and are tested with TALENT.
+    "torch>=2.4,<2.6",
+    "torchvision>=0.19,<0.21",
     "faiss-cpu>=1.11,<1.13",
     "portalocker>=2.8,<3",
-    # Dev tools (tests + lint + format + pre-commit + notebook output strip)
+    # Dev tools
     "pytest>=8,<9",
     "pytest-xdist>=3,<4",
     "ruff>=0.5,<1",
@@ -179,23 +157,19 @@ local = [
     "mypy>=1.10,<2",
 ]
 
-# HPC-cluster profile -- CUDA PyTorch + annoy + dev tools.
-# Self-contained.
+# HPC-cluster profile -- CUDA PyTorch + annoy + dev tools. Self-contained.
 hpc = [
-    # GPU PyTorch -- defaults to CUDA 12.1 wheels (e.g. KU Leuven wICE
-    # H100 / A100). For older CUDA 11.8 GPUs (e.g. Genius P100) override
+    # CUDA 12.1 PyTorch wheels by default. For CUDA 11.8 GPUs override
     # the wheel index:
     #     pip install -e ".[hpc]" --index-url https://download.pytorch.org/whl/cu118
-    "torch>=2.4,<3",
-    "torchvision>=0.19,<1",
-    "torchaudio>=2.4,<3",
-    # `faiss-gpu` is typically installed as a cluster module; do not
-    # pip-install it. Annoy is the lightweight alternative for the
-    # TabR retrieval index.
+    "torch>=2.4,<2.6",
+    "torchvision>=0.19,<0.21",
+    "torchaudio>=2.4,<2.6",
+    # `faiss-gpu` is typically a cluster module on HPC; never pip-install.
+    # Annoy is the lightweight alternative for the TabR retrieval index.
     "annoy>=1.17,<2",
-    # Portable file-lock (works under fcntl AND Windows -- kept for parity).
     "portalocker>=2.8,<3",
-    # Dev tools -- same set as [local], so pytest + lint work on the cluster.
+    # Dev tools (same as local).
     "pytest>=8,<9",
     "pytest-xdist>=3,<4",
     "ruff>=0.5,<1",
@@ -217,20 +191,14 @@ tabpfncredit = "src.cli:app"
 # Package discovery (hatchling)
 # ----------------------------------------------------------------------------
 # Ship the ``src/`` directory verbatim in the wheel so ``import src.X``
-# works after install. The ``scripts/`` tree (YAML configs + generated
-# SLURM scripts) is intentionally NOT packaged -- the CLI resolves it
-# relative to the source repo via ``Path(__file__).resolve().parents[2]``,
-# which is the right behaviour for the only install mode we support
-# (editable via ``pip install -e ".[...]"``).
+# works after install. The ``scripts/`` tree is intentionally NOT
+# packaged -- the CLI resolves it relative to the source repo via
+# ``Path(__file__).resolve().parents[2]``, which is the right behaviour
+# for the only install mode we support (editable ``pip install -e .``).
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
-# TALENT is installed via a ``git+`` URL (a PEP 440 "direct reference").
-# Setuptools allowed direct references silently; hatchling refuses them
-# by default for supply-chain reasons. We opt in here because TALENT is
-# our own benchmark dependency and pulling it straight from GitHub is
-# intentional. Pin a commit SHA in the ``TALENT @ git+...`` line of
-# ``[project].dependencies`` before archiving a release.
+# Allow ``TALENT @ git+...`` direct-reference deps.
 [tool.hatch.metadata]
 allow-direct-references = true
 
