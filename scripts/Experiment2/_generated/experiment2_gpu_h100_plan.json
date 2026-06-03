@@ -1,0 +1,144 @@
+{
+  "slots": [
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ]
+  ]
+}

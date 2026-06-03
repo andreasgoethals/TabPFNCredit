@@ -597,6 +597,30 @@ def run_talent_method(
         train_val_data = (N_train_val, C_train_val, y_train_val)
         test_data = (N_test, C_test, y_test)
 
+        # Class-balance trace for binary classification -- crucial for
+        # Experiment 3 (imbalance sweep), but useful in every PD run.
+        if not is_regression:
+            try:
+                train_y = np.asarray(y["train"]).astype(int).ravel()
+                val_y = np.asarray(y["val"]).astype(int).ravel()
+                test_y_arr = np.asarray(y["test"]).astype(int).ravel()
+                logger.info(
+                    "[%s] fold %d class balance "
+                    "(train pos/total %d/%d = %.4f) "
+                    "(val pos/total %d/%d = %.4f) "
+                    "(test pos/total %d/%d = %.4f)",
+                    method, fold_id,
+                    int((train_y == 1).sum()), len(train_y),
+                    float(train_y.mean()) if len(train_y) else float("nan"),
+                    int((val_y == 1).sum()), len(val_y),
+                    float(val_y.mean()) if len(val_y) else float("nan"),
+                    int((test_y_arr == 1).sum()), len(test_y_arr),
+                    float(test_y_arr.mean()) if len(test_y_arr) else float("nan"),
+                )
+            except Exception:
+                # Defensive -- don't let a malformed y kill the run.
+                pass
+
         checkpoint_dir = _stable_checkpoint_dir(
             base=checkpoints_root,
             task=task, dataset=dataset, method=method,

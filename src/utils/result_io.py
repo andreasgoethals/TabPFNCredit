@@ -1,29 +1,40 @@
-"""Result storage: one JSON + one .npz per ``(experiment, task, dataset, method)``.
+"""Result storage: one JSON + one .npz per (experiment, task, dataset, method[, sweep_point]).
 
 Layout
 ------
-::
+Base layout::
 
     results/<experiment>/<task>/<dataset>/<method>.json
     results/<experiment>/<task>/<dataset>/<method>.npz
 
-The JSON is the human-readable record: per-fold metrics, threshold,
-fit/predict times, HPO flag, dataset info, and an aggregated metric
-summary across folds. The npz holds the per-fold arrays
-(``y_true``, ``y_proba``, ``y_pred``) keyed by fold id.
+For experiments that sweep an extra axis (Experiment 1 sweeps HPO mode,
+Experiment 2 sweeps ``row_limit``, Experiment 3 sweeps
+``minority_proportion``), the sweep point is appended to the method
+name with ``__`` so every sweep point still gets its own pair::
 
-Rationale: each SLURM array task writes ONE pair of files for its
-``(dataset, method)`` slot. No two array slots ever touch the same file,
-so file locks are not required for the result writes -- a major
-simplification over the old monolithic per-dataset pickle.
+    results/experiment1/pd/0001.gmsc/xgboost.json            # NO_HPO
+    results/experiment1/pd/0001.gmsc/xgboost__HPO.json       # HPO
+    results/experiment2/pd/<dataset>/tabpfn_v3__row20000.json
+    results/experiment3/pd/<dataset>/tabicl_v2__min0p1500.json
+
+Use :func:`build_method_name` to construct the right suffix.
+
+Rationale
+---------
+Each SLURM array task writes ONE pair of files for its slot. No two
+array slots ever touch the same file, so file locks are not required
+for the result writes -- a major simplification over the old monolithic
+per-dataset pickle.
 
 Public API
 ----------
-* :func:`save_method` -- write the JSON + npz for one ``(dataset, method)``.
+* :func:`save_method` -- write the JSON + npz for one (dataset, method[, sweep_point]).
 * :func:`load_method` -- inverse: returns ``{fold_id: fold_dict}``.
+* :func:`has_complete_result` -- skip helper for resumable re-runs.
 * :func:`scan_results` -- yield ``(experiment, task, dataset, method, payload)``
-  tuples for every result file under a results root. Used by
-  ``summarize_results_polars``.
+  tuples for every result file under a results root.
+* :func:`build_method_name` -- ``(method, sweep_axis, sweep_value)`` -> filename stem.
+* :func:`parse_method_name` -- inverse: split ``"xgboost__row20000"`` into parts.
 """
 
 from __future__ import annotations
@@ -218,4 +229,125 @@ def _to_jsonable(obj: Any) -> Any:
         return str(obj)
 
 
-__all__ = ["save_method", "load_method", "scan_results"]
+def has_complete_result(
+    *,
+    base: Path,
+    experiment: str,
+    task: str,
+    dataset: str,
+    method: str,
+    expected_folds: int,
+) -> bool:
+    """Return True iff a ``<method>.json`` with ``expected_folds`` folds exists.
+
+    Used by every experiment driver to **skip** (dataset, method) cells that
+    already have complete results -- so re-running an experiment over a
+    partial sweep is safe.
+    """
+    json_path, _ = _result_paths(base, experiment, task, dataset, method)
+    if not json_path.exists():
+        return False
+    try:
+        payload = json.loads(json_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    folds = payload.get("folds") or {}
+    return len(folds) >= int(expected_folds)
+
+
+# ============================================================================
+#  Sweep-suffix helpers (Experiment 1 HPO mode / Exp 2 row_limit / Exp 3 minority_proportion)
+# ============================================================================
+#
+# We keep the "one file per (dataset, method) cell" invariant by encoding any
+# sweep axis as a suffix on the method name. Two suffixes can be combined
+# (e.g. `xgboost__HPO__row20000`) when an experiment varies BOTH HPO and a
+# sweep axis, but typically only one applies at a time.
+
+_SWEEP_SEPARATOR = "__"
+
+
+def _format_sweep_value(axis: str, value: Any) -> str:
+    """Encode a sweep-point value into a filename-safe suffix.
+
+    Rules:
+      * Integers and bools render as themselves (`row20000`, `HPO`).
+      * Floats render with the decimal replaced by ``p`` and four significant
+        digits (`min0p1500`, `min0p0025`) so ordering is intuitive.
+      * Strings render as-is.
+    """
+    if isinstance(value, bool):
+        return f"{axis}{int(value)}"
+    if isinstance(value, int):
+        return f"{axis}{value}"
+    if isinstance(value, float):
+        # 4 sig figs, decimal -> 'p' (filesystem-safe)
+        return f"{axis}{value:.4f}".replace(".", "p").rstrip("0").rstrip("p") + (
+            "" if value != int(value) else "p0"
+        )
+    return f"{axis}{value}"
+
+
+def build_method_name(method: str, sweep: Optional[Mapping[str, Any]] = None) -> str:
+    """Compose a filename stem from ``method`` and an optional sweep dict.
+
+    Example::
+
+        >>> build_method_name("xgboost", {"row": 20000})
+        'xgboost__row20000'
+        >>> build_method_name("tabicl_v2", {"min": 0.0025})
+        'tabicl_v2__min0p0025'
+        >>> build_method_name("xgboost", {"HPO": True})
+        'xgboost__HPO1'
+    """
+    if not sweep:
+        return method
+    suffixes = []
+    for axis in sorted(sweep):
+        value = sweep[axis]
+        if axis.upper() == "HPO" and value is True:
+            suffixes.append("HPO")
+        elif axis.upper() == "HPO" and value is False:
+            continue  # NO_HPO is the default; no suffix
+        else:
+            suffixes.append(_format_sweep_value(axis, value))
+    if not suffixes:
+        return method
+    return method + _SWEEP_SEPARATOR + _SWEEP_SEPARATOR.join(suffixes)
+
+
+def parse_method_name(filename_stem: str) -> Dict[str, Any]:
+    """Inverse of :func:`build_method_name`.
+
+    Returns ``{"method": <base>, "sweep": {axis: value, ...}}``. Unknown
+    suffixes are returned verbatim as strings (the summariser keeps them).
+    """
+    parts = filename_stem.split(_SWEEP_SEPARATOR)
+    base = parts[0]
+    sweep: Dict[str, Any] = {}
+    for piece in parts[1:]:
+        if piece == "HPO":
+            sweep["HPO"] = True
+            continue
+        # axisNNN or axisNpMMM -- split on first digit
+        for i, ch in enumerate(piece):
+            if ch.isdigit():
+                axis = piece[:i]
+                rest = piece[i:]
+                try:
+                    if "p" in rest:
+                        sweep[axis] = float(rest.replace("p", "."))
+                    else:
+                        sweep[axis] = int(rest)
+                except ValueError:
+                    sweep[axis] = rest
+                break
+        else:
+            sweep[piece] = True
+    return {"method": base, "sweep": sweep}
+
+
+__all__ = [
+    "save_method", "load_method", "scan_results", "has_complete_result",
+    "build_method_name", "parse_method_name",
+]

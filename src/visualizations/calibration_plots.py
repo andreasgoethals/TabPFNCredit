@@ -10,8 +10,13 @@ Two entry points:
 * :func:`reliability_diagram` -- single (method, fold) confidence-vs-accuracy plot.
 * :func:`reliability_grid` -- one diagram per method, side-by-side, for a benchmark sweep.
 
-Both write to ``figures/<experiment>/<task>/<dataset>/`` by default and
-return the file path so notebooks can ``IPython.display.Image(path)``.
+Saving
+------
+Both write to ``figures/<experiment>/<task>/<dataset>/`` by default. The
+saved file is always a PDF -- any extension passed via ``out_path`` is
+normalised to ``.pdf``. The figure is additionally rendered inline via
+``IPython.display.display(fig)`` (no-op outside Jupyter) and then closed
+to free memory across long notebook loops.
 """
 
 from __future__ import annotations
@@ -28,6 +33,28 @@ import numpy as np
 def _ensure_dir(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _persist_and_display(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
+    """Save ``fig`` to ``out_path`` (forced ``.pdf``), display inline, then close.
+
+    * ``out_path`` is normalised with ``.with_suffix(".pdf")`` so callers
+      can pass any extension and still get a PDF on disk.
+    * Inline display uses :func:`IPython.display.display` which is a no-op
+      outside Jupyter.
+    """
+    saved: Optional[Path] = None
+    if out_path is not None:
+        saved = Path(out_path).with_suffix(".pdf")
+        _ensure_dir(saved)
+        fig.savefig(saved, bbox_inches="tight")
+    try:
+        from IPython.display import display
+        display(fig)
+    except Exception:
+        pass
+    plt.close(fig)
+    return saved
 
 
 def reliability_diagram(
@@ -87,11 +114,9 @@ def reliability_diagram(
     ax.legend(loc="upper left", fontsize=8)
     ax.grid(True, alpha=0.3)
 
-    if out_path is not None and own_fig:
+    if own_fig:
         plt.tight_layout()
-        plt.savefig(_ensure_dir(out_path), dpi=150)
-        plt.close(fig)
-        return out_path
+        return _persist_and_display(fig, out_path)
     return None
 
 
@@ -102,10 +127,11 @@ def reliability_grid(
     out_path: Path,
     ncols: int = 4,
     suptitle: str = "Reliability diagrams",
-) -> Path:
+) -> Optional[Path]:
     """Plot a grid of reliability diagrams, one per method.
 
     ``runs`` maps method-name to a dict with keys ``y_true`` and ``y_proba``.
+    Saves a single PDF, displays inline in Jupyter, then closes the figure.
     """
     items = list(runs.items())
     ncols = max(1, min(ncols, len(items)))
@@ -121,9 +147,7 @@ def reliability_grid(
         ax.set_visible(False)
     fig.suptitle(suptitle, fontsize=14)
     plt.tight_layout()
-    plt.savefig(_ensure_dir(out_path), dpi=150)
-    plt.close(fig)
-    return out_path
+    return _persist_and_display(fig, out_path)
 
 
 __all__ = ["reliability_diagram", "reliability_grid"]

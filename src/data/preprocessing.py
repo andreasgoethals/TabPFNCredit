@@ -53,9 +53,11 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
         Metadata about dataset
     """
 
-    # Ensure directory hierarchy exists: processed/{task}/{dataset}/
+    # NOTE: do NOT create the directory eagerly. If preprocessing fails
+    # (e.g. wrong task for a dataset), the empty dir would survive and
+    # confuse `list_processed_datasets` into reporting a non-existent
+    # dataset. We only create the directory just before writing files.
     dataset_dir = PROC_DIR / task / dataset
-    dataset_dir.mkdir(parents=True, exist_ok=True)
 
     # ----------------------------------------------------------
     # 1. Load cached version if available
@@ -74,8 +76,13 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # ----------------------------------------------------------
     logger.info(f"  Preprocessing {dataset} ({task}) from raw files...")
 
-    # Delegate dataset-specific cleaning (no statistical operations that cause leakage)
+    # Delegate dataset-specific cleaning (raises FileNotFoundError if the
+    # raw file doesn't exist for this task; we deliberately let that
+    # propagate so callers know the dataset is misconfigured).
     df, target_col, cat_cols, num_cols = preprocess_dataset_specific(task, dataset, raw_dir=None)
+
+    # Preprocessing succeeded -- safe to create the destination directory.
+    dataset_dir.mkdir(parents=True, exist_ok=True)
 
     # ----------------------------------------------------------
     # Extract target and features

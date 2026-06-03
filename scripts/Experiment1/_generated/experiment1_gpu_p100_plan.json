@@ -1,0 +1,2076 @@
+{
+  "slots": [
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0001.gmsc",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0001.gmsc",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0004.lendingclub",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0004.lendingclub",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0005.myhom",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0005.myhom",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0006.hackerearth",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0006.hackerearth",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0007.cobranded",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0007.cobranded",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0008.german",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0008.german",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0009.bank_status",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0009.bank_status",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0010.thomas",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0010.thomas",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0011.loan_default",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0011.loan_default",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0012.home_credit",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0012.home_credit",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0013.hmeq",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0013.hmeq",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "amformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "autoint",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "danets",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "dcn2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "excelformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "ftt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "mlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "mlp_plr",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "realmlp",
+        "task": "pd"
+      },
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "snn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "switchtab",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "t2gformer",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabm",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabnet",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tangos",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0001.heloc",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0001.heloc",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0002.loss2",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0002.loss2",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0003.axa",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0003.axa",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0004.base_model",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0004.base_model",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "autoint",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "dcn2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "excelformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "ftt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "mlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "mlp_plr",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "modernNCA",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "ptarl",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "realmlp",
+        "task": "lgd"
+      },
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "resnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "t2gformer",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabm",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabnet",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tangos",
+        "task": "lgd"
+      }
+    ]
+  ]
+}

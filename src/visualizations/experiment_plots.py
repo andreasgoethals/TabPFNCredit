@@ -8,10 +8,12 @@ Each ``notebooks/Experiment*.ipynb`` used to carry near-duplicate
 6 notebooks). They are now consolidated here, with the notebooks reduced
 to ``df = load_summary(...)``-then-``plot_xxx(df, ...)`` calls.
 
-All functions return ``(Figure, list[Path])`` -- the figure for inline
-display and the list of saved file paths (PDF + PNG by default). Saving
-defaults to ``figures/<task>/<plot_name>.pdf`` so the figure tree mirrors
-the result tree.
+All functions return the saved PDF path (or ``None`` when no output
+directory is supplied). The figure is also rendered inline via
+``IPython.display.display(fig)`` so notebook cells show it right at
+the call site, and then closed to keep memory in check across loops.
+Saving defaults to ``figures/<task>/<plot_name>.pdf`` so the figure
+tree mirrors the result tree.
 
 Public surface
 --------------
@@ -67,6 +69,27 @@ def apply_style(rc: Optional[dict] = None, sns_style: str = "whitegrid") -> None
     sns.set_style(sns_style)
 
 
+def reset_figure_dir(figures_dir: Path) -> Path:
+    """Delete all PNG / PDF / SVG files under ``figures_dir`` and recreate it.
+
+    Used at the top of every Experiment notebook so re-running the
+    notebook gives a clean output set rather than mixing old + new
+    figures. Subdirectories are recursively cleared too.
+    """
+    import shutil
+    figures_dir = Path(figures_dir)
+    if figures_dir.exists():
+        for path in figures_dir.rglob("*"):
+            if path.is_file() and path.suffix.lower() in {".png", ".pdf", ".svg", ".jpg", ".jpeg"}:
+                path.unlink()
+        # Remove now-empty subdirectories
+        for sub in sorted(figures_dir.rglob("*"), reverse=True):
+            if sub.is_dir() and not any(sub.iterdir()):
+                sub.rmdir()
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    return figures_dir
+
+
 # ---------------------------------------------------------------------------
 #  Summary loaders
 # ---------------------------------------------------------------------------
@@ -103,7 +126,7 @@ def performance_heatmap(
     cmap: str = "RdYlGn",
     figsize: Tuple[int, int] = (24, 8),
     out_dir: Optional[Path] = None,
-) -> Tuple[plt.Figure, List[Path]]:
+) -> Optional[Path]:
     """Datasets x methods heatmap of ``metric`` (mean across folds).
 
     The ``df`` must expose either ``{metric}_mean`` (polars summary) or
@@ -136,8 +159,7 @@ def performance_heatmap(
     ax.set_xlabel("Method", fontsize=12, fontweight="bold")
     ax.set_ylabel("Dataset", fontsize=12, fontweight="bold")
     plt.tight_layout()
-    paths = _save(fig, out_dir, f"{task_name.lower()}_heatmap_{metric.lower()}")
-    return fig, paths
+    return _save(fig, out_dir, f"{task_name.lower()}_heatmap_{metric.lower()}")
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +174,7 @@ def method_ranking_bars(
     higher_is_better: bool = True,
     figsize: Tuple[int, int] = (14, 8),
     out_dir: Optional[Path] = None,
-) -> Tuple[plt.Figure, List[Path]]:
+) -> Optional[Path]:
     """Bar chart: each method's mean rank across datasets for ``metric``."""
     mean_col = _resolve_mean_column(df, metric)
     pivot = df.pivot(index="dataset", columns="method", values=mean_col)
@@ -166,8 +188,7 @@ def method_ranking_bars(
     ax.set_xlabel(f"Mean rank ({metric}; lower is better)", fontsize=12, fontweight="bold")
     ax.set_title(f"{task_name} method ranking by {metric}", fontsize=14, fontweight="bold")
     plt.tight_layout()
-    paths = _save(fig, out_dir, f"{task_name.lower()}_ranking_{metric.lower()}")
-    return fig, paths
+    return _save(fig, out_dir, f"{task_name.lower()}_ranking_{metric.lower()}")
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +203,7 @@ def per_dataset_bars(
     figsize: Tuple[int, int] = (24, 10),
     methods: Optional[Sequence[str]] = None,
     out_dir: Optional[Path] = None,
-) -> Tuple[plt.Figure, List[Path]]:
+) -> Optional[Path]:
     """Grouped bar chart with one bar per (dataset, method)."""
     mean_col = _resolve_mean_column(df, metric)
     sub = df[["dataset", "method", mean_col]].copy()
@@ -195,8 +216,7 @@ def per_dataset_bars(
     ax.set_title(f"{task_name} per-dataset {metric}", fontsize=14, fontweight="bold")
     ax.legend(loc="upper right", bbox_to_anchor=(1.18, 1.0), fontsize=9)
     plt.tight_layout()
-    paths = _save(fig, out_dir, f"{task_name.lower()}_per_dataset_{metric.lower()}")
-    return fig, paths
+    return _save(fig, out_dir, f"{task_name.lower()}_per_dataset_{metric.lower()}")
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +234,7 @@ def _curve(
     figsize: Tuple[int, int],
     out_dir: Optional[Path],
     plot_name: str,
-) -> Tuple[plt.Figure, List[Path]]:
+) -> Optional[Path]:
     mean_col = _resolve_mean_column(df, metric)
     pivot = df.pivot_table(index=x_col, columns="method", values=mean_col, aggfunc="mean")
     fig, ax = plt.subplots(figsize=figsize)
@@ -225,8 +245,7 @@ def _curve(
     ax.set_title(title, fontsize=14, fontweight="bold")
     ax.legend(loc="best", fontsize=8, ncol=2)
     plt.tight_layout()
-    paths = _save(fig, out_dir, plot_name)
-    return fig, paths
+    return _save(fig, out_dir, plot_name)
 
 
 def learning_curve(
@@ -236,7 +255,7 @@ def learning_curve(
     task_name: str = "PD",
     figsize: Tuple[int, int] = (14, 8),
     out_dir: Optional[Path] = None,
-) -> Tuple[plt.Figure, List[Path]]:
+) -> Optional[Path]:
     """Experiment 2: ``metric`` vs training rows."""
     return _curve(
         df, x_col="row_limit", metric=metric, task_name=task_name,
@@ -253,7 +272,7 @@ def imbalance_curve(
     task_name: str = "PD",
     figsize: Tuple[int, int] = (14, 8),
     out_dir: Optional[Path] = None,
-) -> Tuple[plt.Figure, List[Path]]:
+) -> Optional[Path]:
     """Experiment 3: ``metric`` vs minority-class proportion."""
     return _curve(
         df, x_col="minority_proportion", metric=metric, task_name=task_name,
@@ -277,22 +296,39 @@ def _resolve_mean_column(df: pd.DataFrame, metric: str) -> str:
     )
 
 
-def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> List[Path]:
-    """Persist ``fig`` to ``{out_dir}/{stem}.{pdf,png}`` and return both paths."""
-    if out_dir is None:
-        return []
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    paths: List[Path] = []
-    for ext in ("pdf", "png"):
-        path = out_dir / f"{stem}.{ext}"
-        fig.savefig(path, dpi=150, bbox_inches="tight")
-        paths.append(path)
-    return paths
+def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> Optional[Path]:
+    """Save ``fig`` to ``{out_dir}/{stem}.pdf`` AND display inline in Jupyter.
+
+    Behaviour
+    ---------
+    * Saves a single PDF (no PNG).
+    * Calls ``IPython.display.display(fig)`` so the figure renders right
+      at the call site inside a notebook. Outside Jupyter the call is
+      a harmless no-op.
+    * Closes the figure to free memory (important when notebooks loop
+      over many datasets calling these helpers in sequence).
+
+    Returns the saved path, or ``None`` if ``out_dir`` is ``None``.
+    """
+    saved: Optional[Path] = None
+    if out_dir is not None:
+        out_dir = Path(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        saved = out_dir / f"{stem}.pdf"
+        fig.savefig(saved, bbox_inches="tight")
+    # Inline display inside Jupyter; no-op elsewhere.
+    try:
+        from IPython.display import display
+        display(fig)
+    except Exception:
+        pass
+    plt.close(fig)
+    return saved
 
 
 __all__ = [
     "apply_style",
+    "reset_figure_dir",
     "load_summary",
     "performance_heatmap",
     "method_ranking_bars",

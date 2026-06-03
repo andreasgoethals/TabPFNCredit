@@ -22,7 +22,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.utils.config_reader import load_config
 from src.utils.storage_handler import StorageHandler
 from src.utils.logging_setup import configure_task_logging, task_timer
-from src.utils.result_io import save_method
+from src.utils.result_io import has_complete_result, save_method
 from src.methods.method_runner import run_talent_method
 from src.methods.method_config import NO_HPO_METHODS
 
@@ -85,10 +85,16 @@ def run_single_method(
     # ==========================================
     result_file = experiment_path / task_type / f"{dataset}.pkl"
     
-    # Skip if a per-(dataset, method) JSON already exists with all folds.
-    method_json = experiment_path / task_type / dataset / f"{method}.json"
-    if method_json.exists():
-        logger.info("Already completed (%s); skipping", method_json)
+    # Skip if a complete per-(dataset, method) result already exists.
+    if has_complete_result(
+        base=experiment_path.parent,
+        experiment=experiment_name,
+        task=task_type,
+        dataset=dataset,
+        method=method,
+        expected_folds=config["split"]["cv_splits"],
+    ):
+        logger.info("Already completed; skipping %s/%s/%s", task_type, dataset, method)
         return
     
     # ==========================================

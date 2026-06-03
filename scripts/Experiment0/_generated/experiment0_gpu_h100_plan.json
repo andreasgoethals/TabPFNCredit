@@ -1,0 +1,1180 @@
+{
+  "slots": [
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.gmsc",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.taiwan_creditcard",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.vehicle_loan",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.lendingclub",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.myhom",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.hackerearth",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.cobranded",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0008.german",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0009.bank_status",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0010.thomas",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0011.loan_default",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0012.home_credit",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0013.hmeq",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "mitra",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabdpt",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabicl",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabicl_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabpfn",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabpfn_real",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabpfn_v2",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabpfn_v2_5",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0014.algorithmwatch",
+        "method": "tabpfn_v3",
+        "task": "pd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0001.heloc",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0002.loss2",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0003.axa",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0004.base_model",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0005.base_modelisation",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0006.lgd_freddie",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "mitra",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabdpt",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabicl_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabpfn_v2",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabpfn_v2_5",
+        "task": "lgd"
+      }
+    ],
+    [
+      {
+        "dataset": "0007.lgd_lendingclub",
+        "method": "tabpfn_v3",
+        "task": "lgd"
+      }
+    ]
+  ]
+}
