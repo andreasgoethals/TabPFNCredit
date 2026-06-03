@@ -200,20 +200,38 @@ _PROLOGUE = dedent(
     # Memory-fragmentation mitigation for long-running PyTorch jobs.
     export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-    # VSC: never load modules in ~/.bashrc; do it here.
+    # HPC convention: never load modules in ~/.bashrc; do it here.
     module --force purge
 
-    # Activate the conda env (the docs prefer Miniforge but the repo's
-    # legacy env is fine -- we just keep it working).
-    if [ -d "${VSC_DATA}/miniforge3" ]; then
-        source "${VSC_DATA}/miniforge3/etc/profile.d/conda.sh"
-    else
-        source "${VSC_DATA}/miniconda3/etc/profile.d/conda.sh"
+    # Load the cluster's Python module so that the venv's interpreter
+    # symlinks resolve on the compute node. The default below is the
+    # KU Leuven VSC 2024a toolchain; override per cluster by exporting
+    # ``TABPFN_PYTHON_MODULE`` before submitting:
+    #     export TABPFN_PYTHON_MODULE="Python/3.12.x-GCCcore-XX.X.X"
+    # On your own cluster: ``module spider Python/3.12`` to find names.
+    : "${TABPFN_PYTHON_MODULE:=Python/3.12.3-GCCcore-13.3.0}"
+    if [ -n "${TABPFN_PYTHON_MODULE}" ]; then
+        module load "${TABPFN_PYTHON_MODULE}" 2>/dev/null || \
+            echo "WARN: could not module load ${TABPFN_PYTHON_MODULE}" >&2
     fi
-    conda activate TabPFNCredit
 
-    # Conda's C++ runtime (avoids glibc++ mismatches on VSC nodes).
-    export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+    # Activate the project's Python env. Prefer a plain ``python -m venv``
+    # at the repo root (fast to create, no conda solver) and fall back to
+    # a conda env named ``tabpfncreditvenv`` if that's what you set up.
+    if [ -f "${VSC_DATA}/TabPFNCredit/tabpfncreditvenv/bin/activate" ]; then
+        source "${VSC_DATA}/TabPFNCredit/tabpfncreditvenv/bin/activate"
+    elif command -v conda >/dev/null 2>&1 || [ -d "${VSC_DATA}/miniforge3" ] || [ -d "${VSC_DATA}/miniconda3" ]; then
+        if [ -d "${VSC_DATA}/miniforge3" ]; then
+            source "${VSC_DATA}/miniforge3/etc/profile.d/conda.sh"
+        else
+            source "${VSC_DATA}/miniconda3/etc/profile.d/conda.sh"
+        fi
+        conda activate tabpfncreditvenv 2>/dev/null || conda activate TabPFNCredit
+        export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+    else
+        echo "ERROR: no Python env found (looked for tabpfncreditvenv venv and conda)." >&2
+        exit 1
+    fi
     """
 )
 
