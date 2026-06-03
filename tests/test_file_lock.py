@@ -1,7 +1,10 @@
-"""Tests for src.utils.file_lock + the read-modify-write race in remove_results.
+"""Tests for src.utils.file_lock + src.utils.result_io.save_method.
 
-Specifically covers the bug fixed in remove_results.py: concurrent
-writers should not lose updates when modifying the same pickle file.
+The FileLock test spawns N concurrent writers and checks that no
+updates are lost. The lock is still needed for the rare HPO trial-
+history append (the per-(dataset, method) result JSON is single-writer
+by construction). The save_method test pins the JSON+npz round-trip
+contract.
 """
 
 from __future__ import annotations

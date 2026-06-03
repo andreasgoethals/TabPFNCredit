@@ -1,72 +1,52 @@
 # ============================================================
-# CONFIG_DATA.yaml
+# CONFIG_DATA.yaml -- EXPERIMENT 2: LEARNING-CURVE SWEEP
 # ============================================================
-# This configuration file defines:
-#   1. How datasets are split into train/validation/test sets
-#   2. Where the PD and LGD data folders are located (relative paths)
-#   3. Which Probability of Default (PD) and Loss Given Default (LGD)
-#      datasets should be included in the experiment
+# Experiment 2 sweeps the training-set size (`row_limit`) for a small
+# set of methods. To keep the sweep meaningful we restrict to the
+# larger datasets only -- datasets too small for a learning curve are
+# automatically excluded.
 #
-# NOTE:
-# - All paths are relative to the repository root.
-# - Toggle datasets on/off with `true` or `false`.
-# - The task type (PD, LGD, BOTH) will be automatically inferred
-#   based on which datasets are enabled below.
+# Selection rule
+# --------------
+# Instead of toggling each dataset by hand, this experiment selects
+# datasets by *minimum row count*:
+#
+#   * PD  : every dataset with >= 30,000 rows
+#   * LGD : every dataset with >= 4,600 rows
+#
+# (Read: ``min_rows`` is the *inclusive* lower bound. Writing
+# ``min_rows: 30000`` means "30,000 rows or more".)
+#
+# To switch back to per-dataset toggles, replace ``min_rows`` with a
+# regular ``{dataset_name: true/false}`` dict (see Experiment 0 / 1
+# configs for the toggle format).
 # ============================================================
 
 # ------------------------------------------------------------
 # Split configuration
 # ------------------------------------------------------------
 split:
-  test_size: 0.2      # Fraction of full data reserved for testing, only used if CV splits = 1
+  test_size: 0.2      # Only used if cv_splits == 1
   val_size: 0.2       # Fraction of train data used for validation
   cv_splits: 5        # Number of cross-validation folds (1 = no CV)
   seed: 42            # Random seed for reproducibility
-  row_limit: null      # Max number of rows to load from each dataset (null = all rows)
-#                       This is the total number of rows before any test/train or cv split.
+  row_limit: null     # The learning-curve sweep overrides this per point.
 
 # ------------------------------------------------------------
 # Folder paths
 # ------------------------------------------------------------
 paths:
-  # The following paths should point to the folders containing
-  # the raw PD and LGD datasets.
   pd_dir: "data/raw/pd"
   lgd_dir: "data/raw/lgd"
 
 # ------------------------------------------------------------
-# Probability of Default (PD) datasets
+# Probability of Default (PD) datasets -- min-rows filter
 # ------------------------------------------------------------
 dataset_pd:
-  # Enable or disable datasets here.
-  0001.gmsc: true               # Give Me Some Credit dataset
-  0002.taiwan_creditcard: true  # Taiwan Credit Card dataset
-  0003.vehicle_loan: true
-  0004.lendingclub: false
-  0005.myhom: false
-  0006.hackerearth: true
-  0007.cobranded: true
-  0008.german: false
-  0009.bank_status: true
-  0010.thomas: false
-  0011.loan_default: true
-  0012.home_credit: false
-  0013.hmeq: false
-  0014.algorithmwatch: true
+  min_rows: 30000
 
 # ------------------------------------------------------------
-# Loss Given Default (LGD) datasets
+# Loss Given Default (LGD) datasets -- min-rows filter
 # ------------------------------------------------------------
 dataset_lgd:
-  # These datasets correspond to LGD regression tasks.
-  0001.heloc: true
-  0002.loss2: false
-  0003.axa: false
-  0004.base_model: false
-  0005.base_modelisation: false
-  0006.lgd_freddie: true
-  0007.lgd_lendingclub: false
-
-
-
-
+  min_rows: 4600

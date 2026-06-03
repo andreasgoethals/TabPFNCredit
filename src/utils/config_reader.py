@@ -172,6 +172,42 @@ def _read_yaml(path: Path) -> Dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _resolve_dataset_block(task: str, block: Any) -> Dict[str, bool]:
+    """Turn a ``dataset_pd`` / ``dataset_lgd`` YAML block into ``{name: True}``.
+
+    Two shapes are accepted:
+
+    1. **Per-dataset toggle** (Experiments 0 and 1)::
+
+           dataset_pd:
+             0001.gmsc: true
+             0002.taiwan_creditcard: false
+
+    2. **Minimum-row filter** (Experiments 2 and 3)::
+
+           dataset_pd:
+             min_rows: 30000
+
+       The selection is "every dataset whose row count is >= min_rows".
+       Row counts come from ``src.data.dataset_inventory.row_counts``.
+
+    Returns a ``{dataset_name: True}`` dict for the selected datasets.
+    """
+    if not block:
+        return {}
+    if isinstance(block, dict) and "min_rows" in block:
+        from src.data.dataset_inventory import datasets_with_min_rows
+        try:
+            min_rows = int(block["min_rows"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"dataset_{task}.min_rows must be an integer, got {block['min_rows']!r}"
+            ) from exc
+        return {name: True for name in datasets_with_min_rows(task, min_rows)}
+    # Per-dataset toggle dict.
+    return {k: True for k, v in block.items() if v}
+
+
 def _base_config(
     data_config: Dict[str, Any],
     method_config: Dict[str, Any],
@@ -182,8 +218,8 @@ def _base_config(
         "split": data_config["split"],
         "paths": data_config["paths"],
         "datasets": {
-            "pd": {k: v for k, v in data_config.get("dataset_pd", {}).items() if v},
-            "lgd": {k: v for k, v in data_config.get("dataset_lgd", {}).items() if v},
+            "pd": _resolve_dataset_block("pd", data_config.get("dataset_pd")),
+            "lgd": _resolve_dataset_block("lgd", data_config.get("dataset_lgd")),
         },
         "methods": {
             "pd": {k: v for k, v in method_config["methods"]["pd"].items() if v},

@@ -25,7 +25,11 @@ from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
 import matplotlib
-matplotlib.use("Agg", force=False)  # safe under SLURM (no display); GUI backends still work locally
+# Pin the non-interactive Agg backend so this module is safe to import
+# under SLURM (no ``$DISPLAY``), CI (no Tk), and Jupyter alike. Figures
+# render inline by encoding a PNG into memory via
+# ``data_exploration._display_inline`` -- see ``_persist_and_display``.
+matplotlib.use("Agg", force=False)
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -40,19 +44,19 @@ def _persist_and_display(fig: plt.Figure, out_path: Optional[Path]) -> Optional[
 
     * ``out_path`` is normalised with ``.with_suffix(".pdf")`` so callers
       can pass any extension and still get a PDF on disk.
-    * Inline display uses :func:`IPython.display.display` which is a no-op
-      outside Jupyter.
+    * Inline display uses :func:`data_exploration._display_inline` which
+      encodes a PNG via ``fig.savefig`` and pushes it through
+      :class:`IPython.display.Image` -- working under any matplotlib
+      backend (including the Agg backend we pin at import time) and a
+      harmless no-op outside Jupyter.
     """
     saved: Optional[Path] = None
     if out_path is not None:
         saved = Path(out_path).with_suffix(".pdf")
         _ensure_dir(saved)
         fig.savefig(saved, bbox_inches="tight")
-    try:
-        from IPython.display import display
-        display(fig)
-    except Exception:
-        pass
+    from src.visualizations.data_exploration import _display_inline
+    _display_inline(fig)
     plt.close(fig)
     return saved
 

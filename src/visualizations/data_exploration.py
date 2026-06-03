@@ -16,12 +16,10 @@ Public surface
 * :func:`processed_dataset_summary_table` -- inverse for ``data/processed/``
 * :func:`pd_target_balance_table`  -- class balance per PD dataset
 * :func:`lgd_target_distribution_table` -- mean/median/skew/zero-rate per LGD dataset
-* :func:`missingness_table`        -- % missing per (dataset, column)
 * :func:`numeric_feature_stats`    -- per-feature stats (mean/std/min/max) per dataset
 * :func:`plot_dataset_size_bar`    -- bar chart of dataset row counts
 * :func:`plot_target_balance`      -- PD class balance plot
 * :func:`plot_lgd_target_hists`    -- LGD target histograms (one per dataset)
-* :func:`plot_missingness_heatmap` -- (dataset x column) missingness heatmap
 * :func:`plot_correlation_heatmap` -- per-dataset feature correlation heatmap
 * :func:`plot_pca_2d`              -- 2D PCA scatter coloured by target
 * :func:`save_or_show`             -- consistent figure saving
@@ -34,6 +32,12 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import matplotlib
+# Pin the non-interactive Agg backend so the module is safe to import
+# under SLURM (no ``$DISPLAY``), CI (no Tk), and Jupyter alike. We then
+# render figures inline by manually encoding a PNG with ``fig.savefig``
+# and pushing it through ``IPython.display.Image`` -- that works under
+# every backend, including Agg, so the figure shows up in the notebook
+# without depending on a GUI backend being available.
 matplotlib.use("Agg", force=False)
 import matplotlib.pyplot as plt
 import numpy as np
@@ -142,10 +146,15 @@ def processed_dataset_summary_table(task: str) -> pd.DataFrame:
     """One row per processed dataset: shape, n_num/cat features, target stats."""
     rows = []
     for path in list_processed_datasets(task):
+        # ``path.name`` (NOT ``path.stem``) -- dataset directories are
+        # named like "0001.gmsc"; ``stem`` would strip ".gmsc" thinking
+        # it's an extension and return "0001", which then fails to
+        # round-trip back into load_processed_dataset.
+        dataset = path.name
         try:
-            N, C, y, info = load_processed_dataset(task, path.name)
+            N, C, y, info = load_processed_dataset(task, dataset)
             rows.append({
-                "dataset": path.stem,
+                "dataset": dataset,
                 "task": task.lower(),
                 "rows": int(len(y)),
                 "n_num_features": int(info.get("n_num_features", 0)),
@@ -156,7 +165,7 @@ def processed_dataset_summary_table(task: str) -> pd.DataFrame:
                 "target_max": float(np.max(y)),
             })
         except Exception as exc:
-            logger.warning("Failed to summarise %s: %s", path.name, exc)
+            logger.warning("Failed to summarise %s: %s", dataset, exc)
     return pd.DataFrame(rows)
 
 
@@ -164,15 +173,16 @@ def pd_target_balance_table() -> pd.DataFrame:
     """Class balance for every PD dataset (positive rate + #pos + #neg + imbalance ratio)."""
     rows = []
     for path in list_processed_datasets("pd"):
+        dataset = path.name  # see note in processed_dataset_summary_table
         try:
-            _, _, y, _ = load_processed_dataset("pd", path.name)
+            _, _, y, _ = load_processed_dataset("pd", dataset)
             y = np.asarray(y).astype(int).ravel()
             n_pos = int((y == 1).sum())
             n_neg = int((y == 0).sum())
             n_total = n_pos + n_neg
             pos_rate = n_pos / n_total if n_total else float("nan")
             rows.append({
-                "dataset": path.stem,
+                "dataset": dataset,
                 "n_total": n_total,
                 "n_positive": n_pos,
                 "n_negative": n_neg,
@@ -180,7 +190,7 @@ def pd_target_balance_table() -> pd.DataFrame:
                 "imbalance_ratio": round(n_neg / n_pos, 2) if n_pos else float("inf"),
             })
         except Exception as exc:
-            logger.warning("Failed to balance %s: %s", path.name, exc)
+            logger.warning("Failed to balance %s: %s", dataset, exc)
     df = pd.DataFrame(rows)
     return df.sort_values("positive_rate") if not df.empty else df
 
@@ -190,13 +200,14 @@ def lgd_target_distribution_table() -> pd.DataFrame:
     from scipy import stats
     rows = []
     for path in list_processed_datasets("lgd"):
+        dataset = path.name  # see note in processed_dataset_summary_table
         try:
-            _, _, y, _ = load_processed_dataset("lgd", path.name)
+            _, _, y, _ = load_processed_dataset("lgd", dataset)
             y = np.asarray(y).astype(float).ravel()
             zero_rate = float((y == 0).mean())
             one_rate = float((y == 1).mean())
             rows.append({
-                "dataset": path.stem,
+                "dataset": dataset,
                 "n": int(len(y)),
                 "mean": round(float(np.mean(y)), 4),
                 "std": round(float(np.std(y)), 4),
@@ -210,31 +221,6 @@ def lgd_target_distribution_table() -> pd.DataFrame:
         except Exception as exc:
             logger.warning("Failed to summarise LGD %s: %s", path.name, exc)
     return pd.DataFrame(rows)
-
-
-def missingness_table(task: str, *, top_k: int = 10) -> pd.DataFrame:
-    """Top ``top_k`` columns with most missingness across all RAW datasets of ``task``.
-
-    Returns one row per (dataset, column) with the missing-rate as a percentage.
-    """
-    rows = []
-    for path in list_raw_datasets(task):
-        try:
-            df = load_raw_csv(path)
-            miss = df.isna().mean().sort_values(ascending=False).head(top_k)
-            for col, rate in miss.items():
-                if rate > 0:
-                    rows.append({
-                        "dataset": path.stem,
-                        "column": col,
-                        "pct_missing": round(100 * float(rate), 2),
-                    })
-        except Exception as exc:
-            logger.warning("Failed missingness for %s: %s", path.name, exc)
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-    return df.sort_values(["dataset", "pct_missing"], ascending=[True, False])
 
 
 def numeric_feature_stats(task: str, dataset: str) -> pd.DataFrame:
@@ -268,9 +254,13 @@ def save_or_show(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
     ---------
     * **Save**: only PDF (no PNG). The extension on ``out_path`` is
       forced to ``.pdf`` so callers can pass a path with or without one.
-    * **Display**: ``IPython.display.display(fig)`` so the figure shows
-      up in the notebook output stream right at the call site. Outside
-      Jupyter the call is a harmless no-op.
+    * **Display**: encodes a PNG via ``fig.savefig`` into an in-memory
+      buffer and pushes it through ``IPython.display.Image`` so the
+      figure renders right at the call site in a notebook. This works
+      with the Agg backend (which we pin at import time so SLURM and
+      tests do not need a GUI backend), unlike ``display(fig)`` which
+      can fall back to printing the figure's text repr when Agg is in
+      use. Outside Jupyter every branch is a harmless no-op.
     * **Cleanup**: closes the figure so a notebook calling this in a
       ``for`` loop over N datasets doesn't accumulate N open figures in
       memory.
@@ -280,15 +270,31 @@ def save_or_show(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
         pdf_path = Path(out_path).with_suffix(".pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(pdf_path, bbox_inches="tight")
-    # Show inline in Jupyter (no-op outside). Ignored entirely when
-    # IPython is not installed (e.g. in a SLURM headless job).
-    try:
-        from IPython.display import display
-        display(fig)
-    except Exception:
-        pass
+    _display_inline(fig)
     plt.close(fig)
     return pdf_path
+
+
+def _display_inline(fig: plt.Figure) -> None:
+    """Encode ``fig`` as PNG bytes and push through IPython.display.Image.
+
+    Works with the Agg backend (no GUI required) and is a harmless no-op
+    when IPython is not installed. Kept separate so other modules (e.g.
+    ``experiment_plots`` and ``calibration_plots``) can re-use the same
+    code path.
+    """
+    try:
+        from IPython.display import Image, display
+    except ImportError:
+        return
+    import io
+    buf = io.BytesIO()
+    try:
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=110)
+    except Exception:
+        return
+    buf.seek(0)
+    display(Image(data=buf.getvalue(), format="png"))
 
 
 def plot_dataset_size_bar(
@@ -381,36 +387,6 @@ def plot_lgd_target_hists(
     return save_or_show(fig, out_path)
 
 
-def plot_missingness_heatmap(
-    task: str,
-    *,
-    out_path: Optional[Path] = None,
-    figsize: Tuple[int, int] = (16, 8),
-    max_cols: int = 30,
-) -> Optional[Path]:
-    """Per-dataset top-`max_cols`-missing heatmap, computed on RAW data."""
-    rows = []
-    for path in list_raw_datasets(task):
-        try:
-            df = load_raw_csv(path)
-            miss = df.isna().mean().sort_values(ascending=False).head(max_cols) * 100
-            for col, rate in miss.items():
-                rows.append({"dataset": path.stem, "column": col, "pct_missing": float(rate)})
-        except Exception:
-            continue
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return None
-    pivot = df.pivot_table(index="column", columns="dataset", values="pct_missing", fill_value=0)
-    # Keep only columns that appear in >=2 datasets to declutter
-    pivot = pivot.loc[(pivot > 0).sum(axis=1) >= 1]
-    fig, ax = plt.subplots(figsize=figsize)
-    sns.heatmap(pivot, annot=False, cmap="Reds", cbar_kws={"label": "% missing"}, ax=ax)
-    ax.set_title(f"{task.upper()} missingness heatmap (top columns per dataset)")
-    plt.tight_layout()
-    return save_or_show(fig, out_path)
-
-
 def plot_correlation_heatmap(
     task: str,
     dataset: str,
@@ -460,6 +436,16 @@ def plot_pca_2d(
     if N is None or N.shape[1] < 2:
         return None
     y = np.asarray(y).ravel()
+    # PCA (sklearn >= 1.4) refuses to operate on NaN. Drop any row that
+    # carries a NaN in the numerical block before transforming. This is a
+    # quick descriptive view -- not feeding a model -- so dropping is fine.
+    N = np.asarray(N, dtype=float)
+    finite_rows = np.isfinite(N).all(axis=1)
+    if not finite_rows.any():
+        logger.warning("plot_pca_2d(%s, %s): all rows contain NaN; skipping", task, dataset)
+        return None
+    N = N[finite_rows]
+    y = y[finite_rows]
     if sample is not None and len(y) > sample:
         rng = np.random.default_rng(0)
         idx = rng.choice(len(y), size=sample, replace=False)
@@ -490,8 +476,8 @@ __all__ = [
     "load_raw_csv", "load_processed_dataset",
     "raw_dataset_summary_table", "processed_dataset_summary_table",
     "pd_target_balance_table", "lgd_target_distribution_table",
-    "missingness_table", "numeric_feature_stats",
+    "numeric_feature_stats",
     "plot_dataset_size_bar", "plot_target_balance", "plot_lgd_target_hists",
-    "plot_missingness_heatmap", "plot_correlation_heatmap", "plot_pca_2d",
+    "plot_correlation_heatmap", "plot_pca_2d",
     "save_or_show",
 ]

@@ -1,41 +1,52 @@
 """TabPFNCredit command-line interface.
 
-Single entry point for the entire benchmark workflow. Replaces the
-twelve+ legacy per-experiment driver scripts with a Typer-powered CLI
-whose method list is derived from the TALENT registry. On VSC the
-``slurm-generate`` + ``slurm-task`` pair drive the whole sweep:
+One entry point for everything that matters:
 
 ::
 
-    # 1) Generate SLURM scripts (right-sized per VSC docs)
-    tabpfncredit slurm-generate --experiment Experiment1
+    tabpfncredit experiment Experiment1 [--task pd|lgd]
+                                        [--dataset 0001.gmsc]
+                                        [--method tabpfn_v3]
+                                        [--no-submit]
+                                        [--after <SLURM_JOB_ID>]
 
-    # 2) Submit
-    sbatch scripts/Experiment1/_generated/experiment1_gpu_h100.slurm
-    sbatch scripts/Experiment1/_generated/experiment1_cpu.slurm
+What `experiment` does
+----------------------
+1. Load the experiment's three YAML configs.
+2. Filter the (dataset, method, task) cells by the optional
+   ``--task`` / ``--dataset`` / ``--method`` flags.
+3. Auto-preprocess any dataset that is needed but not yet cached under
+   ``data/processed/<task>/<dataset>/``.
+4. **Locally** (no ``$VSC_INSTITUTE_CLUSTER``): run each cell in-process,
+   then summarize. No SLURM, no scratch directories.
+5. **On the VSC** (``$VSC_INSTITUTE_CLUSTER`` set): wipe any stale
+   scripts under ``scripts/<Experiment>/_generated/``, regenerate fresh
+   SLURM scripts, and ``sbatch`` them (unless ``--no-submit``). A final
+   summarize job is submitted with ``--dependency=afterok:<arrays>``
+   so the CSVs land automatically once every array slot finishes.
 
-Locally the same machinery works without the SLURM layer:
+Helper commands
+---------------
+* ``list``   -- enumerate registered methods + their runtime profile
+* ``doctor`` -- environment / VSC sanity check
 
-::
+Internal commands (you should rarely type these by hand; they are called
+by the generated SLURM scripts):
 
-    tabpfncredit run --experiment Experiment1 \\
-        --dataset 0001.gmsc --method tabpfn_v3 --task pd
-
-Results root resolution
------------------------
-Result paths default to ``./results`` (local dev) but honour
-``$TABPFN_RESULTS_ROOT`` when set -- the generated SLURM scripts point
-this at ``$VSC_DATA/TabPFNCredit/results`` (permanent + backed up).
+* ``slurm-task`` -- workhorse for one array slot
+* ``summarize`` -- aggregate fold results into CSV
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
+import shlex
+import shutil
+import subprocess
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import typer
 from rich.console import Console
@@ -45,6 +56,7 @@ from rich.table import Table
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PROJECT_ROOT))
 
+from src.data.dataset_inventory import list_datasets  # noqa: E402
 from src.methods.method_config import (  # noqa: E402
     CLASSICAL_METHODS,
     CPU_METHODS,
@@ -53,15 +65,10 @@ from src.methods.method_config import (  # noqa: E402
     GPU_METHODS,
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
-from src.methods.runtime_profile import (  # noqa: E402
-    Tier,
-    estimate_walltime_seconds,
-    get_profile,
-    tier_of,
-)
+from src.methods.runtime_profile import get_profile  # noqa: E402
 from src.slurm.generator import (  # noqa: E402
-    PARTITIONS,
     generate_scripts_for_experiment,
+    generate_summarize_script,
     load_plan,
     partition_for_method,
 )
@@ -80,14 +87,15 @@ logger = logging.getLogger("tabpfncredit")
 
 
 # ============================================================================
-#  Results-root resolution
+#  Results-root resolution + VSC detection
 # ============================================================================
 
 def _results_root() -> Path:
     """Return the directory where result JSON/npz files live.
 
-    Honours ``$TABPFN_RESULTS_ROOT`` (set by the SLURM scripts to point at
-    ``$VSC_SCRATCH``) and falls back to ``<project>/results``.
+    Honours ``$TABPFN_RESULTS_ROOT`` (set by the generated SLURM scripts
+    to point at ``$VSC_DATA/TabPFNCredit/results`` -- small, permanent,
+    backed up) and falls back to ``<project>/results`` for local runs.
     """
     env = os.environ.get("TABPFN_RESULTS_ROOT")
     if env:
@@ -97,60 +105,482 @@ def _results_root() -> Path:
     return _PROJECT_ROOT / "results"
 
 
-# ============================================================================
-#  Partition -> method-filter (legacy convenience)
-# ============================================================================
+def _on_vsc() -> bool:
+    """Best-effort detect whether we're running on a VSC cluster.
 
-def _methods_for_partition(partition: str) -> set[str]:
-    """Filter the TALENT registry by SLURM partition key.
-
-    Accepts the new partition keys (``cpu``, ``gpu_p100``, ``gpu_a100``,
-    ``gpu_h100``) used by ``slurm-generate``, plus the legacy aliases
-    (``gpu_foundation``, ``gpu_standard``, ``all``) for backwards
-    compatibility.
+    Looks at ``$VSC_INSTITUTE_CLUSTER`` (set on Genius / wICE) and
+    ``$VSC_HOME``. Returns ``False`` on workstations.
     """
-    partition = partition.lower()
-    if partition in ("cpu", "cpu_genius"):
-        return CPU_METHODS | {m for m in DEEP_METHODS if not get_profile(m).prefers_gpu}
-    if partition == "gpu_foundation":
-        return GPU_METHODS & FOUNDATION_METHODS
-    if partition == "gpu_standard":
-        return GPU_METHODS - FOUNDATION_METHODS
-    if partition == "all":
-        return CPU_METHODS | GPU_METHODS
-    # New keys: derive from runtime profile
-    if partition == "gpu_p100":
-        return {m for m in GPU_METHODS if not get_profile(m).needs_foundation_gpu}
-    if partition in ("gpu_a100", "gpu_h100"):
-        return {m for m in GPU_METHODS if get_profile(m).needs_foundation_gpu}
-    raise typer.BadParameter(
-        f"Unknown partition {partition!r}; choose from cpu / gpu_p100 / "
-        f"gpu_a100 / gpu_h100 (or legacy: gpu_foundation / gpu_standard / all)."
+    return bool(
+        os.environ.get("VSC_INSTITUTE_CLUSTER") or os.environ.get("VSC_HOME")
     )
 
 
-def _enabled_methods_for_task(config: dict, task: str) -> set[str]:
-    return set(config.get("methods", {}).get(task, {}).keys())
+def _have_sbatch() -> bool:
+    """Return True iff ``sbatch`` is on the PATH (best-effort)."""
+    return shutil.which("sbatch") is not None
+
+
+# ============================================================================
+#  Cell list helpers
+# ============================================================================
+
+def _enabled_methods_for_task(config: dict, task: str) -> List[str]:
+    return sorted(config.get("methods", {}).get(task, {}).keys())
 
 
 def _enabled_datasets_for_task(config: dict, task: str) -> List[str]:
     return list(config.get("datasets", {}).get(task, {}).keys())
 
 
-def _build_task_list(config: dict, partition: str) -> List[dict]:
-    """Build ``[{dataset, method, task}, ...]`` for one (config, partition)."""
-    partition_methods = _methods_for_partition(partition)
+def _build_task_list(
+    config: dict,
+    *,
+    task_filter: Optional[str] = None,
+    dataset_filter: Optional[str] = None,
+    method_filter: Optional[str] = None,
+) -> List[dict]:
+    """All ``(dataset, method, task)`` cells in ``config``, optionally filtered."""
+    tasks = ("pd", "lgd") if task_filter is None else (task_filter,)
     cells: List[dict] = []
-    for task in ("pd", "lgd"):
-        enabled = _enabled_methods_for_task(config, task) & partition_methods
+    for task in tasks:
         for dataset in _enabled_datasets_for_task(config, task):
-            for method in sorted(enabled):
+            if dataset_filter and dataset != dataset_filter:
+                continue
+            for method in _enabled_methods_for_task(config, task):
+                if method_filter and method != method_filter:
+                    continue
                 cells.append({"dataset": dataset, "method": method, "task": task})
     return cells
 
 
+def _methods_for_partition(partition: str) -> set[str]:
+    """Method set for a SLURM partition key (used by ``slurm-task`` only)."""
+    partition = partition.lower()
+    if partition in ("cpu", "cpu_genius"):
+        return CPU_METHODS | {m for m in DEEP_METHODS if not get_profile(m).prefers_gpu}
+    if partition == "gpu_p100":
+        return {m for m in GPU_METHODS if not get_profile(m).needs_foundation_gpu}
+    if partition in ("gpu_a100", "gpu_h100"):
+        return {m for m in GPU_METHODS if get_profile(m).needs_foundation_gpu}
+    raise typer.BadParameter(
+        f"Unknown partition {partition!r}; choose cpu / gpu_p100 / gpu_a100 / gpu_h100."
+    )
+
+
 # ============================================================================
-#  `list` command -- enumerate methods, optionally with runtime profile
+#  Preprocessing (auto-trigger if data/processed is missing)
+# ============================================================================
+
+def _preprocess_if_needed(cells: Sequence[dict]) -> None:
+    """Ensure ``data/processed/<task>/<dataset>/y.npy`` exists for every cell.
+
+    Calls :func:`src.data.preprocessing.preprocess_dataset` once per
+    ``(task, dataset)`` tuple. Cached datasets are a no-op so calling this
+    on every ``experiment`` invocation costs almost nothing.
+    """
+    from src.data.preprocessing import preprocess_dataset  # local import keeps startup snappy
+
+    needed = sorted({(c["task"], c["dataset"]) for c in cells})
+    missing = []
+    for task, dataset in needed:
+        proc_path = _PROJECT_ROOT / "data" / "processed" / task / dataset / "y.npy"
+        if not proc_path.exists():
+            missing.append((task, dataset))
+
+    if not missing:
+        return
+
+    console.print(f"[blue]Preprocessing {len(missing)} dataset(s)...[/blue]")
+    for task, dataset in missing:
+        console.print(f"  [dim]{task}/{dataset}[/dim]")
+        try:
+            preprocess_dataset(task, dataset)
+        except Exception as exc:
+            console.print(f"  [red]failed:[/red] {exc}")
+            raise
+
+
+# ============================================================================
+#  Local runner (no SLURM)
+# ============================================================================
+
+def _run_cells_locally(experiment: str, cells: Sequence[dict], config: dict) -> int:
+    """Run every cell in-process. Returns the number of failed cells."""
+    results_root = _results_root()
+    cv = config["split"]["cv_splits"]
+    n_done = n_skipped = n_failed = 0
+
+    for cell in cells:
+        task, dataset, method = cell["task"], cell["dataset"], cell["method"]
+        # Skip-if-done: only check the <method>.json result file.
+        if has_complete_result(
+            base=results_root,
+            experiment=experiment.lower(),
+            task=task,
+            dataset=dataset,
+            method=method,
+            expected_folds=cv,
+        ):
+            n_skipped += 1
+            console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{method} (already done)")
+            continue
+
+        console.print(f"  [bold]run[/bold]  {task}/{dataset}/{method}")
+        try:
+            fold_results = run_talent_method(
+                task=task, dataset=dataset, method=method,
+                test_size=config["split"]["test_size"],
+                val_size=config["split"]["val_size"],
+                cv_splits=cv,
+                seed=config["split"]["seed"],
+                row_limit=config["split"].get("row_limit"),
+                sampling=config["split"].get("sampling"),
+                max_epoch=config["training"]["max_epochs"],
+                batch_size=config["training"]["batch_size"],
+                tune=False,
+                n_trials=1,
+                early_stopping=config["training"]["early_stopping"],
+                early_stopping_patience=config["training"]["early_stopping_patience"],
+                verbose=False,
+            )
+            save_method(
+                fold_results, base=results_root,
+                experiment=experiment.lower(),
+                task=task, dataset=dataset, method=method,
+            )
+            n_done += 1
+        except Exception as exc:  # pragma: no cover -- defensive
+            n_failed += 1
+            console.print(f"  [red]fail[/red] {task}/{dataset}/{method}: {exc}")
+            logger.exception("Local cell failed: %s", cell)
+
+    console.print(
+        f"\n[green]done {n_done}[/green]  "
+        f"[yellow]skipped {n_skipped}[/yellow]  "
+        f"[red]failed {n_failed}[/red]  "
+        f"out of {len(cells)} cell(s)"
+    )
+    return n_failed
+
+
+# ============================================================================
+#  VSC runner (auto-sbatch)
+# ============================================================================
+
+def _wipe_generated_dir(out_dir: Path) -> None:
+    """Remove every ``*.slurm`` / ``*_plan.json`` file under ``out_dir``."""
+    if not out_dir.exists():
+        return
+    for pattern in ("*.slurm", "*_plan.json"):
+        for path in out_dir.glob(pattern):
+            path.unlink()
+
+
+def _sbatch(script: Path, *, dependency: Optional[str] = None) -> str:
+    """Submit ``script`` via ``sbatch --parsable``; return the job ID string.
+
+    Raises :class:`RuntimeError` if the submission fails. ``dependency`` is
+    a comma-separated job-id list (e.g. ``"afterok:12345"``); when provided
+    it is added as ``--dependency=<dependency>``.
+    """
+    cmd: List[str] = ["sbatch", "--parsable"]
+    if dependency:
+        cmd.append(f"--dependency={dependency}")
+    cmd.append(str(script))
+    out = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    job_id = out.stdout.strip()
+    if not job_id:
+        raise RuntimeError(f"sbatch produced no job id: {' '.join(shlex.quote(c) for c in cmd)}")
+    return job_id
+
+
+def _run_experiment_vsc(
+    experiment: str,
+    cells: Sequence[dict],
+    config: dict,
+    *,
+    submit: bool,
+    after_job_id: Optional[str],
+) -> Optional[str]:
+    """Generate scripts under ``scripts/<exp>/_generated/`` and (optionally) submit.
+
+    Returns the job ID of the summarize step if anything was submitted,
+    else ``None``.
+    """
+    out_dir = _PROJECT_ROOT / "scripts" / experiment / "_generated"
+
+    # 1) Wipe stale scripts/plans so an old _generated/ directory doesn't
+    # poison the next sbatch run.
+    _wipe_generated_dir(out_dir)
+
+    # 2) Walltime estimate needs the sweep-point count for Exp2/3.
+    n_sweep_points = _estimate_sweep_points(experiment, config)
+
+    # 3) Emit per-partition .slurm + .json plans.
+    jobs = generate_scripts_for_experiment(
+        experiment=experiment,
+        tasks=list(cells),
+        out_dir=out_dir,
+        n_folds=config["split"]["cv_splits"],
+        n_sweep_points=n_sweep_points,
+    )
+    if not jobs:
+        console.print("[red]No SLURM scripts were generated (no cells).[/red]")
+        return None
+
+    summarize_script = generate_summarize_script(
+        experiment=experiment, out_dir=out_dir,
+    )
+
+    table = Table(title=f"Generated {len(jobs)} SLURM script(s) + 1 summarize")
+    table.add_column("Script")
+    table.add_column("Partition")
+    table.add_column("Array slots")
+    table.add_column("Walltime / slot")
+    for j in jobs:
+        table.add_row(str(j.path.name), j.partition_key, str(j.n_array_slots), j.walltime)
+    table.add_row(str(summarize_script.name), "cpu", "1", "00:15:00")
+    console.print(table)
+    console.print(f"Written under: [blue]{out_dir}[/blue]")
+
+    if not submit:
+        console.print("\n[bold]--no-submit[/bold]: not submitting. To submit:")
+        for j in jobs:
+            console.print(f"  sbatch {j.path}")
+        console.print(f"  sbatch --dependency=afterok:<ARRAY_IDS> {summarize_script}")
+        return None
+
+    if not _have_sbatch():
+        console.print("[red]sbatch not found on PATH -- run this on the VSC.[/red]")
+        return None
+
+    # 4) Submit. Per-partition arrays go first (optionally chained to a
+    # caller-supplied job via --after for cross-experiment dependencies);
+    # the summarize job depends on ALL of them.
+    array_dep: Optional[str] = f"afterok:{after_job_id}" if after_job_id else None
+    array_ids: List[str] = []
+    for j in jobs:
+        try:
+            jid = _sbatch(j.path, dependency=array_dep)
+            console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
+            array_ids.append(jid)
+        except subprocess.CalledProcessError as exc:
+            console.print(f"[red]sbatch failed for {j.path}:[/red] {exc.stderr}")
+            raise
+
+    summarize_dep = "afterok:" + ":".join(array_ids)
+    summarize_id = _sbatch(summarize_script, dependency=summarize_dep)
+    console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}")
+    console.print(f"\n[bold]Final job id (summarize):[/bold] {summarize_id}")
+    return summarize_id
+
+
+def _estimate_sweep_points(experiment: str, config: dict) -> int:
+    """Number of sweep points per (dataset, method) cell -- used for walltime."""
+    lc = config.get("learning_curve")
+    if lc:
+        # PD's points usually dominate; use the larger of the two task blocks.
+        points = 0
+        for task in ("pd", "lgd"):
+            block = lc.get(task) or {}
+            row_max = block.get("row_max"); row_min = block.get("row_min"); row_step = block.get("row_step")
+            if row_max and row_min and row_step:
+                points = max(points, ((row_max - row_min) // row_step) + 1)
+        return max(points, 1)
+    imb = config.get("imbalance")
+    if imb:
+        p_max = imb.get("minority_proportion_max", 0)
+        p_min = imb.get("minority_proportion_min", 0)
+        p_step = imb.get("minority_proportion_step", 1)
+        if p_step > 0:
+            return max(int(round((p_max - p_min) / p_step)) + 1, 1)
+    return 1
+
+
+# ============================================================================
+#  `experiment` -- the only command most users need to know
+# ============================================================================
+
+@app.command("experiment")
+def cmd_experiment(
+    name: str = typer.Argument(..., help="e.g. 'Experiment0' .. 'Experiment3'."),
+    task: Optional[str] = typer.Option(None, help="Run only 'pd' or 'lgd' cells."),
+    dataset: Optional[str] = typer.Option(None, help="Run only cells for this dataset name."),
+    method: Optional[str] = typer.Option(None, help="Run only cells for this method name."),
+    submit: Optional[bool] = typer.Option(
+        None,
+        help="Force on/off the auto-sbatch step. Default: on when on VSC, off locally.",
+    ),
+    after: Optional[str] = typer.Option(
+        None,
+        help="SLURM job id to chain this experiment after (via --dependency=afterok:JOBID).",
+    ),
+    verbose: bool = typer.Option(False, help="DEBUG-level logs."),
+) -> None:
+    """Run one experiment end-to-end (auto-preprocess + auto-SLURM + auto-summarize)."""
+    if verbose:
+        logging.basicConfig(level=logging.INFO)
+
+    config = load_config(name)
+    cells = _build_task_list(
+        config, task_filter=task, dataset_filter=dataset, method_filter=method,
+    )
+    if not cells:
+        console.print(
+            f"[red]No cells to run for {name} "
+            f"(task={task}, dataset={dataset}, method={method}).[/red]"
+        )
+        raise typer.Exit(code=1)
+
+    console.print(
+        f"[bold]{name}[/bold]: {len(cells)} cell(s) to run "
+        f"(filters: task={task or 'all'}, dataset={dataset or 'all'}, method={method or 'all'})"
+    )
+
+    # 1) Preprocess any missing dataset.
+    _preprocess_if_needed(cells)
+
+    # 2) Run locally or via SLURM.
+    use_slurm = submit if submit is not None else _on_vsc()
+
+    if use_slurm:
+        _run_experiment_vsc(
+            name, cells, config,
+            submit=submit if submit is not None else True,
+            after_job_id=after,
+        )
+    else:
+        if after is not None:
+            console.print("[yellow]--after is ignored when running locally.[/yellow]")
+        _run_cells_locally(name, cells, config)
+        # Local: summarize right away (results are on disk).
+        _summarize_now(name)
+
+
+def _summarize_now(experiment: str) -> None:
+    """Run summarization synchronously (used at the end of a local run)."""
+    from src.utils.summarize_results_polars import summarize_to_csv
+
+    out_dir = _results_root() / "summaries"
+    try:
+        paths = summarize_to_csv(
+            base=_results_root(), experiment=experiment.lower(), out_dir=out_dir,
+        )
+    except Exception as exc:  # pragma: no cover -- defensive
+        console.print(f"[red]summarize failed:[/red] {exc}")
+        return
+    for p in paths:
+        console.print(f"[green]wrote[/green] {p}")
+
+
+# ============================================================================
+#  `summarize` -- public helper (also called by the SLURM summarize job)
+# ============================================================================
+
+@app.command("summarize")
+def cmd_summarize(
+    experiment: str = typer.Option(..., help="e.g. 'Experiment1'."),
+    out_dir: Optional[Path] = typer.Option(None, help="Where to write the CSVs."),
+) -> None:
+    """Aggregate every fold result into per-fold and per-method CSVs."""
+    from src.utils.summarize_results_polars import summarize_to_csv
+
+    out_dir = out_dir or (_results_root() / "summaries")
+    paths = summarize_to_csv(
+        base=_results_root(),
+        experiment=experiment.lower(),
+        out_dir=out_dir,
+    )
+    for p in paths:
+        console.print(f"[green]wrote[/green] {p}")
+
+
+# ============================================================================
+#  `slurm-task` -- workhorse called by the generated SLURM scripts
+# ============================================================================
+
+@app.command("slurm-task", hidden=True)
+def cmd_slurm_task(
+    experiment: str = typer.Option(...),
+    partition: str = typer.Option(..., help="Partition key (cpu / gpu_p100 / gpu_a100 / gpu_h100)."),
+    array_id: int = typer.Option(..., help="SLURM_ARRAY_TASK_ID."),
+    plan_path: Optional[Path] = typer.Option(
+        None,
+        help="Path to the JSON plan file. Defaults to "
+             "scripts/<exp>/_generated/<exp>_<partition>_plan.json",
+    ),
+    verbose: bool = typer.Option(False),
+) -> None:
+    """Run the (dataset, method, task) cells for ONE array slot. (Internal.)"""
+    if plan_path is None:
+        plan_path = (
+            _PROJECT_ROOT / "scripts" / experiment / "_generated"
+            / f"{experiment.lower()}_{partition}_plan.json"
+        )
+    if not plan_path.exists():
+        console.print(f"[red]plan file missing: {plan_path}[/red]")
+        raise typer.Exit(code=1)
+    slots = load_plan(plan_path)
+    if not slots:
+        console.print(f"[red]Empty plan for {experiment}/{partition}.[/red]")
+        raise typer.Exit(code=1)
+    if array_id < 0 or array_id >= len(slots):
+        console.print(
+            f"[red]array_id={array_id} out of range [0, {len(slots) - 1}].[/red]"
+        )
+        raise typer.Exit(code=2)
+
+    slot = slots[array_id]
+    console.print(f"[bold]Slot {array_id}/{len(slots) - 1}:[/bold] {len(slot)} cell(s)")
+
+    if verbose:
+        logging.basicConfig(level=logging.INFO)
+
+    config = load_config(experiment)
+    results_root = _results_root()
+    cv = config["split"]["cv_splits"]
+
+    for cell in slot:
+        task, dataset, method = cell["task"], cell["dataset"], cell["method"]
+        if has_complete_result(
+            base=results_root,
+            experiment=experiment.lower(),
+            task=task, dataset=dataset, method=method,
+            expected_folds=cv,
+        ):
+            console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{method} (already done)")
+            continue
+        try:
+            fold_results = run_talent_method(
+                task=task, dataset=dataset, method=method,
+                test_size=config["split"]["test_size"],
+                val_size=config["split"]["val_size"],
+                cv_splits=cv,
+                seed=config["split"]["seed"],
+                row_limit=config["split"].get("row_limit"),
+                sampling=config["split"].get("sampling"),
+                max_epoch=config["training"]["max_epochs"],
+                batch_size=config["training"]["batch_size"],
+                tune=False, n_trials=1,
+                early_stopping=config["training"]["early_stopping"],
+                early_stopping_patience=config["training"]["early_stopping_patience"],
+                verbose=verbose,
+            )
+            save_method(
+                fold_results, base=results_root,
+                experiment=experiment.lower(),
+                task=task, dataset=dataset, method=method,
+            )
+            console.print(f"  [green]done[/green] {task}/{dataset}/{method}")
+        except Exception:
+            logger.exception("Cell %s failed", cell)
+            # Continue with the rest of the slot.
+            continue
+
+
+# ============================================================================
+#  Helper commands
 # ============================================================================
 
 @app.command("list")
@@ -197,248 +627,14 @@ def cmd_list(
     console.print(table)
 
 
-# ============================================================================
-#  `run` command -- one (dataset, method, task) cell
-# ============================================================================
-
-@app.command("run")
-def cmd_run(
-    experiment: str = typer.Option(..., help="e.g. 'Experiment0'."),
-    dataset: str = typer.Option(..., help="e.g. '0001.gmsc'."),
-    method: str = typer.Option(..., help="e.g. 'tabpfn_v3'."),
-    task: str = typer.Option("pd", help="'pd' or 'lgd'."),
-    tune: bool = typer.Option(False, help="Per-fold HPO."),
-    n_trials: int = typer.Option(50, help="Optuna trials when --tune."),
-    cv_splits: Optional[int] = typer.Option(None, help="Override cv_splits."),
-    row_limit: Optional[int] = typer.Option(None, help="Cap total dataset rows."),
-    verbose: bool = typer.Option(False),
-    write_results: bool = typer.Option(True),
-    force: bool = typer.Option(False, help="Re-run even if a result already exists."),
-) -> None:
-    """Run one (dataset, method, task) cell of an experiment."""
-    config = load_config(experiment)
-    cv = cv_splits if cv_splits is not None else config["split"]["cv_splits"]
-
-    results_root = _results_root()
-    if not force and has_complete_result(
-        base=results_root,
-        experiment=experiment.lower(),
-        task=task,
-        dataset=dataset,
-        method=method,
-        expected_folds=cv,
-    ):
-        console.print(
-            f"[yellow]SKIP[/yellow] {experiment}/{task}/{dataset}/{method} "
-            f"(already complete; pass --force to re-run)"
-        )
-        return
-
-    if verbose:
-        logging.basicConfig(level=logging.INFO)
-
-    fold_results = run_talent_method(
-        task=task, dataset=dataset, method=method,
-        test_size=config["split"]["test_size"],
-        val_size=config["split"]["val_size"],
-        cv_splits=cv,
-        seed=config["split"]["seed"],
-        row_limit=row_limit if row_limit is not None else config["split"].get("row_limit"),
-        sampling=config["split"].get("sampling"),
-        max_epoch=config["training"]["max_epochs"],
-        batch_size=config["training"]["batch_size"],
-        tune=tune,
-        n_trials=n_trials,
-        early_stopping=config["training"]["early_stopping"],
-        early_stopping_patience=config["training"]["early_stopping_patience"],
-        verbose=verbose,
-    )
-    console.print(f"[green]Completed {len(fold_results)} folds.[/green]")
-
-    if write_results:
-        save_method(
-            fold_results, base=results_root,
-            experiment=experiment.lower(),
-            task=task, dataset=dataset, method=method,
-        )
-        console.print(f"[blue]Results written under {results_root / experiment.lower()}[/blue]")
-
-
-# ============================================================================
-#  `slurm-generate` -- produce VSC-optimised SLURM scripts for an experiment
-# ============================================================================
-
-@app.command("slurm-generate")
-def cmd_slurm_generate(
-    experiment: str = typer.Option(..., help="e.g. 'Experiment1'."),
-    out_dir: Optional[Path] = typer.Option(
-        None, help="Where to write the .slurm files (default: scripts/<exp>/_generated)."
-    ),
-    prefer_h100: bool = typer.Option(True, help="Use H100 (wICE) for foundation models."),
-    gpu_cmode: str = typer.Option("shared", help="shared or exclusive."),
-    max_concurrent: int = typer.Option(16, help="SLURM array %% throttle."),
-    mail_email: str = typer.Option("", help="Failure/timeout email notifications."),
-) -> None:
-    """Generate VSC-compliant SLURM array scripts for an experiment.
-
-    Splits the (dataset, method) cells by partition (CPU vs P100 vs H100
-    foundation), packs cheap methods so each array slot has ~10 min of
-    work, sizes CPU/memory per the VSC per-GPU caps, and writes results
-    to ``$VSC_SCRATCH`` (never ``$VSC_DATA``).
-    """
-    config = load_config(experiment)
-    tasks: List[dict] = []
-    for task in ("pd", "lgd"):
-        enabled = _enabled_methods_for_task(config, task)
-        for dataset in _enabled_datasets_for_task(config, task):
-            for method in sorted(enabled):
-                tasks.append({"dataset": dataset, "method": method, "task": task})
-
-    if not tasks:
-        console.print(f"[red]No enabled cells in {experiment} configs.[/red]")
-        raise typer.Exit(code=1)
-
-    out_dir = out_dir or (_PROJECT_ROOT / "scripts" / experiment / "_generated")
-    jobs = generate_scripts_for_experiment(
-        experiment=experiment,
-        tasks=tasks,
-        out_dir=out_dir,
-        n_folds=config["split"]["cv_splits"],
-        prefer_h100=prefer_h100,
-        gpu_cmode=gpu_cmode,
-        max_concurrent=max_concurrent,
-        mail_email=mail_email,
-    )
-    table = Table(title=f"Generated {len(jobs)} SLURM script(s)")
-    table.add_column("Script")
-    table.add_column("Partition")
-    table.add_column("Array slots")
-    table.add_column("Walltime / slot")
-    for j in jobs:
-        table.add_row(str(j.path.name), j.partition_key, str(j.n_array_slots), j.walltime)
-    console.print(table)
-    console.print(f"\nWritten under: [blue]{out_dir}[/blue]")
-    console.print("Submit with: [bold]sbatch <script.slurm>[/bold]")
-
-
-# ============================================================================
-#  `slurm-task` -- the workhorse called by every array slot
-# ============================================================================
-
-@app.command("slurm-task")
-def cmd_slurm_task(
-    experiment: str = typer.Option(...),
-    partition: str = typer.Option(..., help="Partition key (cpu / gpu_p100 / gpu_a100 / gpu_h100)."),
-    array_id: int = typer.Option(..., help="SLURM_ARRAY_TASK_ID."),
-    plan_path: Optional[Path] = typer.Option(
-        None,
-        help="Path to the JSON plan file. Defaults to "
-             "scripts/<exp>/_generated/<exp>_<partition>_plan.json",
-    ),
-    verbose: bool = typer.Option(False),
-) -> None:
-    """Run the (dataset, method, task) cells for ONE array slot.
-
-    Reads the per-slot plan written by ``slurm-generate``. If the plan
-    file is missing (legacy path) falls back to building the task list
-    deterministically from the experiment config.
-    """
-    if plan_path is None:
-        plan_path = (
-            _PROJECT_ROOT / "scripts" / experiment / "_generated"
-            / f"{experiment.lower()}_{partition}_plan.json"
-        )
-
-    if plan_path.exists():
-        slots = load_plan(plan_path)
-    else:
-        # Legacy fallback -- one (dataset, method, task) cell per slot,
-        # no packing. Used by old hand-written SLURM scripts.
-        config = load_config(experiment)
-        slots = [[c] for c in _build_task_list(config, partition)]
-
-    if not slots:
-        console.print(f"[red]Empty plan for {experiment}/{partition}.[/red]")
-        raise typer.Exit(code=1)
-    if array_id < 0 or array_id >= len(slots):
-        console.print(
-            f"[red]array_id={array_id} out of range [0, {len(slots) - 1}].[/red]"
-        )
-        raise typer.Exit(code=2)
-
-    slot = slots[array_id]
-    console.print(
-        f"[bold]Slot {array_id}/{len(slots) - 1}:[/bold] "
-        f"{len(slot)} cell(s)"
-    )
-
-    # Sequentially run each cell in this slot. The skip-already-done check
-    # inside `cmd_run` keeps re-runs safe.
-    for cell in slot:
-        try:
-            cmd_run(
-                experiment=experiment,
-                dataset=cell["dataset"],
-                method=cell["method"],
-                task=cell["task"],
-                tune=False,                # generator only emits NO_HPO plans
-                n_trials=1,
-                cv_splits=None, row_limit=None, verbose=verbose,
-                write_results=True,
-                force=False,
-            )
-        except typer.Exit:
-            raise
-        except Exception as exc:  # pragma: no cover -- defensive
-            logger.exception("Cell %s failed: %s", cell, exc)
-            # Continue with the rest of the slot -- one bad cell shouldn't
-            # waste the whole slot's wall-clock.
-            continue
-
-
-# ============================================================================
-#  `summarize` -- per-fold + per-method CSVs
-# ============================================================================
-
-@app.command("summarize")
-def cmd_summarize(
-    experiment: str = typer.Option(...),
-    out_dir: Optional[Path] = typer.Option(None, help="Where to write the CSVs."),
-) -> None:
-    """Aggregate every fold result into per-fold and per-method CSVs."""
-    from src.utils.summarize_results_polars import summarize_to_csv
-    out_dir = out_dir or (_results_root() / "summaries")
-    paths = summarize_to_csv(
-        base=_results_root(),
-        experiment=experiment.lower(),
-        out_dir=out_dir,
-    )
-    for p in paths:
-        console.print(f"[green]wrote[/green] {p}")
-
-
-# ============================================================================
-#  `config` -- pretty-print one experiment's merged config
-# ============================================================================
-
-@app.command("config")
-def cmd_config(experiment: str = typer.Option(...)) -> None:
-    """Pretty-print the merged config for an experiment."""
-    cfg = load_config(experiment)
-    console.print_json(json.dumps(cfg, default=str))
-
-
-# ============================================================================
-#  Misc utility
-# ============================================================================
-
 @app.command("doctor")
 def cmd_doctor() -> None:
     """Quick environment / VSC sanity check."""
     table = Table(title="Environment")
     table.add_column("Key")
     table.add_column("Value")
-    for key in ("VSC_HOME", "VSC_DATA", "VSC_SCRATCH", "TABPFN_RESULTS_ROOT",
+    for key in ("VSC_HOME", "VSC_DATA", "VSC_SCRATCH", "VSC_INSTITUTE_CLUSTER",
+                "TABPFN_RESULTS_ROOT",
                 "SLURM_JOB_ID", "SLURM_ARRAY_TASK_ID", "CUDA_VISIBLE_DEVICES"):
         table.add_row(key, os.environ.get(key, "(unset)"))
     console.print(table)
@@ -452,8 +648,11 @@ def cmd_doctor() -> None:
     except ImportError:
         gpu_info = "(torch not installed)"
     console.print(f"[bold]Torch[/bold]: {gpu_info}")
-
+    console.print(f"[bold]On VSC?[/bold] {_on_vsc()}")
+    console.print(f"[bold]sbatch?[/bold] {'yes' if _have_sbatch() else 'no'}")
     console.print(f"[bold]Results root[/bold]: {_results_root()}")
+    for task in ("pd", "lgd"):
+        console.print(f"[bold]Datasets in data/raw/{task}[/bold]: {len(list_datasets(task))}")
 
 
 def main() -> None:  # pragma: no cover

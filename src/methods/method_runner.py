@@ -14,7 +14,11 @@ does only what is **wrapper-specific**:
 * Foundation-model val/test downsampling (TALENT's row-limit caps train only).
 * Per-fold HPO orchestration with SLURM-safe merged-config JSON via
   :class:`~src.utils.file_lock.FileLock`.
-* Resumable checkpoint paths keyed by a stable hash (so re-runs skip).
+* A throwaway temp directory per fold for TALENT's internal scratch
+  (model snapshots, logits, …). Nothing persistent: the only "save" is
+  the final per-(dataset, method) JSON + npz that ``save_method``
+  writes once the whole sweep finishes; skip-if-done logic checks
+  *that* file, not any checkpoint directory.
 * Credit-risk metric enrichment (Gini / KS / MAPE-with-zeros) via
   :mod:`src.methods.method_metrics`.
 * A persistent folds cache via :mod:`joblib.Memory` so SLURM workers
@@ -28,8 +32,6 @@ no ``os.environ['LIGHTGBM_VERBOSITY']`` side effects at import time).
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -148,33 +150,15 @@ def clear_folds_cache() -> None:
 
 
 # ============================================================================
-#  Resumable checkpoint dirs (B5)
+#  Per-fold scratch directory
 # ============================================================================
 #
-# Hash the (dataset, method, fold, seed, config) tuple so that a re-run of
-# the same configuration picks up the cached checkpoint instead of
-# retraining. Crucial for SLURM job recovery.
-
-def _stable_checkpoint_dir(
-    base: Path,
-    task: str,
-    dataset: str,
-    method: str,
-    fold_id: int,
-    seed: int,
-    config: Optional[dict] = None,
-) -> Path:
-    payload = {
-        "task": task, "dataset": dataset, "method": method,
-        "fold_id": fold_id, "seed": seed,
-        "config": config or {},
-    }
-    digest = hashlib.sha1(
-        json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()[:16]
-    out = base / f"{dataset}_{method}_fold{fold_id}_seed{seed}_{digest}"
-    out.mkdir(parents=True, exist_ok=True)
-    return out
+# TALENT needs a ``save_path`` to write its internal scratch (model
+# snapshots, intermediate logits, …). We use a throwaway ``tempfile``
+# directory per fold and let it be garbage-collected at process exit;
+# nothing about the run is reconstructed from it on a re-invocation.
+# The only resume mechanism is the existence of the final per-(dataset,
+# method) JSON + npz on disk, which the CLI checks before launching.
 
 
 # ============================================================================
@@ -550,16 +534,13 @@ def run_talent_method(
         sampling=sampling,
     )
 
-    # Checkpoint root: persistent so SLURM job retries resume. Each fold
-    # gets its own hashed subdir below; this is just the parent.
+    # ``config_base_dir`` is kept on the signature for backwards
+    # compatibility (older callers passed it in) but is unused now -- we
+    # no longer write any persistent state on a per-fold basis. The only
+    # save is the final ``<method>.json`` from ``save_method``.
     config_base_dir = (
         Path(config_base_dir) if config_base_dir is not None else _PROJECT_ROOT
     )
-    checkpoints_root = config_base_dir / ".checkpoints" / task.lower() / dataset / method
-    try:
-        checkpoints_root.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        checkpoints_root = Path(tempfile.mkdtemp(prefix=f"talent_{dataset}_{method}_"))
 
     user_overrides: Dict[str, Any] = {}
     for attr, value in (
@@ -621,12 +602,12 @@ def run_talent_method(
                 # Defensive -- don't let a malformed y kill the run.
                 pass
 
-        checkpoint_dir = _stable_checkpoint_dir(
-            base=checkpoints_root,
-            task=task, dataset=dataset, method=method,
-            fold_id=fold_id, seed=seed,
-            config=model_config or fit_config,
-        )
+        # Per-fold throwaway scratch -- TALENT.run needs *some* save_path
+        # but nothing in this repo reads it back. Cleaned up via
+        # ``tempfile`` semantics (process exit + best-effort rmtree).
+        scratch_root = Path(tempfile.mkdtemp(
+            prefix=f"talent_{dataset}_{method}_fold{fold_id}_"
+        ))
 
         try:
             fr = _run_one_fold(
@@ -647,12 +628,17 @@ def run_talent_method(
                 early_stopping_patience=early_stopping_patience,
                 evaluate_option=evaluate_option,
                 user_overrides=user_overrides,
-                checkpoint_dir=checkpoint_dir,
+                checkpoint_dir=scratch_root,
             )
             results[fold_id] = fr.to_dict()
         except Exception:
             logger.exception("[%s] fold %d failed on %s", method, fold_id, dataset)
             raise
+        finally:
+            # Best-effort cleanup of the per-fold scratch directory; failure
+            # is harmless (process exit will also reap it).
+            import shutil
+            shutil.rmtree(scratch_root, ignore_errors=True)
 
     logger.info("[%s] completed %d folds on %s", method, len(results), dataset)
     return results

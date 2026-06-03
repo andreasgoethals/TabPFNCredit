@@ -2,9 +2,12 @@
 
 Designed against the VSC documentation. Highlights:
 
-* **Results land on ``$VSC_SCRATCH``**, never on ``$VSC_DATA``. Heavy I/O on
-  ``$VSC_DATA`` can get a job killed without warning (cited explicitly in
-  the storage docs).
+* **Results land on ``$VSC_DATA``** (small, permanent, backed up, 75 GB
+  quota). Per-sweep result files total ~40 MB so the quota is never the
+  bottleneck. ``$VSC_SCRATCH`` is reserved for heavy intermediate I/O
+  (which this benchmark does not produce); we deliberately keep results
+  off scratch because scratch files are auto-purged after 30 days of
+  inactivity.
 * **CPU + memory right-sized per partition** so the job uses the
   documented per-GPU caps efficiently (P100: 9c/45 GB, A100: 18c/126 GB,
   H100: 16c/187 GB).
@@ -27,20 +30,20 @@ Designed against the VSC documentation. Highlights:
 Layout
 ------
 ``tabpfncredit slurm-generate --experiment ExperimentN`` emits one
-``.slurm`` file per (partition, batch) tuple under
-``scripts/ExperimentN/_generated/``. Each script:
+``.slurm`` file per partition under ``scripts/ExperimentN/_generated/``.
+Each script:
 
-1. Sets up the environment (module purge, conda activate).
-2. Stages a working directory on ``$VSC_SCRATCH``.
-3. Computes its global task ID from ``SLURM_ARRAY_TASK_ID``.
-4. Invokes ``tabpfncredit slurm-task`` with the batch index.
-5. Optionally archives results back to ``$VSC_DATA`` at the end of the
-   sweep (only the last array slot does this, via ``--dependency`` or
-   simply by running it once after the array completes).
+1. Sets up the environment (``module --force purge``, conda activate).
+2. ``cd "$VSC_DATA/TabPFNCredit"`` and exports
+   ``TABPFN_RESULTS_ROOT="$VSC_DATA/TabPFNCredit/results"``.
+3. Reads its global task ID from ``SLURM_ARRAY_TASK_ID``.
+4. Invokes ``tabpfncredit slurm-task`` with the partition and array id;
+   the CLI looks up the cell assigned to that slot in the partition's
+   ``_plan.json`` and runs it through ``run_talent_method`` +
+   ``save_method``.
 
 The user only ever calls ``tabpfncredit slurm-generate`` then ``sbatch``
-on the generated files. The legacy ``Experiment*_Setup.py`` generators
-and hand-written ``.slurm`` files are obsoleted by this module.
+on the generated files.
 """
 
 from __future__ import annotations
@@ -270,9 +273,9 @@ def _sbatch_header(
 def _python_invocation(experiment: str, partition_key: str) -> str:
     """The actual work line -- delegates to the Typer CLI."""
     # Results land under $VSC_DATA (permanent + backed up + 75 GB quota).
-    # If you ever want to offload checkpoints (the only heavy-I/O artefact)
-    # to scratch, set TABPFN_CHECKPOINTS_ROOT="${VSC_SCRATCH}/TabPFNCredit/.checkpoints"
-    # below. The result JSON+npz files are too small to justify scratch.
+    # Per-fold scratch (TALENT's internal save_path) goes to a tempfile
+    # directory created inside ``method_runner._run_method``, which is
+    # auto-cleaned at fold exit. Nothing else needs scratch storage.
     return dedent(f"""\
         cd "${{VSC_DATA}}/TabPFNCredit"
 
@@ -482,6 +485,83 @@ def load_plan(path: Path) -> List[List[dict]]:
     import json
     payload = json.loads(Path(path).read_text())
     return payload["slots"]
+
+
+# ============================================================================
+#  Summarize SLURM script
+# ============================================================================
+#
+# Emitted alongside the per-partition arrays. The caller submits this with
+# ``--dependency=afterok:<array_ids>`` so it runs once *every* array slot
+# has finished -- producing the per-fold + per-method CSVs.
+
+def generate_summarize_script(
+    *,
+    experiment: str,
+    out_dir: Path,
+    mail_email: str = "",
+) -> Path:
+    """Write a tiny single-task SLURM script that runs ``tabpfncredit summarize``.
+
+    Uses the ``batch`` (CPU) partition since aggregation is pure pandas /
+    polars work -- no GPU needed.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    spec = PARTITIONS["cpu"]
+    job_name = f"{experiment.lower()}_summarize"
+    log_dir = f"${{VSC_DATA}}/TabPFNCredit/results/{experiment.lower()}/logs"
+    # 15 minutes is plenty -- polars scans all <method>.json files in
+    # seconds even on multi-thousand-row sweeps.
+    walltime = "00:15:00"
+
+    header = _sbatch_header(
+        job_name=job_name,
+        spec=spec,
+        n_gpus=0,
+        array_range="0",        # single task, not an array
+        walltime=walltime,
+        log_dir=log_dir,
+        mail_email=mail_email,
+        gpu_cmode=None,
+    )
+    # Strip the array directive from a header that uses array_range="0":
+    # the helper still emits ``#SBATCH --array=0`` which we don't want here.
+    header = "\n".join(
+        line for line in header.splitlines() if not line.startswith("#SBATCH --array=")
+    ) + "\n"
+
+    banner = "\n".join([
+        f'mkdir -p "{log_dir}"',
+        'echo "============================================="',
+        f'echo "{experiment} -- summarize step"',
+        'echo "JobID:   ${SLURM_JOB_ID}"',
+        'echo "Node:    ${SLURMD_NODENAME}"',
+        'echo "============================================="',
+    ]) + "\n"
+
+    invocation = dedent(f"""\
+        cd "${{VSC_DATA}}/TabPFNCredit"
+
+        export TABPFN_RESULTS_ROOT="${{VSC_DATA}}/TabPFNCredit/results"
+
+        tabpfncredit summarize --experiment {experiment}
+        """)
+
+    script = "\n".join([
+        _SHEBANG,
+        header,
+        _PROLOGUE,
+        banner,
+        invocation,
+        _EPILOGUE,
+    ])
+
+    script_path = out_dir / f"{job_name}.slurm"
+    script_path.write_text(script, encoding="utf-8")
+    script_path.chmod(0o755)
+    return script_path
 
 
 __all__ = [

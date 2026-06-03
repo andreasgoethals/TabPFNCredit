@@ -36,7 +36,11 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib
-matplotlib.use("Agg", force=False)  # keep GUI backends usable locally
+# Pin the non-interactive Agg backend so the module imports cleanly
+# under SLURM (no ``$DISPLAY``), CI (no Tk), and Jupyter alike. Figures
+# are rendered inline by encoding a PNG into memory and pushing it
+# through ``IPython.display.Image`` -- see ``_save`` below.
+matplotlib.use("Agg", force=False)
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -302,9 +306,10 @@ def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> Optional[Path]
     Behaviour
     ---------
     * Saves a single PDF (no PNG).
-    * Calls ``IPython.display.display(fig)`` so the figure renders right
-      at the call site inside a notebook. Outside Jupyter the call is
-      a harmless no-op.
+    * Encodes a PNG into memory and ``IPython.display.Image``-s it so
+      the figure renders inline at the call site inside a notebook. The
+      Agg backend is sufficient for this (no GUI required), which keeps
+      the helper safe to call from SLURM jobs and CI runs too.
     * Closes the figure to free memory (important when notebooks loop
       over many datasets calling these helpers in sequence).
 
@@ -317,11 +322,8 @@ def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> Optional[Path]
         saved = out_dir / f"{stem}.pdf"
         fig.savefig(saved, bbox_inches="tight")
     # Inline display inside Jupyter; no-op elsewhere.
-    try:
-        from IPython.display import display
-        display(fig)
-    except Exception:
-        pass
+    from src.visualizations.data_exploration import _display_inline
+    _display_inline(fig)
     plt.close(fig)
     return saved
 

@@ -1,33 +1,29 @@
 # src/utils/file_lock.py
 """
-Cross-platform file locking and atomic-write utilities.
+Cross-platform file locking utilities.
 
-This module consolidates the file-locking primitives that were previously
-duplicated across ``src/methods/method_runner.py`` and the three experiment
-drivers (``scripts/Experiment{1,2,3}/Experiment*.py``). All concurrent writers
-to the per-dataset pickle and the merged HPO JSON go through this module.
+The only writer that still needs cross-process synchronisation in the
+new JSON+npz storage layout is the rare HPO trial-history append (each
+result file is otherwise owned by exactly one SLURM array task and needs
+no lock).
 
-Two public entry points:
+Public entry point:
 
-* :class:`FileLock` -- a context manager providing exclusive (``LOCK_EX``) or
-  shared (``LOCK_SH``) locks on a target file. Works on POSIX (``fcntl``) and
-  Windows (``portalocker``) and degrades to a warning if neither is available.
-* :func:`atomic_pickle_write` -- writes a pickle to ``path`` via a sibling
-  ``*.tmp`` file and ``os.replace`` so that a crash mid-write cannot leave a
-  zero-byte or half-written pickle on disk.
+* :class:`FileLock` -- a context manager providing exclusive (``LOCK_EX``)
+  or shared (``LOCK_SH``) locks on a target file. Works on POSIX
+  (``fcntl``) and Windows (``portalocker``); degrades to a warning if
+  neither backend is available.
 
-The locking helpers :func:`acquire_lock` / :func:`release_lock` are kept for
-backwards compatibility with the experiment scripts that previously defined
-their own thin wrappers; new code should prefer :class:`FileLock`.
+The thin :func:`acquire_lock` / :func:`release_lock` helpers are kept for
+backwards compatibility but new code should prefer :class:`FileLock`.
 """
 
 from __future__ import annotations
 
 import os
-import pickle
 import warnings
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
 # --------------------------------------------------------------------------- #
 # Backend detection
@@ -154,35 +150,8 @@ class FileLock:
             self._fh = None
 
 
-# --------------------------------------------------------------------------- #
-# Atomic pickle write
-# --------------------------------------------------------------------------- #
-
-def atomic_pickle_write(path: os.PathLike, obj: Any) -> None:
-    """Write ``obj`` to ``path`` atomically.
-
-    Writes to ``{path}.tmp`` first, flushes+fsyncs, then calls :func:`os.replace`
-    which is atomic on POSIX and NTFS. This guarantees that readers never
-    observe a half-written or zero-byte pickle even if the process is killed
-    mid-write (common on SLURM timeouts).
-
-    The caller is responsible for holding any serialising :class:`FileLock`
-    around the logical read-modify-write cycle; this function only protects
-    against crash-induced corruption, not concurrent writers.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    with open(tmp_path, "wb") as tmp_fh:
-        pickle.dump(obj, tmp_fh, protocol=pickle.HIGHEST_PROTOCOL)
-        tmp_fh.flush()
-        os.fsync(tmp_fh.fileno())
-    os.replace(tmp_path, path)
-
-
 __all__ = [
     "FileLock",
     "acquire_lock",
     "release_lock",
-    "atomic_pickle_write",
 ]
