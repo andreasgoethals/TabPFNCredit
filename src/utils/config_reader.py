@@ -41,12 +41,26 @@ class ExperimentSpec:
             ``ValueError``.
         validator: Optional function called with the extra-section dict that
             raises ``ValueError`` on invalid parameter relationships.
+        datasets_from_row_max: When True, the dataset selection is derived
+            from ``<extra_section>.<task>.row_max`` (datasets with at least
+            that many rows) instead of from ``CONFIG_DATA``'s dataset blocks.
+            Used by Experiment 2 so the learning-curve ceiling (row_max) and
+            the dataset inclusion threshold are a single knob that can't
+            drift apart.
+        filter_by_minority_max: When True, the PD dataset list is additionally
+            filtered to datasets whose natural minority-class proportion
+            EXCEEDS ``<extra_section>.minority_proportion_max``. Used by
+            Experiment 3: you can only subsample the minority class down, so
+            a dataset that's already less imbalanced than the top of the
+            sweep can't take part.
     """
 
     name: str
     extra_section: Optional[str] = None
     extra_params: List[str] = field(default_factory=list)
     validator: Optional[Callable[[Dict[str, Any]], None]] = None
+    datasets_from_row_max: bool = False
+    filter_by_minority_max: bool = False
 
 
 # --------------------------------------------------------------------------- #
@@ -59,8 +73,13 @@ def _validate_learning_curve(params: Dict[str, Any]) -> None:
     Shape::
 
         learning_curve:
-          pd:  {row_max: ..., row_min: ..., row_step: ..., min_dataset_size: ...}
-          lgd: {row_max: ..., row_min: ..., row_step: ..., min_dataset_size: ...}
+          pd:  {row_max: ..., row_min: ..., row_step: ...}
+          lgd: {row_max: ..., row_min: ..., row_step: ...}
+
+    ``row_max`` does double duty: it's both the top of the training-size
+    sweep AND the dataset-inclusion threshold (a dataset is used iff it has
+    at least ``row_max`` rows -- see ``ExperimentSpec.datasets_from_row_max``).
+    So there is exactly one knob per task.
 
     The legacy flat shape (``row_max`` / ``row_min`` / ``row_step`` at the
     top level) is still accepted for backwards compatibility; it gets
@@ -73,7 +92,6 @@ def _validate_learning_curve(params: Dict[str, Any]) -> None:
             "row_max": params["row_max"],
             "row_min": params["row_min"],
             "row_step": params["row_step"],
-            "min_dataset_size": params.get("min_dataset_size", 0),
         }
         params["pd"] = dict(legacy)
         params["lgd"] = dict(legacy)
@@ -84,7 +102,7 @@ def _validate_learning_curve(params: Dict[str, Any]) -> None:
         if task not in params:
             raise ValueError(
                 f"learning_curve.{task} block missing; "
-                f"required keys: row_max, row_min, row_step, min_dataset_size"
+                f"required keys: row_max, row_min, row_step"
             )
         block = params[task]
         for key in ("row_max", "row_min", "row_step"):
@@ -99,7 +117,6 @@ def _validate_learning_curve(params: Dict[str, Any]) -> None:
             raise ValueError(
                 f"learning_curve.{task}: row_step must be positive, got {block['row_step']}"
             )
-        block.setdefault("min_dataset_size", 0)
 
 
 def _validate_imbalance(params: Dict[str, Any]) -> None:
@@ -133,6 +150,10 @@ _EXPERIMENT_REGISTRY: Dict[str, ExperimentSpec] = {
         # also accepts legacy flat keys for backwards-compat.
         extra_params=[],
         validator=_validate_learning_curve,
+        # Datasets are chosen by learning_curve.<task>.row_max (a dataset is
+        # included iff it has >= row_max rows). CONFIG_DATA's dataset blocks
+        # are intentionally empty for Experiment 2.
+        datasets_from_row_max=True,
     ),
     "Experiment3": ExperimentSpec(
         name="Experiment3",
@@ -143,6 +164,10 @@ _EXPERIMENT_REGISTRY: Dict[str, ExperimentSpec] = {
             "minority_proportion_step",
         ],
         validator=_validate_imbalance,
+        # Beyond the min_rows filter in CONFIG_DATA, keep only PD datasets
+        # whose natural minority proportion exceeds minority_proportion_max
+        # (otherwise the sweep can't start at the top).
+        filter_by_minority_max=True,
     ),
 }
 
@@ -296,6 +321,38 @@ def load_config(experiment_name: str) -> Dict[str, Any]:
         if spec.validator is not None:
             spec.validator(extras)
         config[spec.extra_section] = extras
+
+    # Experiment 2: derive the dataset selection from the per-task
+    # learning-curve ceiling (row_max). A dataset is included iff it has at
+    # least row_max rows -- otherwise the curve could never reach the top of
+    # the sweep for that dataset. This keeps the sweep ceiling and the
+    # dataset filter as ONE knob (CONFIG_DATA's dataset blocks are empty).
+    if spec.datasets_from_row_max and spec.extra_section:
+        from src.data.dataset_inventory import datasets_with_min_rows
+        sweep = config.get(spec.extra_section, {})
+        for task in ("pd", "lgd"):
+            block = sweep.get(task) or {}
+            row_max = block.get("row_max")
+            if row_max:
+                config["datasets"][task] = {
+                    name: True for name in datasets_with_min_rows(task, int(row_max))
+                }
+            else:
+                config["datasets"][task] = {}
+
+    # Experiment 3: on top of the min_rows filter, keep only PD datasets
+    # whose natural minority proportion EXCEEDS minority_proportion_max --
+    # the sweep subsamples the minority class DOWN from that ceiling, so a
+    # dataset that's already less imbalanced can't participate.
+    if spec.filter_by_minority_max and spec.extra_section:
+        from src.data.dataset_inventory import datasets_with_min_minority
+        imb = config.get(spec.extra_section, {})
+        p_max = imb.get("minority_proportion_max")
+        if p_max is not None:
+            kept = datasets_with_min_minority(
+                "pd", list(config["datasets"]["pd"]), float(p_max)
+            )
+            config["datasets"]["pd"] = {name: True for name in kept}
 
     return config
 

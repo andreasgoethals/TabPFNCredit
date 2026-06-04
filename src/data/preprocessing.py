@@ -28,7 +28,6 @@ from typing import Tuple, Optional
 import numpy as np
 import pandas as pd
 from src.data.dataset_preprocessing import preprocess_dataset_specific
-from src.utils.config_reader import load_config
 
 logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)

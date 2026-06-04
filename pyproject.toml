@@ -290,6 +290,6 @@ files = [
     "src/methods/method_metrics.py",
     "src/methods/cost_metrics.py",
     "src/utils/result_io.py",
-    "src/utils/logging_setup.py",
+    "src/utils/config_reader.py",
     "src/cli.py",
 ]

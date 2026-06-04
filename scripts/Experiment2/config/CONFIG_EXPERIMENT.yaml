@@ -23,20 +23,25 @@ early_stopping_patience: 10
 # row_step. DataFeeder caps the full dataset to row_limit BEFORE splitting,
 # so the train portion is row_limit * (1 - test_size - val_size).
 #
+# row_max does DOUBLE DUTY -- it is BOTH:
+#   1. the top of the training-size sweep, AND
+#   2. the dataset-inclusion threshold: every dataset with >= row_max rows
+#      is included automatically (a smaller dataset could never reach the
+#      top of the sweep). This is the ONLY place the dataset set is chosen
+#      for Experiment 2 -- CONFIG_DATA.yaml's dataset blocks are empty.
+#
+# So to change which datasets take part, just change row_max here.
+#
 # Defaults:
-#   PD  -- sweep from 20 000 down to row_min in 5-row steps, only datasets
-#          with >= 20 000 rows are used (the rest are auto-skipped).
-#   LGD -- sweep from  5 000 down to row_min in 5-row steps, only datasets
-#          with >=  5 000 rows are used.
+#   PD  -- sweep 30 000 -> 100 (step 5); datasets with >= 30 000 rows.
+#   LGD -- sweep  4 600 -> 100 (step 5); datasets with >=  4 600 rows.
 # -----------------------------------------------------------------------------
 learning_curve:
   pd:
-    row_max: 20000
+    row_max: 30000
     row_min: 100
     row_step: 5
-    min_dataset_size: 20000   # datasets smaller than this are skipped automatically
   lgd:
-    row_max: 5000
+    row_max: 4600
     row_min: 100
     row_step: 5
-    min_dataset_size: 5000

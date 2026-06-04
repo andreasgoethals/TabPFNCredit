@@ -40,13 +40,13 @@ paths:
   lgd_dir: "data/raw/lgd"
 
 # ------------------------------------------------------------
-# Probability of Default (PD) datasets -- min-rows filter
+# Dataset selection -- AUTOMATIC, do not edit here
 # ------------------------------------------------------------
-dataset_pd:
-  min_rows: 30000
-
-# ------------------------------------------------------------
-# Loss Given Default (LGD) datasets -- min-rows filter
-# ------------------------------------------------------------
-dataset_lgd:
-  min_rows: 4600
+# Experiment 2 does NOT select datasets here. The included datasets are
+# decided automatically from CONFIG_EXPERIMENT.yaml's
+# learning_curve.<task>.row_max: every dataset with at least `row_max`
+# rows is used (a dataset with fewer rows could never reach the top of
+# the learning-curve sweep). Change row_max in CONFIG_EXPERIMENT.yaml to
+# change both the sweep ceiling and the dataset set in one place.
+dataset_pd: {}
+dataset_lgd: {}

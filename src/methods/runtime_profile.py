@@ -10,7 +10,7 @@ and under-walltimes the expensive ones.
 
 This module groups methods into **tiers** keyed by an estimate of
 "seconds per (dataset, fold)" on a single VSC GPU node. The SLURM
-generator in :mod:`src.slurm.generator` uses these tiers to:
+generator in :mod:`src.utils.slurm_generator` uses these tiers to:
 
 * Pick the partition (CPU vs P100 vs A100 vs H100) and the per-task
   walltime.

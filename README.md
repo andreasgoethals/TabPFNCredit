@@ -99,8 +99,8 @@ bash scripts/run_all_experiments.sh Experiment2 Experiment3
 
 The generated SLURM scripts target the KU Leuven VSC partitions
 (Genius P100, wICE A100, wICE H100) by default. On a different SLURM
-cluster, edit `src/slurm/generator.py`'s `PARTITIONS` table to match
-your cluster's CPU / memory / GPU caps.
+cluster, edit `src/utils/slurm_generator.py`'s `PARTITIONS` table to
+match your cluster's CPU / memory / GPU caps.
 
 ### Install profiles + the manual two-step
 
@@ -170,14 +170,12 @@ src/
     method_metrics.py             # PD / LGD metric helpers
     cost_metrics.py               # expected loss + profit curves
     runtime_profile.py            # tier + sec/fold per method (drives SLURM)
-  slurm/
-    generator.py                  # SLURM script generator
   utils/
     config_reader.py              # YAML loader (min_rows + validators)
     result_io.py                  # save_method / load_method / scan_results
+    result_summary.py             # polars-backed per-fold + per-method CSVs
+    slurm_generator.py            # SLURM script generator
     file_lock.py                  # cross-platform FileLock
-    logging_setup.py              # hybrid per-task + summary + errors
-    summarize_results_polars.py   # polars-backed CSV aggregator
   visualizations/
     experiment_plots.py           # heatmaps, ranking bars, learning curves
     calibration_plots.py          # reliability diagrams
@@ -226,7 +224,7 @@ src/methods/method_runner.py        # TALENT.run() per fold -> RunResult
 src/utils/result_io.py              # one JSON + one npz per (dataset, method[, sweep])
         |
         v
-src/utils/summarize_results_polars  # per-fold + per-method CSVs
+src/utils/result_summary.py         # per-fold + per-method CSVs
         |
         v
 notebooks/Experiment*.ipynb         # plots from src.visualizations -> figures/<exp>/*.pdf
@@ -271,8 +269,8 @@ Toggle methods on or off per experiment in
 |---|---|---|---|---|---|
 | **0** | Pilot: does each method run end-to-end? Use the outcomes to curate Experiment 1. | 1 | NO_HPO | All 14 PD + 7 LGD. | All toggled in `CONFIG_METHOD.yaml`. |
 | **1** | Headline benchmark — drives the paper. | 5 | NO_HPO + HPO | All 14 PD + 7 LGD. | **Curated by hand** in `CONFIG_METHOD.yaml` based on Exp 0 results. |
-| **2** | Learning-curve sweep: metric vs training-set size. | 5 | NO_HPO | `min_rows`: PD ≥ 30 000, LGD ≥ 4 600. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg` / `LinearRegression`. |
-| **3** | Class-imbalance sweep: minority proportion **0.15 → 0.0025**, step **0.0005**. PD only. | 5 | NO_HPO | `min_rows`: PD ≥ 30 000. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg`. |
+| **2** | Learning-curve sweep: metric vs training-set size. | 5 | NO_HPO | Auto from `learning_curve.<task>.row_max`: PD ≥ 30 000, LGD ≥ 4 600. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg` / `LinearRegression`. |
+| **3** | Class-imbalance sweep: minority proportion **0.15 → 0.0025**, step **0.0005**. PD only. | 5 | NO_HPO | PD with ≥ 30 000 rows **and** natural minority rate > `minority_proportion_max`. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg`. |
 
 Each experiment is driven by three YAMLs under
 `scripts/Experiment<N>/config/`: `CONFIG_DATA.yaml` (splits + dataset
@@ -284,9 +282,20 @@ For Experiment 1 the method set is curated by hand based on Experiment
 `scripts/Experiment1/config/CONFIG_METHOD.yaml` after inspecting
 `results/experiment0/summaries/experiment0_per_method.csv`.
 
-For Experiments 2 and 3, dataset selection uses a `min_rows: N`
-shorthand in `CONFIG_DATA.yaml` — every dataset with **≥ N** rows is
-included automatically.
+Dataset selection for the sweep experiments is automatic:
+
+- **Experiment 2** selects datasets from `learning_curve.<task>.row_max`
+  in `CONFIG_EXPERIMENT.yaml` — every dataset with **≥ row_max** rows is
+  included. `row_max` is also the top of the training-size sweep, so the
+  ceiling and the dataset set are a single knob (their `CONFIG_DATA.yaml`
+  dataset blocks are intentionally empty).
+- **Experiment 3** applies two filters and a PD dataset must pass both:
+  (1) `min_rows: N` in its `CONFIG_DATA.yaml` (≥ N rows), and
+  (2) its natural minority rate must **exceed** `minority_proportion_max`
+  (from `CONFIG_EXPERIMENT.yaml`). Filter 2 is automatic — the sweep
+  subsamples the minority class *down* from that ceiling, so a dataset
+  already more imbalanced than the ceiling can't reach the top and is
+  dropped (logged at INFO level).
 
 ---
 
@@ -317,11 +326,12 @@ Two CSVs are aggregated automatically (locally at the end of an
 <results>/summaries/<experiment>_per_method.csv
 ```
 
-Three log files per experiment under `<results>/<experiment>/logs/`:
-
-- `<dataset>_<method>.log` — per-cell DEBUG trace (incl. minority counts).
-- `summary.log` — one INFO line per task start / done / fail.
-- `errors.log` — ERROR tracebacks only.
+Logging uses Python's standard `logging` (run with `--verbose` for
+INFO-level: start, finish, headline metric, foundation-model
+downsampling, per-fold minority counts). On the HPC cluster each array
+slot's stdout/stderr is captured by SLURM under
+`$VSC_DATA/TabPFNCredit/results/<experiment>/logs/` (named per job +
+array id), so each (dataset, method) cell has its own log.
 
 Figures are saved as **PDF only** to `figures/<experiment>/<plot>.pdf`
 and rendered inline in the notebook outputs.

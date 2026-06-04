@@ -66,7 +66,7 @@ from src.methods.method_config import (  # noqa: E402
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
 from src.methods.runtime_profile import get_profile  # noqa: E402
-from src.slurm.generator import (  # noqa: E402
+from src.utils.slurm_generator import (  # noqa: E402
     generate_scripts_for_experiment,
     generate_summarize_script,
     load_plan,
@@ -460,7 +460,7 @@ def cmd_experiment(
 
 def _summarize_now(experiment: str) -> None:
     """Run summarization synchronously (used at the end of a local run)."""
-    from src.utils.summarize_results_polars import summarize_to_csv
+    from src.utils.result_summary import summarize_to_csv
 
     out_dir = _results_root() / "summaries"
     try:
@@ -484,7 +484,7 @@ def cmd_summarize(
     out_dir: Optional[Path] = typer.Option(None, help="Where to write the CSVs."),
 ) -> None:
     """Aggregate every fold result into per-fold and per-method CSVs."""
-    from src.utils.summarize_results_polars import summarize_to_csv
+    from src.utils.result_summary import summarize_to_csv
 
     out_dir = out_dir or (_results_root() / "summaries")
     paths = summarize_to_csv(

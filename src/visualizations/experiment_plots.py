@@ -23,7 +23,7 @@ Public surface
 * :func:`learning_curve` -- Experiment2 metric-vs-rows curve.
 * :func:`imbalance_curve` -- Experiment3 metric-vs-minority-rate curve.
 * :func:`load_summary` -- read the per-fold / per-method CSVs produced by
-  :func:`src.utils.summarize_results_polars.summarize_to_csv`.
+  :func:`src.utils.result_summary.summarize_to_csv`.
 
 All functions are dependency-light (numpy / pandas / seaborn / matplotlib)
 so notebooks remain runnable offline once the CSV summaries are saved.

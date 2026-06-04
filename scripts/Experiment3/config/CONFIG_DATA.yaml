@@ -7,18 +7,23 @@
 # relevant -- LGD targets are continuous, so the LGD block is empty
 # by design.
 #
-# Selection rule
+# Selection rule -- TWO filters, both must pass
 # --------------
-# PD datasets are selected by *minimum row count*:
+# A PD dataset takes part in Experiment 3 only if BOTH hold:
 #
-#   * PD : every dataset with >= 30,000 rows
+#   1. Row count    >= min_rows         (set below; default 30,000).
+#   2. Minority rate >  minority_proportion_max  (set in
+#      CONFIG_EXPERIMENT.yaml; default 0.15).
 #
-# (Read: ``min_rows`` is the *inclusive* lower bound. Writing
-# ``min_rows: 30000`` means "30,000 rows or more".)
+# Filter 2 is automatic and NOT configured here: the sweep subsamples the
+# minority class DOWN from minority_proportion_max, so a dataset whose
+# natural minority rate is already below that ceiling can never reach the
+# top of the sweep and is dropped automatically (with an INFO log).
 #
-# A high cutoff is intentional: at minority_proportion 0.0025, even
-# 30,000 rows yields only ~75 positive examples per fold, which is
-# already on the edge of what is statistically meaningful.
+# (``min_rows`` is the inclusive lower bound: ``30000`` means ">= 30,000".)
+# The high row cutoff is intentional: at minority_proportion 0.0025, even
+# 30,000 rows yields only ~75 positive examples per fold, already on the
+# edge of what is statistically meaningful.
 # ============================================================
 
 # ------------------------------------------------------------
