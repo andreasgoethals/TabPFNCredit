@@ -172,33 +172,48 @@ def _methods_for_partition(partition: str) -> set[str]:
 #  Preprocessing (auto-trigger if data/processed is missing)
 # ============================================================================
 
-def _preprocess_if_needed(cells: Sequence[dict]) -> None:
+def _preprocess_if_needed(cells: Sequence[dict]) -> set:
     """Ensure ``data/processed/<task>/<dataset>/y.npy`` exists for every cell.
 
     Calls :func:`src.data.preprocessing.preprocess_dataset` once per
     ``(task, dataset)`` tuple. Cached datasets are a no-op so calling this
     on every ``experiment`` invocation costs almost nothing.
+
+    A dataset whose **raw** file is not present on this machine (common on
+    a fresh cluster checkout -- ``data/`` is gitignored and must be copied
+    separately) is skipped with a warning rather than crashing the whole
+    sweep. Returns the set of ``(task, dataset)`` tuples that could not be
+    made available, so the caller can drop their cells and run the rest.
     """
     from src.data.preprocessing import preprocess_dataset  # local import keeps startup snappy
 
     needed = sorted({(c["task"], c["dataset"]) for c in cells})
-    missing = []
-    for task, dataset in needed:
-        proc_path = _PROJECT_ROOT / "data" / "processed" / task / dataset / "y.npy"
-        if not proc_path.exists():
-            missing.append((task, dataset))
+    to_make = [
+        (task, dataset) for task, dataset in needed
+        if not (_PROJECT_ROOT / "data" / "processed" / task / dataset / "y.npy").exists()
+    ]
 
-    if not missing:
-        return
+    unavailable: set = set()
+    if not to_make:
+        return unavailable
 
-    console.print(f"[blue]Preprocessing {len(missing)} dataset(s)...[/blue]")
-    for task, dataset in missing:
-        console.print(f"  [dim]{task}/{dataset}[/dim]")
+    console.print(f"[blue]Preprocessing {len(to_make)} dataset(s)...[/blue]")
+    for task, dataset in to_make:
         try:
             preprocess_dataset(task, dataset)
-        except Exception as exc:
-            console.print(f"  [red]failed:[/red] {exc}")
-            raise
+            console.print(f"  [green]ok[/green]   {task}/{dataset}")
+        except FileNotFoundError:
+            console.print(
+                f"  [yellow]skip[/yellow] {task}/{dataset} "
+                f"-- raw file not found under data/raw/{task}/ on this machine"
+            )
+            logger.warning("Skipping %s/%s: raw data file missing.", task, dataset)
+            unavailable.add((task, dataset))
+        except Exception as exc:  # pragma: no cover -- defensive
+            console.print(f"  [red]skip[/red] {task}/{dataset} -- preprocessing error: {exc}")
+            logger.exception("Preprocessing failed for %s/%s", task, dataset)
+            unavailable.add((task, dataset))
+    return unavailable
 
 
 # ============================================================================
@@ -438,8 +453,22 @@ def cmd_experiment(
         f"(filters: task={task or 'all'}, dataset={dataset or 'all'}, method={method or 'all'})"
     )
 
-    # 1) Preprocess any missing dataset.
-    _preprocess_if_needed(cells)
+    # 1) Preprocess any missing dataset. Datasets whose raw file isn't on
+    #    this machine are skipped (with a warning) and their cells dropped,
+    #    so a missing dataset can't abort the whole sweep.
+    unavailable = _preprocess_if_needed(cells)
+    if unavailable:
+        cells = [c for c in cells if (c["task"], c["dataset"]) not in unavailable]
+        console.print(
+            f"[yellow]Skipped {len(unavailable)} unavailable dataset(s); "
+            f"{len(cells)} cell(s) remain.[/yellow]"
+        )
+    if not cells:
+        console.print(
+            "[red]No runnable cells remain -- every requested dataset is missing "
+            "its raw file under data/raw/. Copy the data to this machine first.[/red]"
+        )
+        raise typer.Exit(code=1)
 
     # 2) Run locally or via SLURM.
     use_slurm = submit if submit is not None else _on_vsc()
