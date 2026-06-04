@@ -158,18 +158,46 @@ def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
 # The VSC docs warn that any work item under ~3-4 minutes wastes scheduler
 # time. We pack cells so each array slot runs at least PACK_TARGET_SECONDS of
 # work. The packing only applies to CPU partitions and the FAST tier --
-# foundation models always get one slot each (their walltime varies wildly
+# foundation models normally get one slot each (their walltime varies wildly
 # and GPU memory is exclusive).
+#
+# HARD CAP -- VSC's ``normal`` QOS enforces a MaxSubmitJobsPerUser limit, and
+# every array TASK counts against it (a 446-task array = 446 jobs). Exceeding
+# it makes sbatch fail with ``QOSMaxSubmitJobPerUserLimit``. So we never emit
+# more than MAX_ARRAY_SLOTS tasks per partition: if natural packing would
+# produce more, we LPT-rebalance ALL cells (foundation included) across
+# exactly MAX_ARRAY_SLOTS slots. Each slot then runs several cells in
+# sequence -- longer walltime, but well under the partition's 72 h cap and,
+# crucially, under the submit limit.
 
 PACK_TARGET_SECONDS = 600    # ~10 minutes per array slot for FAST cells
 PACK_MAX_PER_SLOT = 64       # never bundle more than this many cells per slot
+# Hard cap on array tasks per partition. Chosen so even the full
+# run_all_experiments.sh chain stays under VSC's per-user submit limit:
+# afterok pre-submits every experiment at once, so 4 experiments x 3
+# partitions x 40 = 480 tasks (< the ~500 `normal`-QOS ceiling). A single
+# experiment is far under. 40-way parallelism is ample given the array is
+# throttled to ~16 concurrent anyway. Override with $TABPFN_MAX_ARRAY_SLOTS.
+MAX_ARRAY_SLOTS = 40
 
 
-def pack_cells(cells: List[dict], *, target_seconds: int = PACK_TARGET_SECONDS) -> List[List[dict]]:
-    """Group cells into array slots so each slot has roughly ``target_seconds`` of work.
+def pack_cells(
+    cells: List[dict],
+    *,
+    target_seconds: int = PACK_TARGET_SECONDS,
+    max_slots: int = MAX_ARRAY_SLOTS,
+) -> List[List[dict]]:
+    """Group cells into array slots.
 
-    ``cells`` is a list of dicts with at least ``{"method": str, "dataset": str,
-    "task": str}``. Foundation-model cells are never packed (one slot each).
+    Two-stage:
+      1. Natural packing -- bundle FAST/MEDIUM cells to ~``target_seconds``
+         per slot; foundation models go solo.
+      2. Cap -- if that produced more than ``max_slots`` slots (which would
+         blow the VSC per-user submit limit), rebalance ALL cells across
+         exactly ``max_slots`` slots with greedy longest-processing-time-first
+         bin packing, so the walltime is spread as evenly as possible.
+
+    ``cells`` is a list of dicts with at least ``{"method", "dataset", "task"}``.
     """
     bins: List[List[dict]] = []
     current: List[dict] = []
@@ -177,7 +205,7 @@ def pack_cells(cells: List[dict], *, target_seconds: int = PACK_TARGET_SECONDS) 
     for cell in cells:
         profile = get_profile(cell["method"])
         sec = profile.seconds_per_fold_estimate
-        # Foundation models always go solo so a slow run doesn't block a
+        # Foundation models normally go solo so a slow run doesn't block a
         # fast one in the same slot.
         if profile.tier == Tier.FOUNDATION:
             if current:
@@ -192,7 +220,25 @@ def pack_cells(cells: List[dict], *, target_seconds: int = PACK_TARGET_SECONDS) 
         current_sec += sec
     if current:
         bins.append(current)
-    return bins
+
+    if len(bins) <= max_slots:
+        return bins
+
+    # Too many slots for the QOS submit limit -- rebalance everything across
+    # exactly ``max_slots`` slots via greedy LPT (heaviest cell first into the
+    # currently-least-loaded slot).
+    flat = [c for b in bins for c in b]
+    flat.sort(
+        key=lambda c: get_profile(c["method"]).seconds_per_fold_estimate,
+        reverse=True,
+    )
+    rebinned: List[List[dict]] = [[] for _ in range(max_slots)]
+    loads = [0] * max_slots
+    for cell in flat:
+        i = min(range(max_slots), key=lambda k: loads[k])
+        rebinned[i].append(cell)
+        loads[i] += get_profile(cell["method"]).seconds_per_fold_estimate
+    return [b for b in rebinned if b]
 
 
 # ============================================================================
@@ -401,8 +447,11 @@ def generate_scripts_for_experiment(
         spec = PARTITIONS[partition_key]
         n_gpus = 1 if spec.gpus_per_node else 0
 
-        # 2) Pack cheap cells together; foundation models go solo
-        slots = pack_cells(cells)
+        # 2) Pack cheap cells together; foundation models go solo. The
+        #    per-partition slot count is hard-capped (QOS submit limit);
+        #    $TABPFN_MAX_ARRAY_SLOTS overrides the default.
+        max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", MAX_ARRAY_SLOTS))
+        slots = pack_cells(cells, max_slots=max_slots)
 
         # 3) Walltime: dominated by the slowest cell in any slot, capped at
         #    the partition's hard walltime.

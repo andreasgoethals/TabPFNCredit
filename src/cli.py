@@ -210,8 +210,17 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
             logger.warning("Skipping %s/%s: raw data file missing.", task, dataset)
             unavailable.add((task, dataset))
         except Exception as exc:  # pragma: no cover -- defensive
-            console.print(f"  [red]skip[/red] {task}/{dataset} -- preprocessing error: {exc}")
-            logger.exception("Preprocessing failed for %s/%s", task, dataset)
+            # One-line warning, not a full traceback: this is a handled skip
+            # (e.g. the algorithmwatch parquet is too large to read on a
+            # memory-limited login node). The dataset is dropped and the
+            # sweep continues. Copy data/processed/ from a machine that has
+            # it preprocessed to include the dataset without a login-node
+            # preprocess. Run with --verbose for the full traceback.
+            console.print(
+                f"  [yellow]skip[/yellow] {task}/{dataset} -- could not preprocess "
+                f"here ({type(exc).__name__}: {exc})"
+            )
+            logger.debug("Preprocessing failed for %s/%s", task, dataset, exc_info=True)
             unavailable.add((task, dataset))
     return unavailable
 
