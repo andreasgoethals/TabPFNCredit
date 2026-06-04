@@ -141,9 +141,11 @@ dependencies = [
 
 # Local-workstation profile -- CPU PyTorch + dev tools. Self-contained.
 local = [
-    # Torch 2.4 / 2.5 ship Py3.12 wheels and are tested with TALENT.
-    "torch>=2.4,<2.6",
-    "torchvision>=0.19,<0.21",
+    # Torch lower bound is dictated by tabdpt 1.1.14 (>=2.6). Upper kept
+    # at <2.8 because tabicl/tabpfn haven't been tested against newer
+    # bleeding-edge releases yet.
+    "torch>=2.6,<2.8",
+    "torchvision>=0.21,<0.23",
     "faiss-cpu>=1.11,<1.13",
     "portalocker>=2.8,<3",
     # Dev tools
@@ -162,9 +164,11 @@ hpc = [
     # CUDA 12.1 PyTorch wheels by default. For CUDA 11.8 GPUs override
     # the wheel index:
     #     pip install -e ".[hpc]" --index-url https://download.pytorch.org/whl/cu118
-    "torch>=2.4,<2.6",
-    "torchvision>=0.19,<0.21",
-    "torchaudio>=2.4,<2.6",
+    # Range constrained by tabdpt 1.1.14 (torch>=2.6) and bleeding-edge
+    # compatibility (we keep <2.8 until tabicl/tabpfn validate newer).
+    "torch>=2.6,<2.8",
+    "torchvision>=0.21,<0.23",
+    "torchaudio>=2.6,<2.8",
     # `faiss-gpu` is typically a cluster module on HPC; never pip-install.
     # Annoy is the lightweight alternative for the TabR retrieval index.
     "annoy>=1.17,<2",

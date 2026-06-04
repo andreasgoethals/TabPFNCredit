@@ -186,54 +186,62 @@ def pack_cells(cells: List[dict], *, target_seconds: int = PACK_TARGET_SECONDS) 
 
 _SHEBANG = "#!/bin/bash -l"
 
-_PROLOGUE = dedent(
-    """\
-    set -euo pipefail
+def _prologue(*, cluster: str, partition: str) -> str:
+    """Return the per-script prologue, parameterised by VSC cluster + partition.
 
-    # Deterministic stagger (0-29 s) based on array index -- avoids the
-    # thundering-herd I/O storm that RANDOM%60 would create.
-    sleep $((${SLURM_ARRAY_TASK_ID:-0} % 30))
-
-    # Unbuffered Python output so SLURM streams stdout in real time.
-    export PYTHONUNBUFFERED=1
-
-    # Memory-fragmentation mitigation for long-running PyTorch jobs.
-    export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
-    # HPC convention: never load modules in ~/.bashrc; do it here.
-    module --force purge
-
-    # Load the cluster's Python module so that the venv's interpreter
-    # symlinks resolve on the compute node. The default below is the
-    # KU Leuven VSC 2024a toolchain; override per cluster by exporting
-    # ``TABPFN_PYTHON_MODULE`` before submitting:
-    #     export TABPFN_PYTHON_MODULE="Python/3.12.x-GCCcore-XX.X.X"
-    # On your own cluster: ``module spider Python/3.12`` to find names.
-    : "${TABPFN_PYTHON_MODULE:=Python/3.12.3-GCCcore-13.3.0}"
-    if [ -n "${TABPFN_PYTHON_MODULE}" ]; then
-        module load "${TABPFN_PYTHON_MODULE}" 2>/dev/null || \
-            echo "WARN: could not module load ${TABPFN_PYTHON_MODULE}" >&2
-    fi
-
-    # Activate the project's Python env. Prefer a plain ``python -m venv``
-    # at the repo root (fast to create, no conda solver) and fall back to
-    # a conda env named ``tabpfncreditvenv`` if that's what you set up.
-    if [ -f "${VSC_DATA}/TabPFNCredit/tabpfncreditvenv/bin/activate" ]; then
-        source "${VSC_DATA}/TabPFNCredit/tabpfncreditvenv/bin/activate"
-    elif command -v conda >/dev/null 2>&1 || [ -d "${VSC_DATA}/miniforge3" ] || [ -d "${VSC_DATA}/miniconda3" ]; then
-        if [ -d "${VSC_DATA}/miniforge3" ]; then
-            source "${VSC_DATA}/miniforge3/etc/profile.d/conda.sh"
-        else
-            source "${VSC_DATA}/miniconda3/etc/profile.d/conda.sh"
-        fi
-        conda activate tabpfncreditvenv 2>/dev/null || conda activate TabPFNCredit
-        export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-    else
-        echo "ERROR: no Python env found (looked for tabpfncreditvenv venv and conda)." >&2
-        exit 1
-    fi
+    On KU Leuven VSC, you must load ``cluster/<cluster>/<partition>``
+    before any toolchain (incl. Python) module becomes visible. We do
+    this here so users never need to type the chain by hand.
     """
-)
+    return dedent(
+        f"""\
+        set -euo pipefail
+
+        # Deterministic stagger (0-29 s) based on array index -- avoids the
+        # thundering-herd I/O storm that RANDOM%60 would create.
+        sleep $((${{SLURM_ARRAY_TASK_ID:-0}} % 30))
+
+        # Unbuffered Python output so SLURM streams stdout in real time.
+        export PYTHONUNBUFFERED=1
+
+        # Memory-fragmentation mitigation for long-running PyTorch jobs.
+        export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+        # HPC convention: never load modules in ~/.bashrc; do it here.
+        module --force purge
+
+        # VSC quirk: you have to load a cluster module BEFORE the
+        # toolchain modules (incl. Python) become visible. Override
+        # by exporting TABPFN_CLUSTER_MODULE before sbatch if needed.
+        : "${{TABPFN_CLUSTER_MODULE:=cluster/{cluster}/{partition}}}"
+        module load "${{TABPFN_CLUSTER_MODULE}}" 2>/dev/null || \\
+            echo "WARN: could not module load ${{TABPFN_CLUSTER_MODULE}}" >&2
+
+        # Load the Python module the venv was built against. Override
+        # per cluster by exporting TABPFN_PYTHON_MODULE before sbatch.
+        # On your own cluster: ``module spider Python/3.12`` to find names.
+        : "${{TABPFN_PYTHON_MODULE:=Python/3.12.3-GCCcore-13.3.0}}"
+        module load "${{TABPFN_PYTHON_MODULE}}" 2>/dev/null || \\
+            echo "WARN: could not module load ${{TABPFN_PYTHON_MODULE}}" >&2
+
+        # Activate the project's Python env. Prefer a plain ``python -m venv``
+        # at the repo root (fast to create, no conda solver) and fall back
+        # to a conda env named ``tabpfncreditvenv`` if that's what you set up.
+        if [ -f "${{VSC_DATA}}/TabPFNCredit/tabpfncreditvenv/bin/activate" ]; then
+            source "${{VSC_DATA}}/TabPFNCredit/tabpfncreditvenv/bin/activate"
+        elif command -v conda >/dev/null 2>&1 || [ -d "${{VSC_DATA}}/miniforge3" ] || [ -d "${{VSC_DATA}}/miniconda3" ]; then
+            if [ -d "${{VSC_DATA}}/miniforge3" ]; then
+                source "${{VSC_DATA}}/miniforge3/etc/profile.d/conda.sh"
+            else
+                source "${{VSC_DATA}}/miniconda3/etc/profile.d/conda.sh"
+            fi
+            conda activate tabpfncreditvenv 2>/dev/null || conda activate TabPFNCredit
+            export LD_LIBRARY_PATH="${{CONDA_PREFIX}}/lib:${{LD_LIBRARY_PATH:-}}"
+        else
+            echo "ERROR: no Python env found (looked for tabpfncreditvenv venv and conda)." >&2
+            exit 1
+        fi"""
+    )
 
 
 _EPILOGUE = dedent(
@@ -440,7 +448,7 @@ def generate_scripts_for_experiment(
         script = "\n".join([
             _SHEBANG,
             header,
-            _PROLOGUE,
+            _prologue(cluster=spec.cluster, partition=spec.partition),
             banner,
             _python_invocation(experiment, partition_key),
             _EPILOGUE,
@@ -570,7 +578,7 @@ def generate_summarize_script(
     script = "\n".join([
         _SHEBANG,
         header,
-        _PROLOGUE,
+        _prologue(cluster=spec.cluster, partition=spec.partition),
         banner,
         invocation,
         _EPILOGUE,
