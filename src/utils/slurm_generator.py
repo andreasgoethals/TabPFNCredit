@@ -62,6 +62,23 @@ from src.methods.runtime_profile import (
     get_profile,
 )
 
+# Absolute path to the repo root, resolved at generation time (the generator
+# runs on the login node, where this is the real on-cluster path, e.g.
+# /vsc-hard-mounts/leuven-data/383/vsc38338/TabPFNCredit). We bake this
+# ABSOLUTE path into the generated scripts instead of ``$VSC_DATA/...``.
+# Reason: SLURM does NOT expand environment variables in ``#SBATCH --output``
+# / ``--error`` directives, so ``${VSC_DATA}`` there is taken LITERALLY and
+# SLURM creates a bogus directory literally named ``${VSC_DATA}`` under the
+# submit dir. An absolute path sidesteps that entirely. Since the repo lives
+# at ``$VSC_DATA/TabPFNCredit`` on the cluster, ``<repo>/results`` ==
+# ``$VSC_DATA/TabPFNCredit/results`` -- same location, no env-var surprises.
+_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+
+
+def _results_dir() -> str:
+    """Absolute results root baked into generated scripts (``<repo>/results``)."""
+    return f"{_REPO_ROOT}/results"
+
 
 # ============================================================================
 #  Partition presets (right-sized per VSC docs)
@@ -282,10 +299,11 @@ def _prologue(*, cluster: str, partition: str) -> str:
             echo "WARN: could not module load ${{TABPFN_PYTHON_MODULE}}" >&2
 
         # Activate the project's Python env. Prefer a plain ``python -m venv``
-        # at the repo root (fast to create, no conda solver) and fall back
-        # to a conda env named ``tabpfncreditvenv`` if that's what you set up.
-        if [ -f "${{VSC_DATA}}/TabPFNCredit/tabpfncreditvenv/bin/activate" ]; then
-            source "${{VSC_DATA}}/TabPFNCredit/tabpfncreditvenv/bin/activate"
+        # at the repo root (absolute path baked in at generation time) and
+        # fall back to a conda env named ``tabpfncreditvenv`` if that's what
+        # you set up.
+        if [ -f "{_REPO_ROOT}/tabpfncreditvenv/bin/activate" ]; then
+            source "{_REPO_ROOT}/tabpfncreditvenv/bin/activate"
         elif command -v conda >/dev/null 2>&1 || [ -d "${{VSC_DATA}}/miniforge3" ] || [ -d "${{VSC_DATA}}/miniconda3" ]; then
             if [ -d "${{VSC_DATA}}/miniforge3" ]; then
                 source "${{VSC_DATA}}/miniforge3/etc/profile.d/conda.sh"
@@ -355,14 +373,15 @@ def _sbatch_header(
 
 def _python_invocation(experiment: str, partition_key: str) -> str:
     """The actual work line -- delegates to the Typer CLI."""
-    # Results land under $VSC_DATA (permanent + backed up + 75 GB quota).
-    # Per-fold scratch (TALENT's internal save_path) goes to a tempfile
-    # directory created inside ``method_runner._run_method``, which is
-    # auto-cleaned at fold exit. Nothing else needs scratch storage.
+    # Results land under the repo's ``results/`` (which on the cluster IS
+    # ``$VSC_DATA/TabPFNCredit/results`` -- permanent, backed up). We use the
+    # ABSOLUTE path baked in at generation time, not ``$VSC_DATA``, so there
+    # is no env-var-expansion ambiguity. Per-fold scratch (TALENT's internal
+    # save_path) goes to a tempfile dir cleaned up at fold exit.
     return dedent(f"""\
-        cd "${{VSC_DATA}}/TabPFNCredit"
+        cd "{_REPO_ROOT}"
 
-        export TABPFN_RESULTS_ROOT="${{VSC_DATA}}/TabPFNCredit/results"
+        export TABPFN_RESULTS_ROOT="{_results_dir()}"
         mkdir -p "${{TABPFN_RESULTS_ROOT}}"
 
         tabpfncredit slurm-task \\
@@ -478,12 +497,10 @@ def generate_scripts_for_experiment(
         array_range = (
             f"0-{len(slots) - 1}%{max_concurrent}" if len(slots) > 1 else "0"
         )
-        # Logs live alongside the results under $VSC_DATA (the result
-        # files are tiny so $VSC_DATA's 75 GB quota is plenty). No
-        # separate slurm/ subfolder -- everything in <exp>/logs/.
-        log_dir = (
-            f"${{VSC_DATA}}/TabPFNCredit/results/{experiment.lower()}/logs"
-        )
+        # Logs live alongside the results. ABSOLUTE path (NOT ${VSC_DATA}):
+        # SLURM does not expand env vars in --output/--error, so a literal
+        # ${VSC_DATA} there would create a bogus directory.
+        log_dir = f"{_results_dir()}/{experiment.lower()}/logs"
         header = _sbatch_header(
             job_name=job_name,
             spec=spec,
@@ -597,7 +614,7 @@ def generate_summarize_script(
 
     spec = PARTITIONS["cpu"]
     job_name = f"{experiment.lower()}_summarize"
-    log_dir = f"${{VSC_DATA}}/TabPFNCredit/results/{experiment.lower()}/logs"
+    log_dir = f"{_results_dir()}/{experiment.lower()}/logs"
     # 15 minutes is plenty -- polars scans all <method>.json files in
     # seconds even on multi-thousand-row sweeps.
     walltime = "00:15:00"
@@ -628,9 +645,9 @@ def generate_summarize_script(
     ]) + "\n"
 
     invocation = dedent(f"""\
-        cd "${{VSC_DATA}}/TabPFNCredit"
+        cd "{_REPO_ROOT}"
 
-        export TABPFN_RESULTS_ROOT="${{VSC_DATA}}/TabPFNCredit/results"
+        export TABPFN_RESULTS_ROOT="{_results_dir()}"
 
         tabpfncredit summarize --experiment {experiment}
         """)
