@@ -6,15 +6,23 @@
 #   pip install -e ".[local]"   # CPU PyTorch + faiss-cpu + dev tools
 #   pip install -e ".[hpc]"     # CUDA 12.1 PyTorch + annoy + dev tools
 #
-# Python 3.10 - 3.12 supported, 3.12 recommended. 3.13 / 3.14 are blocked
-# (many scientific deps still lack wheels for them).
+# Python 3.10 - 3.12 supported, 3.12 recommended.
 #
-# Resolution time
-# ---------------
-# Foundation-model packages (tabpfn / tabicl / tabdpt) release weekly with
-# overlapping transitive deps -- if we leave their ranges open pip can
-# spend 30+ minutes backtracking. We therefore pin them to exact known-
-# good versions below. To bump one, change just that line + re-resolve.
+# Why so many EXACT pins?
+# -----------------------
+# TALENT (our core dep, pulled from a git URL) pins a bunch of scientific
+# packages to specific versions in its own pyproject.toml -- numpy 1.26.4,
+# scipy 1.13.0, scikit-learn 1.4.2, torch 2.8.0, einops 0.8.0, etc.
+#
+# If our pyproject specifies even a SLIGHTLY different range for any of
+# these, pip cannot satisfy both constraints and starts backtracking
+# through every transitively-related package looking for a solution. It
+# never finds one (because TALENT's pins are leaf constraints) so the
+# install grinds for 30+ minutes before erroring out.
+#
+# The fix: mirror TALENT's pins exactly here, so pip sees one consistent
+# constraint set and resolves in seconds. Bumping TALENT means updating
+# both their pins and ours together.
 # ============================================================================
 
 [build-system]
@@ -53,46 +61,50 @@ classifiers = [
 # ----------------------------------------------------------------------------
 # Core runtime dependencies (always installed)
 # ----------------------------------------------------------------------------
-# Most pins are ranges; the foundation-model packages are EXACT pins on
-# purpose -- see the resolution-time comment at the top of the file.
+# EXACT pins below mirror TALENT's requirements.txt verbatim -- see the
+# resolver comment at the top of the file. Bump TALENT then bump these.
 dependencies = [
-    # ---- Core scientific stack (avoid 1.x numpy / sklearn 1.4 on Py3.12) ----
-    "numpy>=2.0,<2.3",
-    "pandas>=2.2,<3",
-    "scipy>=1.13,<2",
-    "scikit-learn>=1.5,<2",
-    "pyarrow>=14,<22",
+    # ---- Core scientific stack (TALENT-pinned) ----
+    "numpy==1.26.4",
+    "pandas==2.2.2",
+    "scipy==1.13.0",
+    "scikit-learn==1.4.2",
+    "pyarrow>=14,<22",       # not TALENT-pinned; loose range is fine
 
-    # ---- TALENT framework deps ----
-    "delu>=0.0.23,<0.1",
-    "einops>=0.8,<1",
-    "qhoptim>=1.1,<2",
-    "category_encoders>=2.6,<3",
+    # ---- TALENT framework deps (TALENT-pinned) ----
+    "delu==0.0.23",
+    "einops==0.8.0",
+    "qhoptim==1.1.0",
+    "category_encoders==2.6.3",
+    "tqdm==4.66.4",
+    "Requests==2.31.0",
+    "optuna==3.6.1",
+
+    # ---- TALENT framework deps (not TALENT-pinned) ----
     "dill>=0.3.7,<0.4",
     "msgpack>=1.0.5,<2",
     "msgpack-numpy>=0.4.8,<0.5",
     "torchmetrics>=1.2,<2",
     "pytorch-lightning>=2.1,<2.6",
     "einx>=0.1.3",
-    "safetensors>=0.4.2",
+    "safetensors>=0.5.3,<1",  # tabdpt 1.1.14 lower bound
 
-    # ---- Gradient boosting ----
-    "xgboost>=2.1,<3",
-    "lightgbm>=4.6,<5",
-    "catboost>=1.2.8,<2",
+    # ---- Gradient boosting (TALENT pins these in requirements.txt only;
+    #      its pyproject leaves them open, so we use a wider range) ----
+    "xgboost>=2.0,<3",
+    "lightgbm>=4.3,<5",
+    "catboost>=1.2.3,<2",
 
     # ---- Tabular foundation models -- EXACT pins so pip never backtracks ----
     "tabpfn==8.0.5",
     "tabicl==2.1.1",
     "tabdpt==1.1.14",
-    # tabdpt 1.1.14 transitively requires `omegaconf>=2.1`, `faiss-cpu<1.13`.
-    # Pinning omegaconf>=2.3 here avoids the antlr4 source-build fallback
-    # that pip would otherwise hit (antlr4-python3-runtime 4.8 has no wheel
-    # and takes minutes to compile from source).
+    # tabdpt transitively pulls omegaconf; pin >=2.3 here so pip skips
+    # the antlr4 4.8 source-build fallback that lives in 2.1.x.
     "omegaconf>=2.3,<3",
 
-    # ---- HPO ----
-    "optuna>=3.6,<4",
+    # ---- HuggingFace hub (tabdpt requires >=0.33.2) ----
+    "huggingface-hub>=0.33.2,<1",
 
     # ---- Folds cache + parallelism ----
     "joblib>=1.3,<2",
@@ -100,10 +112,7 @@ dependencies = [
     # ---- Config, CLI & utilities ----
     "packaging>=23,<25",
     "PyYAML>=6.0.1,<7",
-    "tqdm>=4.66,<5",
-    "Requests>=2.31,<3",
     "typing_extensions>=4.8,<5",
-    "huggingface-hub>=0.21,<1",
     "typer>=0.12,<0.13",
     "rich>=13,<15",
 
@@ -121,12 +130,10 @@ dependencies = [
     "polars>=1.0,<2",
 
     # ---- Notebook kernel ----
-    # NOTE: we don't ship the full `notebook` / JupyterLab packages -- those
-    # pull in ~30 transitive deps (jupyter-server, tornado, ...) and slow
-    # resolution to a crawl. `ipykernel` is enough to register the venv
-    # as a Jupyter kernel; open the notebooks via VSCode's Jupyter
-    # extension, or `pip install notebook` separately if you need
-    # `jupyter notebook` on the CLI.
+    # We don't ship full `notebook` / JupyterLab (heavy + slow to
+    # resolve). `ipykernel` is enough to register the venv as a Jupyter
+    # kernel -- VSCode's Jupyter extension and `jupyter notebook` (if
+    # you `pip install notebook` separately) both pick it up.
     "ipython>=8,<10",
     "ipykernel>=6,<7",
 
@@ -141,14 +148,14 @@ dependencies = [
 
 # Local-workstation profile -- CPU PyTorch + dev tools. Self-contained.
 local = [
-    # Torch lower bound is dictated by tabdpt 1.1.14 (>=2.6). Upper kept
-    # at <2.8 because tabicl/tabpfn haven't been tested against newer
-    # bleeding-edge releases yet.
-    "torch>=2.6,<2.8",
-    "torchvision>=0.21,<0.23",
+    # torch / torchvision -- TALENT pins torch==2.8.0; torchvision 0.23
+    # is its matching companion release.
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    # tabdpt 1.1.14 needs faiss-cpu<1.13,>=1.11; 1.12.x is the latest match.
     "faiss-cpu>=1.11,<1.13",
     "portalocker>=2.8,<3",
-    # Dev tools
+    # Dev tools (loose ranges -- these don't conflict with foundation models).
     "pytest>=8,<9",
     "pytest-xdist>=3,<4",
     "ruff>=0.5,<1",
@@ -161,14 +168,11 @@ local = [
 
 # HPC-cluster profile -- CUDA PyTorch + annoy + dev tools. Self-contained.
 hpc = [
-    # CUDA 12.1 PyTorch wheels by default. For CUDA 11.8 GPUs override
-    # the wheel index:
+    # CUDA-12 PyTorch wheels by default. For CUDA-11.8 GPUs override:
     #     pip install -e ".[hpc]" --index-url https://download.pytorch.org/whl/cu118
-    # Range constrained by tabdpt 1.1.14 (torch>=2.6) and bleeding-edge
-    # compatibility (we keep <2.8 until tabicl/tabpfn validate newer).
-    "torch>=2.6,<2.8",
-    "torchvision>=0.21,<0.23",
-    "torchaudio>=2.6,<2.8",
+    "torch==2.8.0",
+    "torchvision==0.23.0",
+    "torchaudio==2.8.0",
     # `faiss-gpu` is typically a cluster module on HPC; never pip-install.
     # Annoy is the lightweight alternative for the TabR retrieval index.
     "annoy>=1.17,<2",
@@ -195,10 +199,9 @@ tabpfncredit = "src.cli:app"
 # Package discovery (hatchling)
 # ----------------------------------------------------------------------------
 # Ship the ``src/`` directory verbatim in the wheel so ``import src.X``
-# works after install. The ``scripts/`` tree is intentionally NOT
-# packaged -- the CLI resolves it relative to the source repo via
-# ``Path(__file__).resolve().parents[2]``, which is the right behaviour
-# for the only install mode we support (editable ``pip install -e .``).
+# works after install. The ``scripts/`` tree is NOT packaged -- the CLI
+# resolves it via ``Path(__file__).resolve().parents[2]`` (the repo root)
+# which is correct for editable installs.
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
@@ -217,6 +220,7 @@ extend-exclude = """
 /(
     notebooks
   | venv
+  | tabpfncreditvenv
   | \\.cache
 )/
 """
@@ -224,7 +228,7 @@ extend-exclude = """
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-extend-exclude = ["venv", "notebooks", "results", ".cache"]
+extend-exclude = ["venv", "tabpfncreditvenv", "notebooks", "results", ".cache"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
