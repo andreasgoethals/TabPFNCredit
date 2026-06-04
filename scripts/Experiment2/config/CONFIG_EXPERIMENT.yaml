@@ -39,9 +39,9 @@ early_stopping_patience: 10
 learning_curve:
   pd:
     row_max: 30000
-    row_min: 100
-    row_step: 5
+    row_min: 1000
+    row_step: 1000     # 30000 -> 1000 in 1000-row steps = 30 points
   lgd:
     row_max: 4600
-    row_min: 100
-    row_step: 5
+    row_min: 200
+    row_step: 200      # 4600 -> 200 in 200-row steps = 23 points

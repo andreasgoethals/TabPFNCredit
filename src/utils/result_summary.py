@@ -61,35 +61,34 @@ def _iter_method_files(base: Path, experiment: str) -> Iterable[Path]:
 
 
 def _split_sweep_suffix(method_stem: str):
-    """Parse ``"xgboost__HPO"`` into ``("xgboost", "HPO_mode", "HPO")``.
+    """Parse a (possibly multi-axis) method stem into its sweep components.
 
-    Returns ``(bare_method, sweep_axis, sweep_value)``. ``sweep_axis`` /
-    ``sweep_value`` are ``None`` for plain methods (no ``__`` suffix).
+    Delegates to :func:`src.utils.result_io.parse_method_name`, which is the
+    canonical inverse of ``build_method_name`` and handles MULTIPLE suffixes
+    (e.g. ``xgboost__HPO__row5000`` -> base ``xgboost`` + ``{HPO: True,
+    row: 5000}``). Returns ``(bare_method, hpo_mode, sweep_axis, sweep_value)``
+    where ``sweep_axis``/``sweep_value`` describe the first NON-HPO axis
+    (None for a plain or HPO-only method), and ``hpo_mode`` is "HPO" or
+    "NO_HPO".
     """
-    if "__" not in method_stem:
-        return method_stem, None, None
-    bare, suffix = method_stem.split("__", 1)
-    # Heuristic mapping suffix-prefix -> sweep axis
-    if suffix.startswith("row"):
-        axis = "row_limit"
-        try:
-            value: Any = int(suffix[3:])
-        except ValueError:
-            value = suffix[3:]
-    elif suffix.startswith("min"):
-        axis = "minority_proportion"
-        try:
-            # "min0p0025" -> 0.0025
-            value = float(suffix[3:].replace("p", "."))
-        except ValueError:
-            value = suffix[3:]
-    elif suffix == "HPO":
-        axis = "hpo_mode"
-        value = "HPO"
-    else:
-        axis = "sweep"
-        value = suffix
-    return bare, axis, value
+    from src.utils.result_io import parse_method_name
+
+    parsed = parse_method_name(method_stem)
+    base = parsed["method"]
+    sweep = parsed["sweep"]  # {axis: value, ...}; HPO -> True
+
+    hpo_mode = "HPO" if sweep.get("HPO") is True else "NO_HPO"
+    # The primary (non-HPO) sweep axis, mapped to a readable name.
+    _axis_names = {"row": "row_limit", "min": "minority_proportion"}
+    sweep_axis = None
+    sweep_value = None
+    for axis, value in sweep.items():
+        if axis == "HPO":
+            continue
+        sweep_axis = _axis_names.get(axis, axis)
+        sweep_value = value
+        break
+    return base, hpo_mode, sweep_axis, sweep_value
 
 
 def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
@@ -97,17 +96,13 @@ def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
     rel = path.relative_to(base).parts
     _experiment, task, dataset, method_file = rel
     method_stem = method_file[:-5]  # strip ".json"
-    bare_method, sweep_axis, sweep_value = _split_sweep_suffix(method_stem)
+    bare_method, hpo_mode, sweep_axis, sweep_value = _split_sweep_suffix(method_stem)
 
     try:
         payload = json.loads(path.read_text())
     except json.JSONDecodeError:
         logger.warning("Skipping malformed JSON: %s", path)
         return
-
-    # For plain methods (no sweep suffix) the HPO mode is implicit NO_HPO;
-    # the ``__HPO`` suffix marks the tuned run.
-    hpo_mode = "HPO" if sweep_axis == "hpo_mode" else "NO_HPO"
 
     folds = payload.get("folds") or {}
     for fold_id_str, fold in folds.items():

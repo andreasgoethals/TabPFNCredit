@@ -63,6 +63,7 @@ from src.methods.method_config import (  # noqa: E402
     DEEP_METHODS,
     FOUNDATION_METHODS,
     GPU_METHODS,
+    HPO_METHODS,
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
 from src.methods.runtime_profile import get_profile  # noqa: E402
@@ -74,6 +75,7 @@ from src.utils.slurm_generator import (  # noqa: E402
 )
 from src.utils.config_reader import load_config  # noqa: E402
 from src.utils.result_io import (  # noqa: E402
+    build_method_name,
     has_complete_result,
     save_method,
 )
@@ -226,58 +228,136 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
 
 
 # ============================================================================
+#  Sweep expansion -- one (dataset, method, task) cell -> N sweep points
+# ============================================================================
+#
+# This is what makes Experiment 1 (NO_HPO + HPO), Experiment 2 (training-size
+# learning curve) and Experiment 3 (minority-proportion sweep) ACTUALLY sweep
+# instead of running a single point. Each sweep point becomes its own
+# ``<method>__<suffix>.{json,npz}`` result file so the points never collide.
+# Both the local runner and the SLURM workhorse expand cells the same way
+# (the config is re-read on the compute node), so the per-slot plan only
+# needs to carry the bare {dataset, method, task}.
+
+def _frange_desc(hi: float, lo: float, step: float) -> List[float]:
+    """Inclusive descending range ``hi, hi-step, ..., >= lo`` (float-safe)."""
+    out: List[float] = []
+    v = float(hi)
+    while v >= lo - 1e-9:
+        out.append(round(v, 6))
+        v -= step
+    return out
+
+
+def _sweep_points(experiment: str, config: dict, cell: dict) -> List[dict]:
+    """Expand a cell into its sweep points.
+
+    Each point is a dict with:
+      * ``name``    -- result filename stem (method + sweep suffix)
+      * ``tune``    -- HPO on/off for this point
+      * ``row_limit`` / ``sampling`` -- per-point overrides for run_talent_method
+    """
+    method, task = cell["method"], cell["task"]
+    exp = experiment.lower()
+    base_row = config["split"].get("row_limit")
+    base_sampling = config["split"].get("sampling")
+
+    if exp == "experiment1":
+        # NO_HPO point for every method; an extra HPO point only for methods
+        # that actually support tuning (TabICL etc. are NO_HPO-only).
+        points = [{"name": method, "tune": False,
+                   "row_limit": base_row, "sampling": base_sampling}]
+        if method in HPO_METHODS:
+            points.append({"name": build_method_name(method, {"HPO": True}),
+                           "tune": True, "row_limit": base_row, "sampling": base_sampling})
+        return points
+
+    if exp == "experiment2":
+        lc = (config.get("learning_curve") or {}).get(task) or {}
+        rmax, rmin, rstep = lc.get("row_max"), lc.get("row_min"), lc.get("row_step")
+        if not (rmax and rstep):
+            return [{"name": method, "tune": False, "row_limit": base_row, "sampling": base_sampling}]
+        rows = [int(r) for r in _frange_desc(rmax, rmin or 0, rstep)]
+        return [{"name": build_method_name(method, {"row": r}), "tune": False,
+                 "row_limit": r, "sampling": base_sampling} for r in rows]
+
+    if exp == "experiment3":
+        imb = config.get("imbalance") or {}
+        pmax = imb.get("minority_proportion_max")
+        pmin = imb.get("minority_proportion_min")
+        pstep = imb.get("minority_proportion_step")
+        if not (pmax and pstep):
+            return [{"name": method, "tune": False, "row_limit": base_row, "sampling": base_sampling}]
+        props = _frange_desc(pmax, pmin or 0, pstep)
+        return [{"name": build_method_name(method, {"min": p}), "tune": False,
+                 "row_limit": base_row, "sampling": p} for p in props]
+
+    # Experiment 0 (and any unknown experiment): a single point, no sweep.
+    return [{"name": method, "tune": False, "row_limit": base_row, "sampling": base_sampling}]
+
+
+def _run_one_point(
+    experiment: str, config: dict, cell: dict, point: dict, results_root: Path,
+    *, verbose: bool = False,
+) -> str:
+    """Run + save ONE sweep point. Returns 'skip' / 'done' / 'fail'."""
+    task, dataset, method = cell["task"], cell["dataset"], cell["method"]
+    name = point["name"]
+    cv = config["split"]["cv_splits"]
+    if has_complete_result(
+        base=results_root, experiment=experiment.lower(),
+        task=task, dataset=dataset, method=name, expected_folds=cv,
+    ):
+        console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{name} (already done)")
+        return "skip"
+    console.print(f"  [bold]run[/bold]  {task}/{dataset}/{name}")
+    try:
+        fold_results = run_talent_method(
+            task=task, dataset=dataset, method=method,
+            test_size=config["split"]["test_size"],
+            val_size=config["split"]["val_size"],
+            cv_splits=cv,
+            seed=config["split"]["seed"],
+            row_limit=point.get("row_limit"),
+            sampling=point.get("sampling"),
+            max_epoch=config["training"]["max_epochs"],
+            batch_size=config["training"]["batch_size"],
+            tune=point.get("tune", False),
+            n_trials=config["tuning"]["n_trials"] if point.get("tune") else 1,
+            early_stopping=config["training"]["early_stopping"],
+            early_stopping_patience=config["training"]["early_stopping_patience"],
+            verbose=verbose,
+        )
+        # Save under the sweep-suffixed name so points don't collide.
+        save_method(
+            fold_results, base=results_root, experiment=experiment.lower(),
+            task=task, dataset=dataset, method=name,
+        )
+        return "done"
+    except Exception as exc:  # pragma: no cover -- defensive
+        console.print(f"  [red]fail[/red] {task}/{dataset}/{name}: {exc}")
+        logger.exception("Cell %s point %s failed", cell, name)
+        return "fail"
+
+
+# ============================================================================
 #  Local runner (no SLURM)
 # ============================================================================
 
 def _run_cells_locally(experiment: str, cells: Sequence[dict], config: dict) -> int:
-    """Run every cell in-process. Returns the number of failed cells."""
+    """Run every cell (expanded into its sweep points) in-process.
+
+    Returns the number of failed sweep points.
+    """
     results_root = _results_root()
-    cv = config["split"]["cv_splits"]
     n_done = n_skipped = n_failed = 0
 
     for cell in cells:
-        task, dataset, method = cell["task"], cell["dataset"], cell["method"]
-        # Skip-if-done: only check the <method>.json result file.
-        if has_complete_result(
-            base=results_root,
-            experiment=experiment.lower(),
-            task=task,
-            dataset=dataset,
-            method=method,
-            expected_folds=cv,
-        ):
-            n_skipped += 1
-            console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{method} (already done)")
-            continue
-
-        console.print(f"  [bold]run[/bold]  {task}/{dataset}/{method}")
-        try:
-            fold_results = run_talent_method(
-                task=task, dataset=dataset, method=method,
-                test_size=config["split"]["test_size"],
-                val_size=config["split"]["val_size"],
-                cv_splits=cv,
-                seed=config["split"]["seed"],
-                row_limit=config["split"].get("row_limit"),
-                sampling=config["split"].get("sampling"),
-                max_epoch=config["training"]["max_epochs"],
-                batch_size=config["training"]["batch_size"],
-                tune=False,
-                n_trials=1,
-                early_stopping=config["training"]["early_stopping"],
-                early_stopping_patience=config["training"]["early_stopping_patience"],
-                verbose=False,
-            )
-            save_method(
-                fold_results, base=results_root,
-                experiment=experiment.lower(),
-                task=task, dataset=dataset, method=method,
-            )
-            n_done += 1
-        except Exception as exc:  # pragma: no cover -- defensive
-            n_failed += 1
-            console.print(f"  [red]fail[/red] {task}/{dataset}/{method}: {exc}")
-            logger.exception("Local cell failed: %s", cell)
+        for point in _sweep_points(experiment, config, cell):
+            status = _run_one_point(experiment, config, cell, point, results_root)
+            n_done += status == "done"
+            n_skipped += status == "skip"
+            n_failed += status == "fail"
 
     console.print(
         f"\n[green]done {n_done}[/green]  "
@@ -452,7 +532,7 @@ def cmd_experiment(
 ) -> None:
     """Run one experiment end-to-end (auto-preprocess + auto-SLURM + auto-summarize)."""
     if verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.DEBUG)
 
     config = load_config(name)
     cells = _build_task_list(
@@ -581,48 +661,18 @@ def cmd_slurm_task(
     console.print(f"[bold]Slot {array_id}/{len(slots) - 1}:[/bold] {len(slot)} cell(s)")
 
     if verbose:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.DEBUG)
 
     config = load_config(experiment)
     results_root = _results_root()
-    cv = config["split"]["cv_splits"]
 
+    # Expand each cell into its sweep points (same logic the local runner
+    # uses) and run each point. This is what actually executes Experiment 1's
+    # HPO mode, Experiment 2's row-limit curve and Experiment 3's minority
+    # sweep -- each point saved under its own ``<method>__<suffix>`` file.
     for cell in slot:
-        task, dataset, method = cell["task"], cell["dataset"], cell["method"]
-        if has_complete_result(
-            base=results_root,
-            experiment=experiment.lower(),
-            task=task, dataset=dataset, method=method,
-            expected_folds=cv,
-        ):
-            console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{method} (already done)")
-            continue
-        try:
-            fold_results = run_talent_method(
-                task=task, dataset=dataset, method=method,
-                test_size=config["split"]["test_size"],
-                val_size=config["split"]["val_size"],
-                cv_splits=cv,
-                seed=config["split"]["seed"],
-                row_limit=config["split"].get("row_limit"),
-                sampling=config["split"].get("sampling"),
-                max_epoch=config["training"]["max_epochs"],
-                batch_size=config["training"]["batch_size"],
-                tune=False, n_trials=1,
-                early_stopping=config["training"]["early_stopping"],
-                early_stopping_patience=config["training"]["early_stopping_patience"],
-                verbose=verbose,
-            )
-            save_method(
-                fold_results, base=results_root,
-                experiment=experiment.lower(),
-                task=task, dataset=dataset, method=method,
-            )
-            console.print(f"  [green]done[/green] {task}/{dataset}/{method}")
-        except Exception:
-            logger.exception("Cell %s failed", cell)
-            # Continue with the rest of the slot.
-            continue
+        for point in _sweep_points(experiment, config, cell):
+            _run_one_point(experiment, config, cell, point, results_root, verbose=verbose)
 
 
 # ============================================================================
