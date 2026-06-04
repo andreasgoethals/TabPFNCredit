@@ -8,21 +8,39 @@
 #
 # Python 3.10 - 3.12 supported, 3.12 recommended.
 #
-# Why so many EXACT pins?
-# -----------------------
-# TALENT (our core dep, pulled from a git URL) pins a bunch of scientific
-# packages to specific versions in its own pyproject.toml -- numpy 1.26.4,
-# scipy 1.13.0, scikit-learn 1.4.2, torch 2.8.0, einops 0.8.0, etc.
+# Why is TALENT NOT in [project.dependencies]?
+# ---------------------------------------------
+# TALENT (our core framework) pins ALL of its dependencies to exact
+# versions in its own metadata: numpy==1.26.4, requests==2.31.0,
+# torch==2.8.0, scikit-learn==1.4.2, etc. Several of those exact pins
+# directly conflict with what the tabular foundation models need -- e.g.
+# tabpfn 8.0.5 -> tabpfn-common-utils -> requests>=2.32.5, which can
+# never coexist with TALENT's requests==2.31.0. pip cannot solve that, so
+# it backtracks forever and then errors out.
 #
-# If our pyproject specifies even a SLIGHTLY different range for any of
-# these, pip cannot satisfy both constraints and starts backtracking
-# through every transitively-related package looking for a solution. It
-# never finds one (because TALENT's pins are leaf constraints) so the
-# install grinds for 30+ minutes before erroring out.
+# The fix: install TALENT with ``--no-deps`` so its over-strict pins are
+# ignored, and declare all of TALENT's *real* runtime deps ourselves
+# below (we already do -- numpy, pandas, scipy, sklearn, torch, einops,
+# xgboost, lightgbm, catboost, optuna, ...). TALENT runs fine against the
+# versions we pick; we just refuse to be held hostage by its lockfile.
 #
-# The fix: mirror TALENT's pins exactly here, so pip sees one consistent
-# constraint set and resolves in seconds. Bumping TALENT means updating
-# both their pins and ours together.
+# Because TALENT is installed separately, run the project install in TWO
+# steps (the scripts/install.{sh,ps1} helpers do this for you):
+#
+#     pip install -e ".[hpc]"      # or ".[local]"
+#     pip install --no-deps "TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@main"
+#
+# Why still so many EXACT pins below?
+# -----------------------------------
+# We pin the core scientific stack to the exact versions TALENT was
+# validated against (numpy 1.26.4, scipy 1.13.0, ...). Two reasons:
+#   1. Reproducibility -- everyone gets the same stack TALENT was tested on.
+#   2. Speed -- exact pins give pip ZERO room to backtrack, so the resolve
+#      finishes in seconds instead of grinding through dozens of versions.
+# All of these exact pins are mutually compatible with tabpfn 8.0.5 /
+# tabicl 2.1.1 / tabdpt 1.1.14 (verified). The ONE exception is requests,
+# which we set to tabpfn's requirement (>=2.32.5) since TALENT's 2.31.0
+# pin no longer applies once TALENT is --no-deps.
 # ============================================================================
 
 [build-system]
@@ -77,7 +95,11 @@ dependencies = [
     "qhoptim==1.1.0",
     "category_encoders==2.6.3",
     "tqdm==4.66.4",
-    "Requests==2.31.0",
+    # requests: TALENT pins ==2.31.0 but tabpfn's tabpfn-common-utils needs
+    # >=2.32.5. Since TALENT is installed --no-deps, its 2.31.0 pin doesn't
+    # apply, so we satisfy tabpfn. (2.31 -> 2.32 is a security patch release;
+    # TALENT's HTTP downloads behave identically.)
+    "requests>=2.32.5,<3",
     "optuna==3.6.1",
 
     # ---- TALENT framework deps (not TALENT-pinned) ----
@@ -137,8 +159,11 @@ dependencies = [
     "ipython>=8,<10",
     "ipykernel>=6,<7",
 
-    # ---- TALENT (pin a commit SHA before archiving a release) ----
-    "TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@main",
+    # NOTE: TALENT is intentionally NOT listed here. It is installed
+    # separately with ``--no-deps`` (see the header comment + the
+    # scripts/install.{sh,ps1} helpers) so its exact version pins don't
+    # conflict with the tabular foundation models. All of TALENT's real
+    # runtime deps are already declared above.
 ]
 
 # ----------------------------------------------------------------------------

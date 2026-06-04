@@ -1,0 +1,21 @@
+# ============================================
+# Local-machine extras (Windows / macOS / Linux workstation)
+# ============================================
+# Install with:
+#     pip install -r requirements_local.txt
+# ============================================
+
+# Core requirements
+-r requirements.txt
+
+# CPU-only PyTorch is fine for local development / debugging.
+# (Swap to the CUDA build that matches your GPU if you want to train locally.)
+torch>=2.1,<2.7
+torchvision>=0.16,<0.22
+
+# Faiss CPU for TabR retrieval index on machines without CUDA.
+faiss-cpu==1.13.1
+
+# Cross-platform advisory file locking (fcntl is POSIX-only, so this is
+# required on Windows and kept for robustness elsewhere).
+portalocker>=2.8,<3

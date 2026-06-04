@@ -36,6 +36,13 @@ trivially adaptable to others.
 auto-preprocesses missing data, auto-runs locally or auto-submits to
 SLURM, and auto-summarizes once done.
 
+Installation is a **two-step** process (the `scripts/install.{sh,ps1}`
+helpers do both for you): first the project + its dependencies, then
+TALENT with `--no-deps`. TALENT hard-pins its own dependencies to exact
+versions that clash with the foundation models, so we install it without
+its lockfile and supply its real dependencies ourselves. The helper
+scripts hide this — you just run one command.
+
 ### 1.1 Local install (Windows PowerShell)
 
 Requires **Python 3.12** (3.10 and 3.11 also work; 3.13 / 3.14 don't).
@@ -49,16 +56,17 @@ cd tabpfncredit
 py -3.12 -m venv tabpfncreditvenv
 .\tabpfncreditvenv\Scripts\Activate.ps1
 
-pip install -e ".[local]"
+.\scripts\install.ps1 local       # = pip install -e ".[local]" + TALENT --no-deps
 
 tabpfncredit experiment Experiment0
 ```
 
-macOS / Linux substitute (for the two PowerShell-only lines):
+macOS / Linux:
 
 ```bash
-# python3.12 -m venv tabpfncreditvenv
-# source tabpfncreditvenv/bin/activate
+python3.12 -m venv tabpfncreditvenv
+source tabpfncreditvenv/bin/activate
+bash scripts/install.sh local
 ```
 
 ### 1.2 HPC install (SLURM cluster)
@@ -66,11 +74,13 @@ macOS / Linux substitute (for the two PowerShell-only lines):
 ```bash
 ssh <your.cluster>
 module purge
-conda create -y -n tabpfncreditvenv python=3.12
-conda activate tabpfncreditvenv
+module load cluster/genius/login                  # KU Leuven VSC; unlocks the Python module
+module load Python/3.12.3-GCCcore-13.3.0           # `module spider Python/3.12` to find the name
 
 cd <your_repo_clone>
-pip install -e ".[hpc]"
+python -m venv tabpfncreditvenv
+source tabpfncreditvenv/bin/activate
+bash scripts/install.sh hpc
 ```
 
 To submit the full benchmark — Experiment 0 → 1 → 2 → 3 chained with
@@ -92,18 +102,24 @@ The generated SLURM scripts target the KU Leuven VSC partitions
 cluster, edit `src/slurm/generator.py`'s `PARTITIONS` table to match
 your cluster's CPU / memory / GPU caps.
 
-### Install profiles
+### Install profiles + the manual two-step
 
-Just two:
+Two profiles:
 
-| Command | What it gives you |
+| Profile | What it gives you |
 |---|---|
-| `pip install -e ".[local]"` | Local workstation — CPU PyTorch + faiss-cpu + dev tools. |
-| `pip install -e ".[hpc]"` | HPC cluster — CUDA 12.1 PyTorch + annoy + dev tools. For CUDA 11.8 add `--index-url https://download.pytorch.org/whl/cu118`. |
+| `local` | Local workstation — CPU PyTorch + faiss-cpu + dev tools. |
+| `hpc` | HPC cluster — CUDA 12.1 PyTorch + annoy + dev tools. For CUDA 11.8 add `--index-url https://download.pytorch.org/whl/cu118`. |
 
-Both profiles are self-contained. The build backend is
-[hatchling](https://hatch.pypa.io/latest/), so no `tabpfncredit.egg-info/`
-is dropped into the source tree.
+If you'd rather not use the helper script, run the two steps yourself:
+
+```bash
+pip install -e ".[hpc]"        # or ".[local]"
+pip install --no-deps "TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@main"
+```
+
+The build backend is [hatchling](https://hatch.pypa.io/latest/), so no
+`tabpfncredit.egg-info/` is dropped into the source tree.
 
 ---
 

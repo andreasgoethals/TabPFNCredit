@@ -1,0 +1,47 @@
+# ============================================
+# VSC supercomputer requirements
+# ============================================
+# Targets:
+#   * Genius P100  -- CUDA 11.8 (older node generation)
+#   * wICE H100    -- CUDA 12.1 (current node generation, what foundation models target)
+#
+# Default below pins cu121 because (a) wICE H100 is the primary target for
+# the foundation-model experiments and (b) cu118 wheels do not load on
+# Hopper-class GPUs. If you specifically need to run on P100 nodes,
+# override torch* below by uncommenting the cu118 block.
+#
+# Install sequence on VSC (from $VSC_DATA/TabPFNCredit):
+#     module purge
+#     source $VSC_DATA/miniconda3/bin/activate
+#     conda create -y -n TabPFNCredit python=3.10
+#     conda activate TabPFNCredit
+#     pip install -r requirements_vsc.txt
+#
+# NOTE on faiss: on VSC, faiss with GPU support is provided by the module
+#   `SciPy-bundle/2023.07-gfbf-2023a`. Do NOT `pip install faiss-gpu`; it
+#   will either fail or silently install an incompatible CPU build.
+# ============================================
+
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+# H100 / wICE (CUDA 12.1) -- DEFAULT
+torch==2.4.1+cu121
+torchvision==0.19.1+cu121
+torchaudio==2.4.1+cu121
+
+# --- Legacy P100 / Genius (CUDA 11.8). Uncomment if running on cu118 nodes. ---
+# --extra-index-url https://download.pytorch.org/whl/cu118
+# torch==2.0.1+cu118
+# torchvision==0.15.2+cu118
+# torchaudio==2.0.2+cu118
+
+# ---- Optional: faiss alternative for non-GPU nodes (Annoy) ----
+# TALENT / TabR uses this as a nearest-neighbour index when faiss is unavailable.
+annoy==1.17.3
+
+# ---- Portalocker keeps the file-lock API identical across platforms,
+#      so local-dev pickles are binary-compatible with VSC pickles. ----
+portalocker>=2.8,<3
+
+# Base TabPFNCredit requirements (TALENT, numpy, pandas, sklearn, ...)
+-r requirements.txt
