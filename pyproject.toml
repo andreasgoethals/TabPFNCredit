@@ -136,6 +136,12 @@ dependencies = [
     "PyYAML>=6.0.1,<7",
     "typing_extensions>=4.8,<5",
     "typer>=0.12,<0.13",
+    # Click 8.2 added strict validation that rejects the ``--flag/--no-flag``
+    # secondary flags Typer 0.12.x emits for EVERY boolean option, raising
+    # "Secondary flag is not valid for non-boolean flag" at import time.
+    # Typer 0.12.5 is only compatible with Click < 8.2, so cap it here --
+    # otherwise pip grabs the latest Click and the CLI won't even start.
+    "click>=8.1,<8.2",
     "rich>=13,<15",
 
     # ---- Credit-risk metrics ----
