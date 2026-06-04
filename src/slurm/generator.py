@@ -211,9 +211,14 @@ def _prologue(*, cluster: str, partition: str) -> str:
         module --force purge
 
         # VSC quirk: you have to load a cluster module BEFORE the
-        # toolchain modules (incl. Python) become visible. Override
-        # by exporting TABPFN_CLUSTER_MODULE before sbatch if needed.
-        : "${{TABPFN_CLUSTER_MODULE:=cluster/{cluster}/{partition}}}"
+        # toolchain modules (incl. Python) become visible.
+        # Default = ``cluster/genius/login`` -- its toolchain is compiled
+        # for Skylake, which runs forward-compatibly on every newer CPU
+        # (Ice Lake, Sapphire Rapids, …). One venv created with this
+        # module therefore activates cleanly on every partition.
+        # Override per cluster by exporting TABPFN_CLUSTER_MODULE before
+        # sbatch if you need a partition-specific toolchain.
+        : "${{TABPFN_CLUSTER_MODULE:=cluster/genius/login}}"
         module load "${{TABPFN_CLUSTER_MODULE}}" 2>/dev/null || \\
             echo "WARN: could not module load ${{TABPFN_CLUSTER_MODULE}}" >&2
 
