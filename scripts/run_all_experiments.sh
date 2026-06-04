@@ -52,6 +52,36 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
 
 # ----------------------------------------------------------------------------
+# Make sure the `tabpfncredit` console script is on PATH.
+#
+# If you ran this in a fresh shell that hasn't activated the project venv,
+# we set it up for you: on an HPC cluster we load the Python toolchain
+# module (the venv's interpreter links against it), then activate the
+# venv at the repo root. Override the module names by exporting
+# TABPFN_CLUSTER_MODULE / TABPFN_PYTHON_MODULE before running. If the venv
+# is already active (tabpfncredit found) we touch nothing.
+# ----------------------------------------------------------------------------
+if ! command -v tabpfncredit >/dev/null 2>&1; then
+    if command -v module >/dev/null 2>&1; then
+        module --force purge 2>/dev/null || true
+        module load "${TABPFN_CLUSTER_MODULE:-cluster/genius/login}" 2>/dev/null || true
+        module load "${TABPFN_PYTHON_MODULE:-Python/3.12.3-GCCcore-13.3.0}" 2>/dev/null || true
+    fi
+    if [ -f "${REPO_ROOT}/tabpfncreditvenv/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "${REPO_ROOT}/tabpfncreditvenv/bin/activate"
+    fi
+fi
+
+if ! command -v tabpfncredit >/dev/null 2>&1; then
+    echo "ERROR: 'tabpfncredit' is not on PATH and could not be auto-activated." >&2
+    echo "Activate your environment first, e.g.:" >&2
+    echo "    source ${REPO_ROOT}/tabpfncreditvenv/bin/activate" >&2
+    echo "(and run scripts/install.sh hpc if you haven't installed yet)." >&2
+    exit 1
+fi
+
+# ----------------------------------------------------------------------------
 # Default order: 0 -> 1 -> 2 -> 3. Override by passing experiments as args.
 # ----------------------------------------------------------------------------
 if [ "$#" -eq 0 ]; then
