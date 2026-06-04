@@ -293,21 +293,29 @@ def _wipe_generated_dir(out_dir: Path) -> None:
 
 
 def _sbatch(script: Path, *, dependency: Optional[str] = None) -> str:
-    """Submit ``script`` via ``sbatch --parsable``; return the job ID string.
+    """Submit ``script`` via ``sbatch --parsable``; return the NUMERIC job ID.
+
+    On the VSC, ``sbatch --parsable`` returns ``<jobid>;<cluster>`` when the
+    job is sent to a non-default cluster (e.g. submitting a wICE script from
+    a Genius login node yields ``60188739;wice``). We strip the ``;cluster``
+    suffix and return just the numeric id, because SLURM ``afterok``
+    dependencies are within a single cluster and want the bare number
+    (the dependent job carries its own ``--clusters=`` directive).
 
     Raises :class:`RuntimeError` if the submission fails. ``dependency`` is
-    a comma-separated job-id list (e.g. ``"afterok:12345"``); when provided
-    it is added as ``--dependency=<dependency>``.
+    a job-id spec (e.g. ``"afterok:12345:12346"``) added as
+    ``--dependency=<dependency>``.
     """
     cmd: List[str] = ["sbatch", "--parsable"]
     if dependency:
         cmd.append(f"--dependency={dependency}")
     cmd.append(str(script))
     out = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    job_id = out.stdout.strip()
-    if not job_id:
+    raw = out.stdout.strip()
+    if not raw:
         raise RuntimeError(f"sbatch produced no job id: {' '.join(shlex.quote(c) for c in cmd)}")
-    return job_id
+    # Keep only the numeric job id, dropping any ``;cluster`` suffix.
+    return raw.split(";", 1)[0]
 
 
 def _run_experiment_vsc(

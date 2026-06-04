@@ -127,13 +127,28 @@ PARTITIONS: dict[str, PartitionSpec] = {
 
 
 def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
-    """Return the partition KEY (not the SLURM partition name) for ``method``."""
+    """Return the partition KEY (not the SLURM partition name) for ``method``.
+
+    IMPORTANT -- single-cluster rule
+    --------------------------------
+    Everything maps to **wICE** partitions (``cpu`` = batch_sapphirerapids,
+    ``gpu_a100``, ``gpu_h100``). We deliberately do NOT route anything to
+    Genius (``gpu_p100`` / ``cpu_genius``): SLURM ``afterok`` dependencies
+    cannot cross clusters, so the auto-submitted summarize job would fail
+    if one experiment's arrays were split between Genius and wICE. Keeping
+    a whole experiment on one cluster makes the dependency chain valid and
+    the job-id bookkeeping trivial. (The Genius partition specs remain in
+    ``PARTITIONS`` for manual/advanced use, but the generator never picks
+    them.)
+    """
     profile = get_profile(method)
     if not profile.prefers_gpu:
         return "cpu"
     if profile.needs_foundation_gpu:
         return "gpu_h100" if prefer_h100 else "gpu_a100"
-    return "gpu_p100"
+    # Standard (non-foundation) GPU methods: A100 on wICE -- NOT P100 on
+    # Genius, to keep the whole sweep on a single cluster (see above).
+    return "gpu_a100"
 
 
 # ============================================================================
@@ -187,11 +202,17 @@ def pack_cells(cells: List[dict], *, target_seconds: int = PACK_TARGET_SECONDS) 
 _SHEBANG = "#!/bin/bash -l"
 
 def _prologue(*, cluster: str, partition: str) -> str:
-    """Return the per-script prologue, parameterised by VSC cluster + partition.
+    """Return the per-script prologue (runs on the assigned compute node).
 
-    On KU Leuven VSC, you must load ``cluster/<cluster>/<partition>``
-    before any toolchain (incl. Python) module becomes visible. We do
-    this here so users never need to type the chain by hand.
+    VSC module rules (from the docs):
+      * The ``cluster`` module is *sticky* and is auto-loaded for the node
+        the job lands on -- we must NOT load one ourselves, and we must NOT
+        use ``module --force purge`` (that nukes the sticky cluster module
+        and breaks $MODULEPATH). Plain ``module purge`` keeps it.
+      * After ``module purge`` the node's own software stack is on
+        $MODULEPATH, so a plain ``module load Python/...`` resolves to that
+        node's build. Override the Python module name by exporting
+        ``TABPFN_PYTHON_MODULE`` before sbatch if your cluster differs.
     """
     return dedent(
         f"""\
@@ -207,24 +228,9 @@ def _prologue(*, cluster: str, partition: str) -> str:
         # Memory-fragmentation mitigation for long-running PyTorch jobs.
         export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-        # HPC convention: never load modules in ~/.bashrc; do it here.
-        module --force purge
-
-        # VSC quirk: you have to load a cluster module BEFORE the
-        # toolchain modules (incl. Python) become visible.
-        # Default = ``cluster/genius/login`` -- its toolchain is compiled
-        # for Skylake, which runs forward-compatibly on every newer CPU
-        # (Ice Lake, Sapphire Rapids, …). One venv created with this
-        # module therefore activates cleanly on every partition.
-        # Override per cluster by exporting TABPFN_CLUSTER_MODULE before
-        # sbatch if you need a partition-specific toolchain.
-        : "${{TABPFN_CLUSTER_MODULE:=cluster/genius/login}}"
-        module load "${{TABPFN_CLUSTER_MODULE}}" 2>/dev/null || \\
-            echo "WARN: could not module load ${{TABPFN_CLUSTER_MODULE}}" >&2
-
-        # Load the Python module the venv was built against. Override
-        # per cluster by exporting TABPFN_PYTHON_MODULE before sbatch.
-        # On your own cluster: ``module spider Python/3.12`` to find names.
+        # Plain ``module purge`` (NOT --force) -- keeps the sticky cluster
+        # module that's auto-loaded for this node, then load the toolchain.
+        module purge
         : "${{TABPFN_PYTHON_MODULE:=Python/3.12.3-GCCcore-13.3.0}}"
         module load "${{TABPFN_PYTHON_MODULE}}" 2>/dev/null || \\
             echo "WARN: could not module load ${{TABPFN_PYTHON_MODULE}}" >&2

@@ -63,9 +63,17 @@ cd "${REPO_ROOT}"
 # ----------------------------------------------------------------------------
 if ! command -v tabpfncredit >/dev/null 2>&1; then
     if command -v module >/dev/null 2>&1; then
-        module --force purge 2>/dev/null || true
-        module load "${TABPFN_CLUSTER_MODULE:-cluster/genius/login}" 2>/dev/null || true
-        module load "${TABPFN_PYTHON_MODULE:-Python/3.12.3-GCCcore-13.3.0}" 2>/dev/null || true
+        # Plain `module purge` (NOT --force) keeps the sticky cluster module.
+        module purge 2>/dev/null || true
+        PYMOD="${TABPFN_PYTHON_MODULE:-Python/3.12.3-GCCcore-13.3.0}"
+        # Try loading Python directly (works when a cluster module is active,
+        # which is the norm on a login node). If it fails, the cluster module
+        # was force-purged at some point -- restore the login cluster module
+        # then retry.
+        if ! module load "${PYMOD}" 2>/dev/null; then
+            module load "${TABPFN_CLUSTER_MODULE:-cluster/genius/login}" 2>/dev/null || true
+            module load "${PYMOD}" 2>/dev/null || true
+        fi
     fi
     if [ -f "${REPO_ROOT}/tabpfncreditvenv/bin/activate" ]; then
         # shellcheck disable=SC1091
