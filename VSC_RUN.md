@@ -9,36 +9,48 @@ sweeps now shard across SLURM jobs.
 ```bash
 cd "$VSC_DATA/TabPFNCredit"
 git pull
-# install (see pyproject.toml header for the two-step --no-deps TALENT install)
+python -m venv tabpfncreditvenv && source tabpfncreditvenv/bin/activate
+pip install -e ".[hpc]"        # single step; pulls TALENT from the fork
 ```
 
-## 1. Pre-stage foundation-model weights (ONCE, on a login node)
+> TALENT-side bugs (regression MSE assertion, torch `weights_only`, tabicl_v2,
+> catboost GPU-on-CPU, amformer, …) are **already fixed** in the fork the
+> install pulls from (`andreasgoethals/TALENT`). No manual patching needed.
 
-wICE **compute nodes have no outbound internet**, so TabPFN (v2.5/v3), TabICL,
-TabDPT, Mitra and HyperFast cannot download weights or accept the TabPFN licence
-at run time. Last run they all failed for exactly this reason. Do it once on a
-login node (which has internet):
+## 1. Provision foundation-model weights (download LOCALLY, upload, provision)
+
+wICE **compute nodes have no outbound internet**, so TabPFN (v2/v2.5/v3),
+TabICL, TabDPT, Mitra and HyperFast cannot download their weights at run time.
+We therefore download them **on your local machine** (which has internet) and
+upload the resulting `checkpoints/` folder.
+
+**(a) On your LOCAL machine** (inside the project venv, with internet):
 
 ```bash
-bash scripts/prestage_models.sh      # answer the TabPFN licence prompt with 'y'
+python scripts/fetch_weights.py            # -> ./checkpoints  (several GB)
+# or a subset:  python scripts/fetch_weights.py --only tabpfn_v3 tabicl_v2
 ```
 
-This fills a **shared** cache under `$VSC_DATA/TabPFNCredit/.model_cache/`. The
-generated job scripts export the same `HF_HOME` / `TABPFN_MODEL_CACHE_DIR` and
-set `HF_HUB_OFFLINE=1`, so the compute nodes read it offline. (If a model warns
-during pre-staging, fix it there — a missing weight will fail fast on the
-compute node rather than hang.)
+**(b) Upload `checkpoints/` to the repo root on the VSC:**
 
-## 2. Apply the TALENT-side fixes
+```bash
+rsync -av checkpoints/ <vsc>:$VSC_DATA/TabPFNCredit/checkpoints/
+```
 
-Several failures live in TALENT's own code (regression MSE assertion, torch-2.6
-`weights_only`, protogate, **tabicl_v2** — which Experiments 2 & 3 need —,
-catboost GPU-on-CPU, amformer, mitra). Apply the patches in
-[`docs/TALENT_FIXES.md`](TALENT_FIXES.md) to your TALENT fork and re-install.
-Until then those methods will keep failing (visibly, per-cell — they no longer
-abort the whole sweep).
+**(c) On a VSC LOGIN node, provision it ONCE** (no network; just places the few
+models that load from a package-internal path — Mitra, HyperFast):
 
-## 3. Run an experiment
+```bash
+cd "$VSC_DATA/TabPFNCredit"
+bash scripts/setup_vsc_checkpoints.sh
+```
+
+The generated job scripts export `HF_HOME` / `TABPFN_MODEL_CACHE_DIR` pointing
+at `checkpoints/` and set `HF_HUB_OFFLINE=1`, so the compute nodes read every
+weight offline. A missing weight fails fast with a clear error rather than
+hanging on a blocked network call.
+
+## 2. Run an experiment
 
 ```bash
 # clears nothing; skip-if-done means re-runs only do what's missing
@@ -76,7 +88,7 @@ On the VSC this auto-generates per-partition SLURM arrays + a dependent
 > the real run takes. In practice a sweep completes in 1–few submissions; the
 > resumable design makes over-/under-estimates harmless.
 
-## 4. The nested sweeps (why the curves are clean signal)
+## 3. The nested sweeps (why the curves are clean signal)
 
 * **Experiment 2 (learning curve):** lowering `row_limit` keeps a **strict
   subset** of the larger cap's rows (fixed-seed, class-stratified for PD so the
@@ -86,12 +98,12 @@ On the VSC this auto-generates per-partition SLURM arrays + a dependent
   of the same minority rows** (nested permutation prefix). The change reflects
   *fewer minority cases*, not a lucky/unlucky draw.
 
-## 5. Recover from a partial run
+## 4. Recover from a partial run
 
 ```bash
-git pull                       # get the latest fixes
-scancel -M all -u $USER        # cancel anything still queued
-bash scripts/prestage_models.sh    # only if step 1 wasn't done
+git pull                            # get the latest fixes
+scancel -M all -u $USER             # cancel anything still queued
+bash scripts/setup_vsc_checkpoints.sh  # only if step 1(c) wasn't done
 tabpfncredit experiment Experiment0    # resumes; only missing points re-run
 ```
 

@@ -36,12 +36,12 @@ trivially adaptable to others.
 auto-preprocesses missing data, auto-runs locally or auto-submits to
 SLURM, and auto-summarizes once done.
 
-Installation is a **two-step** process (the `scripts/install.{sh,ps1}`
-helpers do both for you): first the project + its dependencies, then
-TALENT with `--no-deps`. TALENT hard-pins its own dependencies to exact
-versions that clash with the foundation models, so we install it without
-its lockfile and supply its real dependencies ourselves. The helper
-scripts hide this — you just run one command.
+Installation is a **single step**. TALENT (our core framework) is pulled
+in directly from our fork as a normal dependency, so one `pip install`
+sets up everything. (TALENT used to hard-pin its dependencies to exact
+versions that clashed with the foundation models, forcing a two-step
+`--no-deps` install; the fork now uses lower bounds, so that workaround is
+gone.)
 
 ### 1.1 Local install (Windows PowerShell)
 
@@ -56,7 +56,7 @@ cd tabpfncredit
 py -3.12 -m venv tabpfncreditvenv
 .\tabpfncreditvenv\Scripts\Activate.ps1
 
-.\scripts\install.ps1 local       # = pip install -e ".[local]" + TALENT --no-deps
+pip install -e ".[local]"         # project + deps + TALENT (from the fork)
 
 tabpfncredit experiment Experiment0
 ```
@@ -66,7 +66,7 @@ macOS / Linux:
 ```bash
 python3.12 -m venv tabpfncreditvenv
 source tabpfncreditvenv/bin/activate
-bash scripts/install.sh local
+pip install -e ".[local]"
 ```
 
 ### 1.2 HPC install (SLURM cluster)
@@ -80,7 +80,7 @@ module load Python/3.12.3-GCCcore-13.3.0           # `module spider Python/3.12`
 cd <your_repo_clone>
 python -m venv tabpfncreditvenv
 source tabpfncreditvenv/bin/activate
-bash scripts/install.sh hpc
+pip install -e ".[hpc]"
 ```
 
 To submit the full benchmark — Experiment 0 → 1 → 2 → 3 chained with
@@ -103,14 +103,13 @@ cluster, edit `src/utils/slurm_generator.py`'s `PARTITIONS` table to
 match your cluster's CPU / memory / GPU caps.
 
 > **Running on the VSC?** Read [`docs/VSC_RUN.md`](docs/VSC_RUN.md) first — it
-> covers the one-time `scripts/prestage_models.sh` step (compute nodes have no
-> internet, so foundation-model weights + the TabPFN licence must be staged on a
-> login node), how sweeps shard across array tasks under the 72 h wall and the
-> ~500-job submit limit (`TABPFN_MAX_ARRAY_SLOTS`), and resuming a partial run.
-> Several method failures live in TALENT itself — apply the patches in
-> [`docs/TALENT_FIXES.md`](docs/TALENT_FIXES.md) to your TALENT fork.
+> covers the one-time weight workflow (download locally with
+> `python scripts/fetch_weights.py`, upload the `checkpoints/` folder, then run
+> `scripts/setup_vsc_checkpoints.sh` once — compute nodes have **no internet**),
+> how sweeps shard across array tasks under the 72 h wall and the ~500-job
+> submit limit (`TABPFN_MAX_ARRAY_SLOTS`), and resuming a partial run.
 
-### Install profiles + the manual two-step
+### Install profiles
 
 Two profiles:
 
@@ -119,12 +118,10 @@ Two profiles:
 | `local` | Local workstation — CPU PyTorch + faiss-cpu + dev tools. |
 | `hpc` | HPC cluster — CUDA 12.1 PyTorch + annoy + dev tools. For CUDA 11.8 add `--index-url https://download.pytorch.org/whl/cu118`. |
 
-If you'd rather not use the helper script, run the two steps yourself:
-
-```bash
-pip install -e ".[hpc]"        # or ".[local]"
-pip install --no-deps "TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@main"
-```
+A single `pip install -e ".[local]"` (or `".[hpc]"`) installs the project,
+all dependencies, and TALENT (pulled directly from
+[our fork](https://github.com/andreasgoethals/TALENT)). To freeze TALENT for a
+paper run, pin the `TALENT @ git+...@<tag>` reference in `pyproject.toml`.
 
 The build backend is [hatchling](https://hatch.pypa.io/latest/), so no
 `tabpfncredit.egg-info/` is dropped into the source tree.
@@ -194,13 +191,17 @@ scripts/
     config/CONFIG_{DATA,METHOD,EXPERIMENT}.yaml
     _generated/                   # SLURM scripts (auto-emitted, gitignored)
   run_all_experiments.sh          # master script for the full HPC sweep
+  fetch_weights.py                # download foundation-model weights -> checkpoints/ (run LOCALLY)
+  setup_vsc_checkpoints.sh        # provision the uploaded checkpoints/ on the VSC (offline)
 
+docs/VSC_RUN.md                   # VSC run checklist (weights, sharding, recovery)
 notebooks/                        # thin viewers calling src.visualizations
 tests/                            # pytest suite
 
 data/                             # raw + processed datasets    (gitignored)
 results/                          # per-(dataset, method) JSON+npz (gitignored)
 figures/                          # generated PDF plots          (gitignored)
+checkpoints/                      # downloaded model weights     (gitignored; upload to VSC)
 ```
 
 ---

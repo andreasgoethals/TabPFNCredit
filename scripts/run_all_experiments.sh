@@ -85,7 +85,7 @@ if ! command -v tabpfncredit >/dev/null 2>&1; then
     echo "ERROR: 'tabpfncredit' is not on PATH and could not be auto-activated." >&2
     echo "Activate your environment first, e.g.:" >&2
     echo "    source ${REPO_ROOT}/tabpfncreditvenv/bin/activate" >&2
-    echo "(and run scripts/install.sh hpc if you haven't installed yet)." >&2
+    echo "(and run 'pip install -e \".[hpc]\"' if you haven't installed yet)." >&2
     exit 1
 fi
 

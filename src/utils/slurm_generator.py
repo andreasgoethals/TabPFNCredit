@@ -268,20 +268,26 @@ def _prologue(*, cluster: str, partition: str) -> str:
         # Memory-fragmentation mitigation for long-running PyTorch jobs.
         export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-        # ---- Foundation-model weight caches (shared $VSC_DATA, OFFLINE) ----
+        # ---- Foundation-model weight caches (uploaded checkpoints/, OFFLINE) ----
         # wICE compute nodes have NO outbound internet, so foundation models
-        # (TabPFN v2.5/v3, TabICL, Mitra, TabDPT, HyperFast) cannot download
-        # their weights or accept the TabPFN license at run time. Download +
-        # accept ONCE on the login node with `bash scripts/prestage_models.sh`,
-        # which populates these shared caches; here we point at them and force
-        # offline mode so a missing weight fails fast with a clear error instead
-        # of hanging on a blocked network call. (Last run, TabPFN/Mitra/HyperFast
-        # all failed precisely because they tried to reach the network here.)
-        export HF_HOME="${VSC_DATA}/TabPFNCredit/.model_cache/huggingface"
-        export HUGGINGFACE_HUB_CACHE="${HF_HOME}/hub"
-        export TORCH_HOME="${VSC_DATA}/TabPFNCredit/.model_cache/torch"
-        export XDG_CACHE_HOME="${VSC_DATA}/TabPFNCredit/.model_cache/xdg"
-        export TABPFN_MODEL_CACHE_DIR="${VSC_DATA}/TabPFNCredit/.model_cache/tabpfn"
+        # (TabPFN v2/v2.5/v3, TabICL, TabDPT, ...) cannot download their weights
+        # at run time. Download them ONCE on your LOCAL machine with
+        # `python scripts/fetch_weights.py`, upload the resulting `checkpoints/`
+        # folder to `$VSC_DATA/TabPFNCredit/checkpoints/`, then run
+        # `bash scripts/setup_vsc_checkpoints.sh` once to provision the few
+        # models that load from a package-internal path (Mitra, HyperFast).
+        # Here we point the caches at that uploaded folder and force offline
+        # mode so a missing weight fails fast with a clear error instead of
+        # hanging on a blocked network call.
+        #
+        # We bake the ABSOLUTE repo path ({_REPO_ROOT}) rather than expanding
+        # ${{VSC_DATA}} at run time -- it is the same location (the repo lives at
+        # $VSC_DATA/TabPFNCredit) and avoids any env-var-expansion ambiguity.
+        export HF_HOME="{_REPO_ROOT}/checkpoints/huggingface"
+        export HUGGINGFACE_HUB_CACHE="{_REPO_ROOT}/checkpoints/huggingface/hub"
+        export TORCH_HOME="{_REPO_ROOT}/checkpoints/torch"
+        export XDG_CACHE_HOME="{_REPO_ROOT}/checkpoints/xdg"
+        export TABPFN_MODEL_CACHE_DIR="{_REPO_ROOT}/checkpoints/tabpfn"
         export HF_HUB_OFFLINE=1
         export TRANSFORMERS_OFFLINE=1
 

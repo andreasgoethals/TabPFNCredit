@@ -1,46 +1,33 @@
 # ============================================================================
 # TabPFNCredit -- pyproject.toml
 # ----------------------------------------------------------------------------
-# Two install profiles -- pick ONE:
+# ONE-STEP install -- pick ONE profile:
 #
 #   pip install -e ".[local]"   # CPU PyTorch + faiss-cpu + dev tools
-#   pip install -e ".[hpc]"     # CUDA 12.1 PyTorch + annoy + dev tools
+#   pip install -e ".[hpc]"     # CUDA PyTorch + annoy + dev tools
 #
 # Python 3.10 - 3.12 supported, 3.12 recommended.
 #
-# Why is TALENT NOT in [project.dependencies]?
-# ---------------------------------------------
-# TALENT (our core framework) pins ALL of its dependencies to exact
-# versions in its own metadata: numpy==1.26.4, requests==2.31.0,
-# torch==2.8.0, scikit-learn==1.4.2, etc. Several of those exact pins
-# directly conflict with what the tabular foundation models need -- e.g.
-# tabpfn 8.0.5 -> tabpfn-common-utils -> requests>=2.32.5, which can
-# never coexist with TALENT's requests==2.31.0. pip cannot solve that, so
-# it backtracks forever and then errors out.
+# TALENT is a normal dependency now
+# ---------------------------------
+# TALENT (our core framework) is pulled in directly from our fork below:
 #
-# The fix: install TALENT with ``--no-deps`` so its over-strict pins are
-# ignored, and declare all of TALENT's *real* runtime deps ourselves
-# below (we already do -- numpy, pandas, scipy, sklearn, torch, einops,
-# xgboost, lightgbm, catboost, optuna, ...). TALENT runs fine against the
-# versions we pick; we just refuse to be held hostage by its lockfile.
+#     TALENT @ git+https://github.com/andreasgoethals/TALENT@main
 #
-# Because TALENT is installed separately, run the project install in TWO
-# steps (the scripts/install.{sh,ps1} helpers do this for you):
+# Historically TALENT pinned all its deps to EXACT versions (e.g.
+# requests==2.31.0) that clashed with the foundation models (tabpfn needs
+# requests>=2.32.5), so we had to install it with ``--no-deps`` in a second
+# step. The fork now uses LOWER BOUNDS (>=) instead, so those conflicts are
+# gone and pip can resolve everything in a single pass. No more two-step
+# install, no more install.{sh,ps1} helpers.
 #
-#     pip install -e ".[hpc]"      # or ".[local]"
-#     pip install --no-deps "TALENT @ git+https://github.com/LAMDA-Tabular/TALENT@main"
-#
-# Why still so many EXACT pins below?
-# -----------------------------------
-# We pin the core scientific stack to the exact versions TALENT was
-# validated against (numpy 1.26.4, scipy 1.13.0, ...). Two reasons:
-#   1. Reproducibility -- everyone gets the same stack TALENT was tested on.
-#   2. Speed -- exact pins give pip ZERO room to backtrack, so the resolve
-#      finishes in seconds instead of grinding through dozens of versions.
-# All of these exact pins are mutually compatible with tabpfn 8.0.5 /
-# tabicl 2.1.1 / tabdpt 1.1.14 (verified). The ONE exception is requests,
-# which we set to tabpfn's requirement (>=2.32.5) since TALENT's 2.31.0
-# pin no longer applies once TALENT is --no-deps.
+# Version pins
+# ------------
+# We use LOWER BOUNDS (>=) matching TALENT's tested floors rather than exact
+# pins. This installs cleanly into existing environments (no forced
+# downgrades) while still guaranteeing a known-good minimum. ``requests`` is
+# floored at tabpfn's requirement (>=2.32.5), which now coexists happily with
+# TALENT's requests>=2.31.0. The one HARD cap kept is click<8.2 (see below).
 # ============================================================================
 
 [build-system]
@@ -79,28 +66,31 @@ classifiers = [
 # ----------------------------------------------------------------------------
 # Core runtime dependencies (always installed)
 # ----------------------------------------------------------------------------
-# EXACT pins below mirror TALENT's requirements.txt verbatim -- see the
-# resolver comment at the top of the file. Bump TALENT then bump these.
+# Lower bounds (>=) mirror TALENT's tested floors (its requirements.txt /
+# pyproject use the same >= versions). Bump TALENT then bump these.
 dependencies = [
-    # ---- Core scientific stack (TALENT-pinned) ----
-    "numpy==1.26.4",
-    "pandas==2.2.2",
-    "scipy==1.13.0",
-    "scikit-learn==1.4.2",
-    "pyarrow>=14,<22",       # not TALENT-pinned; loose range is fine
+    # ---- TALENT framework (our fork; direct git reference) ----
+    # Pulled in directly so `pip install -e ".[local|hpc]"` is a single step.
+    # Pin to a tag/commit here if you need a frozen TALENT for a paper run.
+    "TALENT @ git+https://github.com/andreasgoethals/TALENT@main",
 
-    # ---- TALENT framework deps (TALENT-pinned) ----
-    "delu==0.0.23",
-    "einops==0.8.0",
-    "qhoptim==1.1.0",
-    "category_encoders==2.6.3",
-    "tqdm==4.66.4",
-    # requests: TALENT pins ==2.31.0 but tabpfn's tabpfn-common-utils needs
-    # >=2.32.5. Since TALENT is installed --no-deps, its 2.31.0 pin doesn't
-    # apply, so we satisfy tabpfn. (2.31 -> 2.32 is a security patch release;
-    # TALENT's HTTP downloads behave identically.)
+    # ---- Core scientific stack (TALENT floors) ----
+    "numpy>=1.26.4",
+    "pandas>=2.2.2",
+    "scipy>=1.13.0",
+    "scikit-learn>=1.4.2",
+    "pyarrow>=14,<22",
+
+    # ---- TALENT framework deps ----
+    "delu>=0.0.23",
+    "einops>=0.8.0",
+    "qhoptim>=1.1.0",
+    "category_encoders>=2.6.3",
+    "tqdm>=4.66.4",
+    # requests: floored at tabpfn's requirement (>=2.32.5); compatible with
+    # TALENT's requests>=2.31.0 now that TALENT uses lower bounds too.
     "requests>=2.32.5,<3",
-    "optuna==3.6.1",
+    "optuna>=3.6.1",
 
     # ---- TALENT framework deps (not TALENT-pinned) ----
     "dill>=0.3.7,<0.4",
@@ -117,10 +107,10 @@ dependencies = [
     "lightgbm>=4.3,<5",
     "catboost>=1.2.3,<2",
 
-    # ---- Tabular foundation models -- EXACT pins so pip never backtracks ----
-    "tabpfn==8.0.5",
-    "tabicl==2.1.1",
-    "tabdpt==1.1.14",
+    # ---- Tabular foundation models (lower bounds = tested floors) ----
+    "tabpfn>=8.0.5",
+    "tabicl>=2.1.1",
+    "tabdpt>=1.1.14",
     # tabdpt transitively pulls omegaconf; pin >=2.3 here so pip skips
     # the antlr4 4.8 source-build fallback that lives in 2.1.x.
     "omegaconf>=2.3,<3",
@@ -164,12 +154,6 @@ dependencies = [
     # you `pip install notebook` separately) both pick it up.
     "ipython>=8,<10",
     "ipykernel>=6,<7",
-
-    # NOTE: TALENT is intentionally NOT listed here. It is installed
-    # separately with ``--no-deps`` (see the header comment + the
-    # scripts/install.{sh,ps1} helpers) so its exact version pins don't
-    # conflict with the tabular foundation models. All of TALENT's real
-    # runtime deps are already declared above.
 ]
 
 # ----------------------------------------------------------------------------
@@ -179,11 +163,11 @@ dependencies = [
 
 # Local-workstation profile -- CPU PyTorch + dev tools. Self-contained.
 local = [
-    # torch / torchvision -- TALENT pins torch==2.8.0; torchvision 0.23
+    # torch / torchvision -- TALENT floors torch>=2.8.0; torchvision 0.23
     # is its matching companion release.
-    "torch==2.8.0",
-    "torchvision==0.23.0",
-    # tabdpt 1.1.14 needs faiss-cpu<1.13,>=1.11; 1.12.x is the latest match.
+    "torch>=2.8.0",
+    "torchvision>=0.23.0",
+    # tabdpt needs faiss-cpu>=1.11,<1.13; 1.12.x is the latest match.
     "faiss-cpu>=1.11,<1.13",
     "portalocker>=2.8,<3",
     # Dev tools (loose ranges -- these don't conflict with foundation models).
@@ -201,9 +185,9 @@ local = [
 hpc = [
     # CUDA-12 PyTorch wheels by default. For CUDA-11.8 GPUs override:
     #     pip install -e ".[hpc]" --index-url https://download.pytorch.org/whl/cu118
-    "torch==2.8.0",
-    "torchvision==0.23.0",
-    "torchaudio==2.8.0",
+    "torch>=2.8.0",
+    "torchvision>=0.23.0",
+    "torchaudio>=2.8.0",
     # `faiss-gpu` is typically a cluster module on HPC; never pip-install.
     # Annoy is the lightweight alternative for the TabR retrieval index.
     "annoy>=1.17,<2",
