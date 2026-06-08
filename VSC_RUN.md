@@ -1,34 +1,57 @@
-# Running on the VSC (KU Leuven) — checklist
+# Running on the KU Leuven VSC
 
-A short, ordered checklist for a clean run on **wICE**. Covers the two things
-that broke the last run (no compute-node internet; jobs over 72 h) and how the
-sweeps now shard across SLURM jobs.
+A step-by-step guide to running the TabPFNCredit benchmark on the VSC
+SLURM cluster (Genius / wICE). It covers the one thing the cluster needs
+special handling for — **staging model weights for compute nodes that have
+no internet** — plus how large sweeps are split across SLURM array jobs and
+how to resume a partial run.
 
-## 0. One-time setup per checkout
+> New here? Read the **[README](README.md)** first for the CLI, the
+> experiments, and how to run locally. This guide assumes the benchmark
+> already runs on your machine and focuses only on the cluster.
+
+---
+
+## Prerequisites
+
+- A VSC account with access to the Genius / wICE partitions.
+- The project checked out under `$VSC_DATA/TabPFNCredit`.
+
+---
+
+## 1. One-time setup
+
+On a **login node**:
 
 ```bash
 cd "$VSC_DATA/TabPFNCredit"
-git pull
-python -m venv tabpfncreditvenv && source tabpfncreditvenv/bin/activate
-pip install -e ".[hpc]"        # single step; pulls TALENT from the fork
+module purge
+module load cluster/genius/login
+module load Python/3.12.3-GCCcore-13.3.0     # 'module spider Python/3.12' for the exact name
+
+python -m venv tabpfncreditvenv
+source tabpfncreditvenv/bin/activate
+pip install -e ".[hpc]"
 ```
 
-> TALENT-side bugs (regression MSE assertion, torch `weights_only`, tabicl_v2,
-> catboost GPU-on-CPU, amformer, …) are **already fixed** in the fork the
-> install pulls from (`andreasgoethals/TALENT`). No manual patching needed.
+---
 
-## 1. Provision foundation-model weights (download LOCALLY, upload, provision)
+## 2. Stage foundation-model weights
 
-wICE **compute nodes have no outbound internet**, so TabPFN (v2/v2.5/v3),
-TabICL, TabDPT, Mitra and HyperFast cannot download their weights at run time.
-We therefore download them **on your local machine** (which has internet) and
-upload the resulting `checkpoints/` folder.
+VSC **compute nodes have no outbound internet**, so foundation models
+(TabPFN v2/v2.5/v3, TabICL, TabDPT, MITRA, HyperFast) cannot download their
+weights at run time. Download them once on a machine that *does* have
+internet, upload the folder, and provision it on the cluster.
 
-**(a) On your LOCAL machine** (inside the project venv, with internet):
+> Only running classical / deep methods (XGBoost, CatBoost, FT-Transformer,
+> …)? They download nothing — skip this whole section.
+
+**(a) On a machine with internet** (inside the project venv):
 
 ```bash
-python scripts/fetch_weights.py            # -> ./checkpoints  (several GB)
-# or a subset:  python scripts/fetch_weights.py --only tabpfn_v3 tabicl_v2
+python scripts/fetch_weights.py                 # -> ./checkpoints  (several GB)
+# or a subset:
+python scripts/fetch_weights.py --only tabpfn_v3 tabicl_v2
 ```
 
 **(b) Upload `checkpoints/` to the repo root on the VSC:**
@@ -37,76 +60,76 @@ python scripts/fetch_weights.py            # -> ./checkpoints  (several GB)
 rsync -av checkpoints/ <vsc>:$VSC_DATA/TabPFNCredit/checkpoints/
 ```
 
-**(c) On a VSC LOGIN node, provision it ONCE** (no network; just places the few
-models that load from a package-internal path — Mitra, HyperFast):
+**(c) On a VSC login node, provision once:**
 
 ```bash
 cd "$VSC_DATA/TabPFNCredit"
 bash scripts/setup_vsc_checkpoints.sh
 ```
 
-The generated job scripts export `HF_HOME` / `TABPFN_MODEL_CACHE_DIR` pointing
-at `checkpoints/` and set `HF_HUB_OFFLINE=1`, so the compute nodes read every
-weight offline. A missing weight fails fast with a clear error rather than
+The generated job scripts point `HF_HOME` / `TABPFN_MODEL_CACHE_DIR` at
+`checkpoints/` and set `HF_HUB_OFFLINE=1`, so compute nodes read every
+weight offline. A missing weight fails fast with a clear error instead of
 hanging on a blocked network call.
 
-## 2. Run an experiment
+---
+
+## 3. Run an experiment
 
 ```bash
-# clears nothing; skip-if-done means re-runs only do what's missing
-tabpfncredit experiment Experiment0      # auto: preprocess -> SLURM arrays -> summarize
+tabpfncredit experiment Experiment0          # auto: preprocess -> SLURM arrays -> summarize
 ```
 
-On the VSC this auto-generates per-partition SLURM arrays + a dependent
-`summarize` job and submits them. Locally it runs in-process.
+On the VSC this generates per-partition SLURM array jobs plus a dependent
+`summarize` job and submits them. To submit the whole chained benchmark
+(Experiments 0 → 1 → 2 → 3):
 
-### Parallelism, the 72 h wall, and the 500-job limit
+```bash
+bash scripts/run_all_experiments.sh
+```
 
-* The scheduling unit is a **sweep point** (one result file), not a whole
-  `(dataset, method)` cell. Experiment 2's row sweep and Experiment 3's minority
-  sweep (thousands of points per cell) are **sharded across array tasks**, so no
-  single job runs the whole sweep serially past 72 h.
-* Each array task is packed to fit under the **72 h** wICE wall and capped at
-  **`MAX_ARRAY_SLOTS` (default 40) per partition**, because every array element
-  counts toward the VSC per-user submit limit (~500 on the `normal` QOS) and the
-  `run_all_experiments.sh` chain pre-submits all experiments at once
-  (4 experiments × ≤3 partitions × 40 = 480 < 500).
-* **If a slot still hits 72 h** (the generator warns when the estimated work
-  needs more slots than the cap allows), just **re-submit** — `skip-if-done`
-  resumes from the points already saved. Nothing is lost.
-* **To parallelise a big sweep harder in one shot**, run it standalone with a
-  higher cap (keep the *total* submitted array tasks < 500):
+Monitor:
+
+```bash
+squeue -u $USER
+sacct -j <jobid>
+```
+
+---
+
+## 4. How large sweeps are split across jobs
+
+- The scheduling unit is a **single sweep point** (one result file), not a
+  whole `(dataset, method)` cell. The big sweeps — Experiment 2 (training-set
+  size) and Experiment 3 (minority proportion) — are sharded across array
+  tasks, so no single job runs a whole sweep serially.
+- Each array task is packed to fit under the partition **wall-time limit**
+  and capped at **`TABPFN_MAX_ARRAY_SLOTS` (default 40) per partition**,
+  because every array element counts toward the per-user submission limit
+  (~500 on the `normal` QOS) and the chained `run_all_experiments.sh`
+  pre-submits all experiments at once.
+- To parallelise a big sweep harder, raise the cap for a standalone run —
+  keep the **total** submitted array tasks under 500:
 
   ```bash
   TABPFN_MAX_ARRAY_SLOTS=150 tabpfncredit experiment Experiment2
   ```
 
-  e.g. 150 across the CPU + GPU partitions Experiment 2 uses stays under 500.
+The per-point time estimates are deliberately conservative (they double as
+the wall-time budget), so the generator may ask for more slots than the run
+actually needs. Because runs are resumable, an over- or under-estimate is
+harmless.
 
-> The per-point time estimates are deliberately **pessimistic** (they double as
-> a walltime budget), so the generator may report needing far more slots than
-> the real run takes. In practice a sweep completes in 1–few submissions; the
-> resumable design makes over-/under-estimates harmless.
+---
 
-## 3. The nested sweeps (why the curves are clean signal)
+## 5. Resume a partial run
 
-* **Experiment 2 (learning curve):** lowering `row_limit` keeps a **strict
-  subset** of the larger cap's rows (fixed-seed, class-stratified for PD so the
-  minority survives small caps). The metric change reflects *fewer rows*, not a
-  different random draw.
-* **Experiment 3 (imbalance):** lowering the minority proportion **deletes more
-  of the same minority rows** (nested permutation prefix). The change reflects
-  *fewer minority cases*, not a lucky/unlucky draw.
-
-## 4. Recover from a partial run
+Every result is a single file, and the runner skips any cell whose result
+already exists ("skip-if-done"). To resume after a time-out or
+cancellation, just run the same command again — completed points are read
+from disk and skipped, so nothing is lost between submissions:
 
 ```bash
-git pull                            # get the latest fixes
-scancel -M all -u $USER             # cancel anything still queued
-bash scripts/setup_vsc_checkpoints.sh  # only if step 1(c) wasn't done
-tabpfncredit experiment Experiment0    # resumes; only missing points re-run
+scancel -M all -u $USER                # (optional) clear anything still queued
+tabpfncredit experiment Experiment0    # re-runs only the missing points
 ```
-
-`0014.algorithmwatch` (and any dataset too large to preprocess on the login
-node) is **no longer dropped** — it is preprocessed on the compute node (256 GB)
-at run time, atomically, so concurrent tasks are safe.

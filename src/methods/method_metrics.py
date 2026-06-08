@@ -173,7 +173,13 @@ def calculate_pd_metrics(
     if "LogLoss" not in metrics:
         if pos_proba is not None:
             clipped = np.clip(pos_proba, _LOG_EPS, 1.0 - _LOG_EPS)
-            metrics["LogLoss"] = _safe(log_loss, y_true, clipped)
+            # Pass full two-column probabilities with explicit labels. sklearn's
+            # log_loss reads a bare 1-D array as multiclass scores and warns
+            # that the rows "do not sum to one" (a hard error from sklearn
+            # 1.5+); stacking [1-p, p] and pinning labels keeps it a well-formed
+            # binary distribution.
+            proba_2d = np.column_stack([1.0 - clipped, clipped])
+            metrics["LogLoss"] = _safe(log_loss, y_true, proba_2d, labels=[0, 1])
         else:
             metrics["LogLoss"] = float("nan")
     metrics.setdefault("Brier", float("nan"))

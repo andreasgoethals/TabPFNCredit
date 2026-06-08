@@ -267,6 +267,16 @@ def _build_talent_args(
     overrides.setdefault("tune", tune)
     overrides.setdefault("n_trials", n_trials)
     overrides.setdefault("evaluate_option", evaluate_option)
+
+    # Pin the compute device to the hardware that is actually present.
+    # TALENT decides CatBoost's ``task_type`` purely from ``args.gpu``
+    # (whose default is ``"0"``), so on a CPU-only node it would request GPU
+    # training and abort with a CUDA driver error. Passing ``gpu="cpu"`` when
+    # no CUDA device is visible keeps every classical method on the CPU;
+    # ``gpu="0"`` restores the normal GPU path when a device is available.
+    _cuda_available = _HAS_TORCH and torch.cuda.is_available()
+    overrides.setdefault("gpu", "0" if _cuda_available else "cpu")
+
     if spec.architecture.value == "deep":
         overrides.setdefault("max_epoch", max_epoch)
         overrides.setdefault("batch_size", batch_size)
