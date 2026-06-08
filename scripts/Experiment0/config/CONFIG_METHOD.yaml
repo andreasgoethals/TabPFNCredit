@@ -43,7 +43,7 @@ methods:
     tabdpt: true          # TabDPT (Layer 6 AI; ICL + retrieval)
     tabptm: false         # TabPTM
     mitra: true           # MITRA
-    hyperfast: true       # HyperFast
+    hyperfast: false       # HyperFast
 
     # 2. Transformer-based Architectures
     #    (Utilize self-attention mechanisms adapted for tabular data)
