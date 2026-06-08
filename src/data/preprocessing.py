@@ -29,6 +29,7 @@ from typing import Tuple, Optional
 import numpy as np
 import pandas as pd
 from src.data.dataset_preprocessing import preprocess_dataset_specific
+from src.utils.paths import find_processed_dir, processed_write_dir
 
 logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)
@@ -57,17 +58,17 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # (e.g. wrong task for a dataset), the empty dir would survive and
     # confuse `list_processed_datasets` into reporting a non-existent
     # dataset. We only create the directory just before writing files.
-    dataset_dir = PROC_DIR / task / dataset
-
     # ----------------------------------------------------------
     # 1. Load cached version if available
+    #    (repo-local data/ first, then shared project storage)
     # ----------------------------------------------------------
-    if (dataset_dir / "y.npy").exists():
-        logger.info(f"  Using cached dataset: {dataset_dir.name}")
-        N = np.load(dataset_dir / "N.npy") if (dataset_dir / "N.npy").exists() else None
-        C = np.load(dataset_dir / "C.npy") if (dataset_dir / "C.npy").exists() else None
-        y = np.load(dataset_dir / "y.npy")
-        with open(dataset_dir / "info.json") as f:
+    cached_dir = find_processed_dir(task, dataset)
+    if cached_dir is not None:
+        logger.info(f"  Using cached dataset: {cached_dir.name}")
+        N = np.load(cached_dir / "N.npy") if (cached_dir / "N.npy").exists() else None
+        C = np.load(cached_dir / "C.npy") if (cached_dir / "C.npy").exists() else None
+        y = np.load(cached_dir / "y.npy")
+        with open(cached_dir / "info.json") as f:
             info = json.load(f)
         return N, C, y, info
 
@@ -81,7 +82,10 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     # propagate so callers know the dataset is misconfigured).
     df, target_col, cat_cols, num_cols = preprocess_dataset_specific(task, dataset, raw_dir=None)
 
-    # Preprocessing succeeded -- safe to create the destination directory.
+    # Preprocessing succeeded -- write next to wherever the raw file lives
+    # (data staged on project storage caches there too, never filling the
+    # small general data storage). Safe to create the destination now.
+    dataset_dir = processed_write_dir(task, dataset)
     dataset_dir.mkdir(parents=True, exist_ok=True)
 
     # ----------------------------------------------------------

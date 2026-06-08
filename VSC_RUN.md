@@ -1,10 +1,10 @@
 # Running on the KU Leuven VSC
 
 A step-by-step guide to running the TabPFNCredit benchmark on the VSC
-SLURM cluster (Genius / wICE). It covers the one thing the cluster needs
-special handling for — **staging model weights for compute nodes that have
-no internet** — plus how large sweeps are split across SLURM array jobs and
-how to resume a partial run.
+SLURM cluster (Genius / wICE). It covers where the project's files live
+(general data storage vs. the large project storage), **staging model
+weights for compute nodes that have no internet**, how large sweeps are
+split across SLURM array jobs, and how to resume or migrate a partial run.
 
 > New here? Read the **[README](README.md)** first for the CLI, the
 > experiments, and how to run locally. This guide assumes the benchmark
@@ -16,6 +16,30 @@ how to resume a partial run.
 
 - A VSC account with access to the Genius / wICE partitions.
 - The project checked out under `$VSC_DATA/TabPFNCredit`.
+
+---
+
+## Storage layout
+
+The benchmark uses two filesystems and resolves them automatically — no flags
+needed:
+
+| Filesystem | Holds | Why |
+|---|---|---|
+| **General data storage** — `$VSC_DATA/TabPFNCredit` (the repo) | code, **logs** | small quota, backed up, persistent |
+| **Project storage** — `$TABPFN_STAGING_ROOT` (default `/staging/leuven/stg_00211`) | **datasets, checkpoints, results, caches** | large, non-purged; keeps heavy I/O off the small `$VSC_DATA` quota |
+
+- **Datasets & checkpoints** are read **repo first, then project storage** —
+  put them in either place. On the cluster they live under
+  `$TABPFN_STAGING_ROOT/{data,checkpoints}/`.
+- **Results & caches** are written to project storage
+  (`$TABPFN_STAGING_ROOT/{results,cache}/`).
+- **Logs** always stay on `$VSC_DATA` (`<repo>/logs/<experiment>/`), never on
+  project storage.
+
+Override the root by exporting `TABPFN_STAGING_ROOT` before submitting
+(results and cache also honour `TABPFN_RESULTS_ROOT` / `TABPFN_CACHE_ROOT`).
+`tabpfncredit doctor` prints every resolved path.
 
 ---
 
@@ -54,10 +78,11 @@ python scripts/fetch_weights.py                 # -> ./checkpoints  (several GB)
 python scripts/fetch_weights.py --only tabpfn_v3 tabicl_v2
 ```
 
-**(b) Upload `checkpoints/` to the repo root on the VSC:**
+**(b) Upload `checkpoints/` to the project storage on the VSC** (the repo
+root works too — both are found automatically):
 
 ```bash
-rsync -av checkpoints/ <vsc>:$VSC_DATA/TabPFNCredit/checkpoints/
+rsync -av checkpoints/ <vsc>:/staging/leuven/stg_00211/checkpoints/
 ```
 
 **(c) On a VSC login node, provision once:**
@@ -67,10 +92,11 @@ cd "$VSC_DATA/TabPFNCredit"
 bash scripts/setup_vsc_checkpoints.sh
 ```
 
-The generated job scripts point `HF_HOME` / `TABPFN_MODEL_CACHE_DIR` at
-`checkpoints/` and set `HF_HUB_OFFLINE=1`, so compute nodes read every
-weight offline. A missing weight fails fast with a clear error instead of
-hanging on a blocked network call.
+The generated job scripts auto-detect the `checkpoints/` location (repo
+first, then project storage), point `HF_HOME` / `TABPFN_MODEL_CACHE_DIR` at
+it, and set `HF_HUB_OFFLINE=1`, so compute nodes read every weight offline.
+A missing weight fails fast with a clear error instead of hanging on a
+blocked network call.
 
 ---
 
@@ -122,14 +148,32 @@ harmless.
 
 ---
 
-## 5. Resume a partial run
+## 5. Resume — and reuse results you already have
 
-Every result is a single file, and the runner skips any cell whose result
-already exists ("skip-if-done"). To resume after a time-out or
-cancellation, just run the same command again — completed points are read
-from disk and skipped, so nothing is lost between submissions:
+Every result is a single file
+(`<results>/<experiment>/<task>/<dataset>/<method>.json`), and the runner
+**skips any point whose result already exists** with the full fold count
+("skip-if-done"). To resume after a time-out or cancellation, just run the
+same command again — finished points are read from disk and skipped, so
+nothing is lost between submissions:
 
 ```bash
 scancel -M all -u $USER                # (optional) clear anything still queued
 tabpfncredit experiment Experiment0    # re-runs only the missing points
 ```
+
+**Already have results from an earlier run?** Copy them into the new results
+root once and they're skipped automatically. Results now live on project
+storage, so move any you kept under the old `$VSC_DATA` location across,
+preserving the `<experiment>/<task>/<dataset>/` layout:
+
+```bash
+rsync -av --exclude='*/logs/' \
+    "$VSC_DATA/TabPFNCredit/results/" \
+    "/staging/leuven/stg_00211/results/"
+```
+
+`--exclude='*/logs/'` leaves logs on `$VSC_DATA` (they don't affect
+skip-if-done). A point is skipped only if its `<method>.json` has all
+`cv_splits` folds; a partially-finished point re-runs and overwrites, so a
+half-complete copy is safe.

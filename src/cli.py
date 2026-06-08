@@ -74,11 +74,16 @@ from src.utils.slurm_generator import (  # noqa: E402
     partition_for_method,
 )
 from src.utils.config_reader import load_config  # noqa: E402
+from src.utils.paths import (  # noqa: E402
+    describe as _describe_paths,
+    results_root as _paths_results_root,
+)
 from src.utils.result_io import (  # noqa: E402
     build_method_name,
     has_complete_result,
     save_method,
 )
+from src.utils.runtime_quiet import configure_quiet_runtime  # noqa: E402
 
 app = typer.Typer(
     add_completion=False,
@@ -95,16 +100,14 @@ logger = logging.getLogger("tabpfncredit")
 def _results_root() -> Path:
     """Return the directory where result JSON/npz files live.
 
-    Honours ``$TABPFN_RESULTS_ROOT`` (set by the generated SLURM scripts
-    to point at ``$VSC_DATA/TabPFNCredit/results`` -- small, permanent,
-    backed up) and falls back to ``<project>/results`` for local runs.
+    Resolution (see :mod:`src.utils.paths`): ``$TABPFN_RESULTS_ROOT`` (set by
+    the generated SLURM scripts to point at the shared project storage), else
+    the project-storage ``results/`` when available, else ``<project>/results``
+    for local runs. The directory is created if missing.
     """
-    env = os.environ.get("TABPFN_RESULTS_ROOT")
-    if env:
-        path = Path(env)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-    return _PROJECT_ROOT / "results"
+    path = _paths_results_root()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _on_vsc() -> bool:
@@ -188,11 +191,12 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
     made available, so the caller can drop their cells and run the rest.
     """
     from src.data.preprocessing import preprocess_dataset  # local import keeps startup snappy
+    from src.utils.paths import find_processed_dir
 
     needed = sorted({(c["task"], c["dataset"]) for c in cells})
     to_make = [
         (task, dataset) for task, dataset in needed
-        if not (_PROJECT_ROOT / "data" / "processed" / task / dataset / "y.npy").exists()
+        if find_processed_dir(task, dataset) is None
     ]
 
     unavailable: set = set()
@@ -562,6 +566,7 @@ def cmd_experiment(
     verbose: bool = typer.Option(False, help="DEBUG-level logs."),
 ) -> None:
     """Run one experiment end-to-end (auto-preprocess + auto-SLURM + auto-summarize)."""
+    configure_quiet_runtime()
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -694,6 +699,7 @@ def cmd_slurm_task(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
+    configure_quiet_runtime()
     config = load_config(experiment)
     results_root = _results_root()
 
@@ -769,7 +775,7 @@ def cmd_doctor() -> None:
     table.add_column("Key")
     table.add_column("Value")
     for key in ("VSC_HOME", "VSC_DATA", "VSC_SCRATCH", "VSC_INSTITUTE_CLUSTER",
-                "TABPFN_RESULTS_ROOT",
+                "TABPFN_STAGING_ROOT", "TABPFN_RESULTS_ROOT", "TABPFN_CACHE_ROOT",
                 "SLURM_JOB_ID", "SLURM_ARRAY_TASK_ID", "CUDA_VISIBLE_DEVICES"):
         table.add_row(key, os.environ.get(key, "(unset)"))
     console.print(table)
@@ -785,9 +791,11 @@ def cmd_doctor() -> None:
     console.print(f"[bold]Torch[/bold]: {gpu_info}")
     console.print(f"[bold]On VSC?[/bold] {_on_vsc()}")
     console.print(f"[bold]sbatch?[/bold] {'yes' if _have_sbatch() else 'no'}")
-    console.print(f"[bold]Results root[/bold]: {_results_root()}")
+    console.print("[bold]Resolved paths[/bold] (data/checkpoints = repo first, then project storage):")
+    for k, v in _describe_paths().items():
+        console.print(f"  {k}: {v}")
     for task in ("pd", "lgd"):
-        console.print(f"[bold]Datasets in data/raw/{task}[/bold]: {len(list_datasets(task))}")
+        console.print(f"[bold]Datasets available ({task})[/bold]: {len(list_datasets(task))}")
 
 
 def main() -> None:  # pragma: no cover

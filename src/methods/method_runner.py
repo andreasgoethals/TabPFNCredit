@@ -72,6 +72,8 @@ from src.methods.method_config import (
 )
 from src.methods.method_metrics import enrich_pd_metrics, enrich_lgd_metrics
 from src.methods.cost_metrics import cost_sensitive_summary
+from src.utils.paths import cache_root
+from src.utils.runtime_quiet import configure_quiet_runtime
 
 
 # ============================================================================
@@ -82,8 +84,12 @@ logger = logging.getLogger(__name__)
 
 
 def _setup_lightgbm_verbosity() -> None:
-    """Opt-in LightGBM silencer. Called from public entry points, never at import."""
-    os.environ.setdefault("LIGHTGBM_VERBOSITY", "-1")
+    """Silence high-volume third-party log noise (LightGBM / Optuna / sklearn).
+
+    Called from public entry points, never at import. Delegates to the shared
+    :func:`~src.utils.runtime_quiet.configure_quiet_runtime` (idempotent).
+    """
+    configure_quiet_runtime()
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -98,7 +104,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # them) or when DataFeeder.prepare's source changes (joblib hashes the
 # function bytecode too).
 
-_FOLDS_CACHE_DIR = _PROJECT_ROOT / ".cache" / "folds"
+_FOLDS_CACHE_DIR = cache_root() / "folds"
 _FOLDS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -297,6 +303,13 @@ def _build_talent_args(
     args.is_regression = is_regression
     args.early_stopping = early_stopping
     args.early_stopping_patience = early_stopping_patience
+
+    # Silence LightGBM's per-tree chatter at the source. verbose=-1 maps to the
+    # LightGBM core 'verbosity' and suppresses the "[Info] / [Warning] No
+    # further splits with positive gain" spam (tens of thousands of lines per
+    # sweep). The global logger is muted too in configure_quiet_runtime().
+    if method == "lightgbm" and isinstance(getattr(args, "config", None), dict):
+        args.config.setdefault("model", {}).setdefault("verbose", -1)
 
     return args
 

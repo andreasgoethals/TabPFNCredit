@@ -352,7 +352,8 @@ checkpoints/                        # downloaded model weights        (gitignore
 ## 7. Result storage and logging
 
 Each `(experiment, task, dataset, method[, sweep_point])` tuple produces
-one JSON + one npz:
+one JSON + one npz under `$TABPFN_RESULTS_ROOT` (on an HPC cluster this points
+at the large project storage; locally it defaults to `./results`):
 
 ```
 ${TABPFN_RESULTS_ROOT|./results}/<experiment>/<task>/<dataset>/<method>.json
@@ -379,9 +380,9 @@ Two CSVs are aggregated automatically (locally at the end of an
 Logging uses Python's standard `logging` (run with `--verbose` for
 INFO-level: start, finish, headline metric, foundation-model downsampling,
 per-fold minority counts). On an HPC cluster each array slot's
-stdout/stderr is captured by SLURM under
-`<results>/<experiment>/logs/` (named per job + array id), so every
-(dataset, method) cell has its own log.
+stdout/stderr is captured by SLURM under `logs/<experiment>/` on the general
+data storage (`$VSC_DATA`), named per job + array id — kept off the project
+storage so logs always persist.
 
 Figures are saved as **PDF only** to `figures/<experiment>/<plot>.pdf` and
 rendered inline in the notebook outputs.

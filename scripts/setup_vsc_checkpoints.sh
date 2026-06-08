@@ -4,8 +4,12 @@
 # ============================================================================
 # Run this ONCE on the VSC after you have:
 #   1. Downloaded weights locally with `python scripts/fetch_weights.py`, and
-#   2. Uploaded the resulting `checkpoints/` folder to this repo's root on the
-#      cluster, i.e. to `$VSC_DATA/TabPFNCredit/checkpoints/`.
+#   2. Uploaded the resulting `checkpoints/` folder to EITHER this repo's root
+#      (`$VSC_DATA/TabPFNCredit/checkpoints/`) or the shared project storage
+#      (`$TABPFN_STAGING_ROOT/checkpoints/`, default
+#      `/staging/leuven/stg_00211/checkpoints/`). This script auto-detects
+#      which one is populated (repo first, then project storage); override the
+#      location with `TABPFN_CHECKPOINTS_DIR=/path/to/checkpoints`.
 #
 #   cd "$VSC_DATA/TabPFNCredit"
 #   bash scripts/setup_vsc_checkpoints.sh
@@ -36,7 +40,18 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-CKPT="${TABPFN_CHECKPOINTS_DIR:-$REPO_ROOT/checkpoints}"
+# Locate the uploaded checkpoints: an explicit $TABPFN_CHECKPOINTS_DIR wins;
+# otherwise prefer a populated repo-local checkpoints/, else fall back to the
+# shared project storage -- the same repo-first-then-staging order the SLURM
+# jobs use at run time.
+STAGING_ROOT="${TABPFN_STAGING_ROOT:-/staging/leuven/stg_00211}"
+if [ -n "${TABPFN_CHECKPOINTS_DIR:-}" ]; then
+    CKPT="$TABPFN_CHECKPOINTS_DIR"
+elif [ -d "$REPO_ROOT/checkpoints" ] && [ -n "$(ls -A "$REPO_ROOT/checkpoints" 2>/dev/null)" ]; then
+    CKPT="$REPO_ROOT/checkpoints"
+else
+    CKPT="$STAGING_ROOT/checkpoints"
+fi
 ASSETS="$CKPT/talent_assets"
 
 echo "=== TabPFNCredit checkpoint provisioning ==="

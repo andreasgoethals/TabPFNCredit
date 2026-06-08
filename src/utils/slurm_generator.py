@@ -2,12 +2,11 @@
 
 Designed against the VSC documentation. Highlights:
 
-* **Results land on ``$VSC_DATA``** (small, permanent, backed up, 75 GB
-  quota). Per-sweep result files total ~40 MB so the quota is never the
-  bottleneck. ``$VSC_SCRATCH`` is reserved for heavy intermediate I/O
-  (which this benchmark does not produce); we deliberately keep results
-  off scratch because scratch files are auto-purged after 30 days of
-  inactivity.
+* **Results + regenerable caches land on the shared project storage**
+  (``$TABPFN_STAGING_ROOT``, large and non-purged) so the small general data
+  storage cannot fill up mid-run. **Logs deliberately stay on the general
+  data storage** (the repo root) -- they are tiny and must persist. Datasets
+  and checkpoints are read from the repo first, then the project storage.
 * **CPU + memory right-sized per partition** so the job uses the
   documented per-GPU caps efficiently (P100: 9c/45 GB, A100: 18c/126 GB,
   H100: 16c/187 GB).
@@ -34,8 +33,8 @@ Layout
 Each script:
 
 1. Sets up the environment (``module --force purge``, conda activate).
-2. ``cd "$VSC_DATA/TabPFNCredit"`` and exports
-   ``TABPFN_RESULTS_ROOT="$VSC_DATA/TabPFNCredit/results"``.
+2. ``cd "$VSC_DATA/TabPFNCredit"`` and exports ``TABPFN_RESULTS_ROOT`` /
+   ``TABPFN_CACHE_ROOT`` onto the shared project storage.
 3. Reads its global task ID from ``SLURM_ARRAY_TASK_ID``.
 4. Invokes ``tabpfncredit slurm-task`` with the partition and array id;
    the CLI looks up the cell assigned to that slot in the partition's
@@ -70,14 +69,42 @@ from src.methods.runtime_profile import (
 # / ``--error`` directives, so ``${VSC_DATA}`` there is taken LITERALLY and
 # SLURM creates a bogus directory literally named ``${VSC_DATA}`` under the
 # submit dir. An absolute path sidesteps that entirely. Since the repo lives
-# at ``$VSC_DATA/TabPFNCredit`` on the cluster, ``<repo>/results`` ==
-# ``$VSC_DATA/TabPFNCredit/results`` -- same location, no env-var surprises.
+# at ``$VSC_DATA/TabPFNCredit`` on the cluster, ``<repo>/logs`` ==
+# ``$VSC_DATA/TabPFNCredit/logs`` -- on the general data storage, no surprises.
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
+# Shared project-storage root (env-overridable). Results + regenerable caches
+# live here so they never fill the small general data storage; logs do NOT.
+_DEFAULT_STAGING_ROOT = "/staging/leuven/stg_00211"
 
-def _results_dir() -> str:
-    """Absolute results root baked into generated scripts (``<repo>/results``)."""
-    return f"{_REPO_ROOT}/results"
+
+def _staging_bash() -> str:
+    """Bash expression for the project-storage root, expanded at run time.
+
+    Safe to use in the script BODY (env vars expand there) -- NOT in #SBATCH
+    directives, which SLURM does not env-expand.
+    """
+    return f"${{TABPFN_STAGING_ROOT:-{_DEFAULT_STAGING_ROOT}}}"
+
+
+def _results_root_bash() -> str:
+    """Quoted bash expr for the results root on the shared project storage."""
+    return f'"{_staging_bash()}/results"'
+
+
+def _cache_root_bash() -> str:
+    """Quoted bash expr for the regenerable-cache root on the shared project storage."""
+    return f'"{_staging_bash()}/cache"'
+
+
+def _log_dir(experiment: str) -> str:
+    """SLURM log directory on the general data storage (repo root), NEVER project storage.
+
+    Returned as an ABSOLUTE literal path: SLURM does not expand env vars in
+    ``#SBATCH --output`` / ``--error``. The repo lives at
+    ``$VSC_DATA/TabPFNCredit``, so ``<repo>/logs`` is on the general data storage.
+    """
+    return f"{_REPO_ROOT}/logs/{experiment.lower()}"
 
 
 # ============================================================================
@@ -268,28 +295,32 @@ def _prologue(*, cluster: str, partition: str) -> str:
         # Memory-fragmentation mitigation for long-running PyTorch jobs.
         export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-        # ---- Foundation-model weight caches (uploaded checkpoints/, OFFLINE) ----
-        # wICE compute nodes have NO outbound internet, so foundation models
-        # (TabPFN v2/v2.5/v3, TabICL, TabDPT, ...) cannot download their weights
-        # at run time. Download them ONCE on your LOCAL machine with
-        # `python scripts/fetch_weights.py`, upload the resulting `checkpoints/`
-        # folder to `$VSC_DATA/TabPFNCredit/checkpoints/`, then run
-        # `bash scripts/setup_vsc_checkpoints.sh` once to provision the few
-        # models that load from a package-internal path (Mitra, HyperFast).
-        # Here we point the caches at that uploaded folder and force offline
-        # mode so a missing weight fails fast with a clear error instead of
-        # hanging on a blocked network call.
-        #
-        # We bake the ABSOLUTE repo path ({_REPO_ROOT}) rather than expanding
-        # ${{VSC_DATA}} at run time -- it is the same location (the repo lives at
-        # $VSC_DATA/TabPFNCredit) and avoids any env-var-expansion ambiguity.
-        export HF_HOME="{_REPO_ROOT}/checkpoints/huggingface"
-        export HUGGINGFACE_HUB_CACHE="{_REPO_ROOT}/checkpoints/huggingface/hub"
-        export TORCH_HOME="{_REPO_ROOT}/checkpoints/torch"
-        export XDG_CACHE_HOME="{_REPO_ROOT}/checkpoints/xdg"
-        export TABPFN_MODEL_CACHE_DIR="{_REPO_ROOT}/checkpoints/tabpfn"
+        # ---- Foundation-model weight caches (OFFLINE) ----
+        # Compute nodes have NO outbound internet, so foundation models
+        # (TabPFN v2/v2.5/v3, TabICL, TabDPT, ...) must read pre-staged weights
+        # instead of downloading at run time. We look for a populated
+        # repo-local `checkpoints/` FIRST, then fall back to the shared project
+        # storage (`$TABPFN_STAGING_ROOT/checkpoints`). Offline mode is forced
+        # so a missing weight fails fast with a clear error rather than hanging
+        # on a blocked network call.
+        export TABPFN_STAGING_ROOT="{_staging_bash()}"
+        if [ -d "{_REPO_ROOT}/checkpoints" ] && [ -n "$(ls -A "{_REPO_ROOT}/checkpoints" 2>/dev/null)" ]; then
+            CKPT_ROOT="{_REPO_ROOT}/checkpoints"
+        else
+            CKPT_ROOT="${{TABPFN_STAGING_ROOT}}/checkpoints"
+        fi
+        echo "Checkpoints root: ${{CKPT_ROOT}}"
+        export HF_HOME="${{CKPT_ROOT}}/huggingface"
+        export HUGGINGFACE_HUB_CACHE="${{CKPT_ROOT}}/huggingface/hub"
+        export TORCH_HOME="${{CKPT_ROOT}}/torch"
+        export XDG_CACHE_HOME="${{CKPT_ROOT}}/xdg"
+        export TABPFN_MODEL_CACHE_DIR="${{CKPT_ROOT}}/tabpfn"
         export HF_HUB_OFFLINE=1
         export TRANSFORMERS_OFFLINE=1
+
+        # Silence tqdm progress bars in batch logs (e.g. Optuna HPO) -- they
+        # otherwise emit megabytes of partial-line spam to the .out file.
+        export TQDM_DISABLE=1
 
         # Plain ``module purge`` (NOT --force) -- keeps the sticky cluster
         # module that's auto-loaded for this node, then load the toolchain.
@@ -373,16 +404,18 @@ def _sbatch_header(
 
 def _python_invocation(experiment: str, partition_key: str) -> str:
     """The actual work line -- delegates to the Typer CLI."""
-    # Results land under the repo's ``results/`` (which on the cluster IS
-    # ``$VSC_DATA/TabPFNCredit/results`` -- permanent, backed up). We use the
-    # ABSOLUTE path baked in at generation time, not ``$VSC_DATA``, so there
-    # is no env-var-expansion ambiguity. Per-fold scratch (TALENT's internal
-    # save_path) goes to a tempfile dir cleaned up at fold exit.
+    # Results + regenerable caches live on the shared project storage (large,
+    # non-purged). These run in the script BODY, where env vars DO expand
+    # (unlike #SBATCH directives), so we can use ``$TABPFN_STAGING_ROOT``.
+    # Per-fold scratch (TALENT's internal save_path) goes to a tempfile dir
+    # cleaned up at fold exit.
     return dedent(f"""\
         cd "{_REPO_ROOT}"
 
-        export TABPFN_RESULTS_ROOT="{_results_dir()}"
-        mkdir -p "${{TABPFN_RESULTS_ROOT}}"
+        export TABPFN_STAGING_ROOT="{_staging_bash()}"
+        export TABPFN_RESULTS_ROOT={_results_root_bash()}
+        export TABPFN_CACHE_ROOT={_cache_root_bash()}
+        mkdir -p "${{TABPFN_RESULTS_ROOT}}" "${{TABPFN_CACHE_ROOT}}"
 
         tabpfncredit slurm-task \\
             --experiment {experiment} \\
@@ -519,10 +552,10 @@ def generate_scripts_for_experiment(
         array_range = (
             f"0-{len(slots) - 1}%{max_concurrent}" if len(slots) > 1 else "0"
         )
-        # Logs live alongside the results. ABSOLUTE path (NOT ${VSC_DATA}):
-        # SLURM does not expand env vars in --output/--error, so a literal
-        # ${VSC_DATA} there would create a bogus directory.
-        log_dir = f"{_results_dir()}/{experiment.lower()}/logs"
+        # Logs stay on the general data storage (repo root), NOT on project
+        # storage. ABSOLUTE literal path (SLURM does not env-expand
+        # --output/--error).
+        log_dir = _log_dir(experiment)
         header = _sbatch_header(
             job_name=job_name,
             spec=spec,
@@ -648,7 +681,7 @@ def generate_summarize_script(
 
     spec = PARTITIONS["cpu"]
     job_name = f"{experiment.lower()}_summarize"
-    log_dir = f"{_results_dir()}/{experiment.lower()}/logs"
+    log_dir = _log_dir(experiment)
     # 15 minutes is plenty -- polars scans all <method>.json files in
     # seconds even on multi-thousand-row sweeps.
     walltime = "00:15:00"
@@ -681,7 +714,8 @@ def generate_summarize_script(
     invocation = dedent(f"""\
         cd "{_REPO_ROOT}"
 
-        export TABPFN_RESULTS_ROOT="{_results_dir()}"
+        export TABPFN_STAGING_ROOT="{_staging_bash()}"
+        export TABPFN_RESULTS_ROOT={_results_root_bash()}
 
         tabpfncredit summarize --experiment {experiment}
         """)

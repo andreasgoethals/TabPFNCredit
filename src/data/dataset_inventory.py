@@ -25,11 +25,16 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from src.utils.paths import (
+    find_processed_dir,
+    find_raw_path,
+    processed_task_dirs,
+    raw_task_dirs,
+)
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_RAW_DIR = _PROJECT_ROOT / "data" / "raw"
-_PROC_DIR = _PROJECT_ROOT / "data" / "processed"
 
 
 def _count_rows_csv(path: Path) -> Optional[int]:
@@ -53,59 +58,64 @@ def _count_rows_parquet(path: Path) -> Optional[int]:
 
 
 def _processed_row_count(task: str, dataset: str) -> Optional[int]:
-    """Read ``n_samples`` from ``data/processed/<task>/<dataset>/info.json``."""
-    info_path = _PROC_DIR / task.lower() / dataset / "info.json"
-    if not info_path.exists():
-        return None
-    try:
-        info = json.loads(info_path.read_text(encoding="utf-8"))
-        return int(info.get("n_samples", 0)) or None
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        logger.warning("Could not read %s: %s", info_path, exc)
-        return None
+    """Read ``n_samples`` from a processed ``info.json`` (repo or project storage)."""
+    for proc_root in processed_task_dirs(task):
+        info_path = proc_root / dataset / "info.json"
+        if not info_path.exists():
+            continue
+        try:
+            info = json.loads(info_path.read_text(encoding="utf-8"))
+            return int(info.get("n_samples", 0)) or None
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Could not read %s: %s", info_path, exc)
+            return None
+    return None
 
 
 def _list_raw_dataset_stems(task: str) -> List[str]:
     """Enumerate dataset stems (e.g. ``"0001.gmsc"``) from raw files.
 
-    Looks at ``data/raw/<task>/*.csv`` and ``*.parquet`` and returns the
-    stem of every file -- callers downstream can map stem → raw path.
+    Looks at every ``data/raw/<task>`` root (repo-local first, then shared
+    project storage) and returns the stem of every ``*.csv`` / ``*.parquet``.
     """
-    task_dir = _RAW_DIR / task.lower()
-    if not task_dir.exists():
-        return []
     stems: List[str] = []
-    for suffix in (".csv", ".parquet"):
-        for path in sorted(task_dir.glob(f"*{suffix}")):
-            stems.append(path.stem)
+    for task_dir in raw_task_dirs(task):
+        if not task_dir.exists():
+            continue
+        for suffix in (".csv", ".parquet"):
+            for path in sorted(task_dir.glob(f"*{suffix}")):
+                stems.append(path.stem)
     return sorted(set(stems))
 
 
 def list_datasets(task: str) -> List[str]:
     """Return every dataset stem for ``task`` (union of raw + processed)."""
-    raw = set(_list_raw_dataset_stems(task))
-    proc_dir = _PROC_DIR / task.lower()
-    if proc_dir.exists():
-        for sub in proc_dir.iterdir():
-            if sub.is_dir() and (sub / "y.npy").exists():
-                raw.add(sub.name)
-    return sorted(raw)
+    names = set(_list_raw_dataset_stems(task))
+    for proc_dir in processed_task_dirs(task):
+        if proc_dir.exists():
+            for sub in proc_dir.iterdir():
+                if sub.is_dir() and (sub / "y.npy").exists():
+                    names.add(sub.name)
+    return sorted(names)
 
 
 def row_count(task: str, dataset: str) -> Optional[int]:
     """Best-effort row count for one ``(task, dataset)``.
 
-    Tries ``data/processed/<task>/<dataset>/info.json`` first (cheapest),
-    then falls back to counting rows in the raw CSV or parquet.
+    Tries the processed ``info.json`` first (cheapest), then falls back to
+    counting rows in the raw CSV or parquet. Both lookups search the repo
+    first, then the shared project storage.
     """
     cached = _processed_row_count(task, dataset)
     if cached is not None:
         return cached
-    task_dir = _RAW_DIR / task.lower()
-    csv_path = task_dir / f"{dataset}.csv"
+    stem = find_raw_path(task, dataset)
+    if stem is None:
+        return None
+    csv_path = stem.with_suffix(".csv")
     if csv_path.exists():
         return _count_rows_csv(csv_path)
-    parquet_path = task_dir / f"{dataset}.parquet"
+    parquet_path = stem.with_suffix(".parquet")
     if parquet_path.exists():
         return _count_rows_parquet(parquet_path)
     return None
@@ -149,14 +159,16 @@ def minority_proportion(task: str, dataset: str) -> Optional[float]:
     """
     if task.lower() != "pd":
         return None
-    proc_dir = _PROC_DIR / task.lower() / dataset
-    y_path = proc_dir / "y.npy"
     try:
-        if not y_path.exists():
+        proc_dir = find_processed_dir(task, dataset)
+        if proc_dir is None:
             # Preprocess on demand -- the experiment will need the cache anyway.
             from src.data.preprocessing import preprocess_dataset
             preprocess_dataset(task, dataset)
-        y = np.load(y_path)
+            proc_dir = find_processed_dir(task, dataset)
+        if proc_dir is None:
+            return None
+        y = np.load(proc_dir / "y.npy")
         y = np.asarray(y).astype(int).ravel()
         n = len(y)
         if n == 0:
