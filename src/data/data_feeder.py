@@ -56,7 +56,14 @@ You only need to provide:
     - seed: random seed (for reproducibility)
     - row_limit: (optional) global limit on rows BEFORE splitting (user/debugging limit)
     - train_row_limit: (optional) limit on training rows AFTER splitting (method constraint)
-    - sampling: (optional, float ∈ (0,1)) desired minority-class proportion (PD only)
+    - sampling: (optional, float ∈ (0,1)) desired minority-class proportion (PD only).
+        Applied to the WHOLE dataset BEFORE the split, so train, val AND test all
+        carry the reduced proportion (Experiment 3 evaluates on the subsampled
+        distribution). The removal is NESTED across decreasing ``sampling`` values
+        (a fixed-seed permutation PREFIX), so a lower target's kept minority is a
+        strict subset of any higher target's -- the only thing that changes between
+        sweep points is that more minority rows are deleted, never which ones (no
+        "lucky draw" variance).
     - apply_pca: (optional, bool) whether to apply PCA for high-dimensional datasets
     - remove_outliers: (optional, bool) whether to remove extreme outliers
 
@@ -239,6 +246,105 @@ class DataFeeder:
 
         return subsampled_train_idx
 
+    @staticmethod
+    def _nested_minority_keep_mask(
+        y_subset: np.ndarray,
+        target_ratio: float,
+        *,
+        seed: int,
+    ) -> np.ndarray:
+        """Boolean keep-mask over ``y_subset`` that removes MINORITY rows until
+        the minority proportion drops to ~``target_ratio``.
+
+        The removal is **nested** across decreasing ``target_ratio``: the kept
+        minority rows are the PREFIX of a single fixed-seed permutation of the
+        minority indices, so for two targets ``t_lo < t_hi`` (with the same
+        ``seed`` and the same ``y_subset``) the kept minority at ``t_lo`` is a
+        strict subset of the kept minority at ``t_hi``. Only *more* minority
+        rows get deleted as the target falls -- never a different random set.
+        The majority class is always kept in full (dataset size shrinks only
+        because minority rows leave), so the proportion change is the only
+        confound, exactly as Experiment 3 requires.
+
+        Returns an all-True mask (no-op) when the data is not binary, a class
+        is empty, or the current minority proportion is already <= target
+        (you cannot *lower* the minority share by removing minority rows).
+        """
+        keep = np.ones(len(y_subset), dtype=bool)
+        if target_ratio is None or len(y_subset) == 0:
+            return keep
+
+        unique, counts = np.unique(y_subset, return_counts=True)
+        if len(unique) != 2:
+            return keep  # only binary supported
+
+        minority = unique[int(np.argmin(counts))]
+        pos_min = np.where(y_subset == minority)[0]  # sorted -> deterministic
+        n_min = len(pos_min)
+        n_maj = len(y_subset) - n_min
+        if n_min == 0 or n_maj == 0:
+            return keep
+
+        current_ratio = n_min / (n_min + n_maj)
+        if current_ratio <= target_ratio:
+            return keep  # already at/under target; nothing to remove
+
+        # minority count that yields the target proportion against a FIXED majority
+        desired_min = int(round(target_ratio / (1.0 - target_ratio) * n_maj))
+        desired_min = max(1, min(desired_min, n_min))
+
+        rng = np.random.default_rng(seed)
+        perm = rng.permutation(pos_min)   # deterministic given seed -> nested prefixes
+        drop = perm[desired_min:]         # keep perm[:desired_min]; drop the tail
+        keep[drop] = False
+        return keep
+
+    @staticmethod
+    def _nested_subsample_indices(
+        y: np.ndarray,
+        n_keep: int,
+        *,
+        seed: int,
+        stratify: bool,
+    ) -> np.ndarray:
+        """Return ``n_keep`` row indices as a NESTED, optionally stratified subsample.
+
+        For two caps ``n1 < n2`` (same ``y`` and ``seed``) the n1-subset is a
+        STRICT SUBSET of the n2-subset. Each class's kept rows are the PREFIX of
+        a single fixed-seed permutation of that class's indices, and the
+        per-class kept count is ``floor(class_fraction * n_keep)`` -- which is
+        monotone non-decreasing in ``n_keep`` -- so lowering the cap only ever
+        DROPS rows. This makes Experiment 2's learning curve reflect *fewer
+        rows*, never a different random draw.
+
+        ``stratify=True`` (PD) preserves class proportions and guarantees every
+        present class keeps >=1 row once ``n_keep >= n_classes`` (so the minority
+        class never vanishes at small caps). ``stratify=False`` (LGD/regression)
+        takes a plain permutation prefix of all rows.
+
+        Because per-class counts use ``floor`` (no exact-sum top-up, which would
+        break monotonicity), the kept total can undershoot ``n_keep`` by up to
+        ``n_classes - 1`` rows (<=1 for binary PD) -- negligible for a curve.
+        """
+        n_total = len(y)
+        if n_keep >= n_total:
+            return np.arange(n_total)
+        rng = np.random.default_rng(seed)
+        if not stratify:
+            return np.sort(rng.permutation(n_total)[:n_keep])
+
+        classes, counts = np.unique(y, return_counts=True)
+        alloc = np.floor(counts * (n_keep / n_total)).astype(int)
+        if n_keep >= len(classes):
+            # Keep >=1 per class (monotone: stays 1 until floor catches up).
+            alloc = np.maximum(alloc, 1)
+        parts = []
+        for cls, k in zip(classes, alloc):
+            cls_idx = np.where(y == cls)[0]          # sorted -> deterministic
+            perm = rng.permutation(cls_idx)          # fixed seed -> nested prefixes
+            parts.append(perm[: int(min(k, len(cls_idx)))])
+        return np.sort(np.concatenate(parts))
+
     def _apply_sampling(
         self,
         X_num: Optional[np.ndarray],
@@ -246,39 +352,33 @@ class DataFeeder:
         X_cat: Optional[np.ndarray] = None,
     ) -> Tuple[Optional[np.ndarray], np.ndarray, Optional[np.ndarray]]:
         """
-        Resample majority/minority classes to reach a desired minority proportion.
-        Only used for PD (classification) tasks.
-        Applied to the entire dataset BEFORE splitting to ensure consistent
-        class distributions across all folds.
+        Reduce the minority-class proportion of the WHOLE dataset BEFORE the
+        split, so train, val AND test all carry the reduced proportion (only
+        used for PD classification tasks; a no-op when ``sampling`` is None).
+
+        Removal is the nested permutation-prefix of
+        :meth:`_nested_minority_keep_mask`: deterministic and monotone across
+        the sweep, so a lower target's kept minority is a strict subset of any
+        higher target's. Performance differences between sweep points are due
+        only to *how many* minority rows remain, never *which* ones.
         """
         if self.task != "pd" or self.sampling is None:
             return X_num, y, X_cat
 
-        unique, counts = np.unique(y, return_counts=True)
-        if len(unique) != 2:
-            return X_num, y, X_cat  # only binary supported
+        keep = self._nested_minority_keep_mask(y, self.sampling, seed=self.seed)
+        if keep.all():
+            return X_num, y, X_cat
 
-        minority, majority = unique[np.argmin(counts)], unique[np.argmax(counts)]
-        idx_min, idx_maj = np.where(y == minority)[0], np.where(y == majority)[0]
-        n_min, n_maj = len(idx_min), len(idx_maj)
-        target_ratio = self.sampling
-        current_ratio = n_min / (n_min + n_maj)
+        new_idx = np.where(keep)[0]
         rng = np.random.default_rng(self.seed)
-
-        # undersample the larger class
-        if current_ratio < target_ratio:
-            desired_maj = int((1 - target_ratio) / target_ratio * n_min)
-            idx_maj_new = rng.choice(idx_maj, size=desired_maj, replace=False)
-            idx_min_new = idx_min
-        elif current_ratio > target_ratio:
-            desired_min = int(target_ratio / (1 - target_ratio) * n_maj)
-            idx_min_new = rng.choice(idx_min, size=desired_min, replace=False)
-            idx_maj_new = idx_maj
-        else:
-            idx_min_new, idx_maj_new = idx_min, idx_maj
-
-        new_idx = np.concatenate([idx_min_new, idx_maj_new])
         rng.shuffle(new_idx)
+
+        n_removed = int((~keep).sum())
+        logger.info(
+            "  Minority subsample: removed %d minority rows "
+            "(%d -> %d total) toward minority proportion %.4f",
+            n_removed, len(y), len(new_idx), self.sampling,
+        )
 
         def safe_index(X):
             return X[new_idx] if X is not None else None
@@ -691,7 +791,7 @@ class DataFeeder:
 
         Processing order:
         1. Load/preprocess dataset (dataset-specific cleaning only)
-        2. Apply resampling to entire dataset (if requested)
+        2. Apply minority resampling to entire dataset (if sampling requested)
         3. Apply global row_limit (if requested) - BEFORE splitting
         4. Split into folds (stratified CV preserves resampled distribution)
         5. FOR EACH FOLD:
@@ -711,65 +811,26 @@ class DataFeeder:
         # 2️⃣ Apply resampling FIRST to entire dataset (ensures consistent distribution across folds)
         N, y, C = self._apply_sampling(N, y, C)
 
-        # 3️⃣ THEN optionally limit number of rows (applied to already-resampled data)
-        #    Uses STRATIFIED subsampling for PD tasks to preserve class distribution
-        #    even at small row limits (critical for Experiment2 learning curves)
+        # 3️⃣ THEN optionally cap the number of rows (applied to the resampled
+        #    data) BEFORE splitting. Experiment 2 sweeps this row_limit downward
+        #    to draw a learning curve. The subsample is NESTED across row_limit
+        #    (a smaller cap's rows are a STRICT SUBSET of a larger cap's -- see
+        #    _nested_subsample_indices), so the curve reflects *fewer rows*, not
+        #    a different random draw. It is also class-stratified for PD so the
+        #    minority class survives small caps.
         if self.row_limit is not None and len(y) > self.row_limit:
             original_size = len(y)
-
-            # Calculate the fraction to KEEP
-            keep_fraction = self.row_limit / len(y)
-
-            # Use stratified subsampling for classification (PD) to preserve class distribution
-            # This is critical for small row_limits where simple slicing could exclude minority class
-            if self.task == "pd":
-                try:
-                    # Use train_test_split to get a stratified subset
-                    # We want to KEEP row_limit rows, so we "discard" the rest
-                    idx_all = np.arange(len(y))
-                    idx_keep, _ = train_test_split(
-                        idx_all,
-                        train_size=self.row_limit,
-                        random_state=self.seed,
-                        stratify=y
-                    )
-
-                    N = N[idx_keep] if N is not None else None
-                    C = C[idx_keep] if C is not None else None
-                    y = y[idx_keep]
-
-                    logger.info(
-                        f"  Applied stratified row_limit: {original_size:,} -> {len(y):,} rows "
-                        f"(preserved class distribution)"
-                    )
-                except ValueError as e:
-                    # Fallback to random sampling if stratification fails
-                    # (e.g., when minority class has too few samples)
-                    logger.warning(
-                        f"  Stratified subsampling failed ({e}), falling back to random sampling"
-                    )
-                    rng = np.random.default_rng(self.seed)
-                    idx_keep = rng.choice(len(y), size=self.row_limit, replace=False)
-
-                    N = N[idx_keep] if N is not None else None
-                    C = C[idx_keep] if C is not None else None
-                    y = y[idx_keep]
-
-                    logger.info(
-                        f"  Applied random row_limit: {original_size:,} -> {len(y):,} rows"
-                    )
-            else:
-                # For regression (LGD), use simple random subsampling
-                rng = np.random.default_rng(self.seed)
-                idx_keep = rng.choice(len(y), size=self.row_limit, replace=False)
-
-                N = N[idx_keep] if N is not None else None
-                C = C[idx_keep] if C is not None else None
-                y = y[idx_keep]
-
-                logger.info(
-                    f"  Applied random row_limit: {original_size:,} -> {len(y):,} rows"
-                )
+            idx_keep = self._nested_subsample_indices(
+                y, self.row_limit, seed=self.seed, stratify=(self.task == "pd"),
+            )
+            N = N[idx_keep] if N is not None else None
+            C = C[idx_keep] if C is not None else None
+            y = y[idx_keep]
+            logger.info(
+                "  Applied nested%s row_limit: %s -> %s rows",
+                " stratified" if self.task == "pd" else "",
+                f"{original_size:,}", f"{len(y):,}",
+            )
 
 
         stratify = self.task == "pd"

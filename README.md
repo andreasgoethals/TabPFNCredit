@@ -102,6 +102,14 @@ The generated SLURM scripts target the KU Leuven VSC partitions
 cluster, edit `src/utils/slurm_generator.py`'s `PARTITIONS` table to
 match your cluster's CPU / memory / GPU caps.
 
+> **Running on the VSC?** Read [`docs/VSC_RUN.md`](docs/VSC_RUN.md) first — it
+> covers the one-time `scripts/prestage_models.sh` step (compute nodes have no
+> internet, so foundation-model weights + the TabPFN licence must be staged on a
+> login node), how sweeps shard across array tasks under the 72 h wall and the
+> ~500-job submit limit (`TABPFN_MAX_ARRAY_SLOTS`), and resuming a partial run.
+> Several method failures live in TALENT itself — apply the patches in
+> [`docs/TALENT_FIXES.md`](docs/TALENT_FIXES.md) to your TALENT fork.
+
 ### Install profiles + the manual two-step
 
 Two profiles:
@@ -240,8 +248,26 @@ checkpoint files.
 
 | Task | Type | Datasets | Headline metrics |
 |---|---|---|---|
-| **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, Expected_Loss_Normalized |
+| **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, AP / AP_normalized, Expected_Loss_Normalized |
 | **LGD** (Loss Given Default) | Regression on `[0, 1]` | 7 | R², RMSE, MAE, Spearman_Corr |
+
+**Average Precision, baseline-corrected.** Average Precision (area under
+the precision–recall curve) has a no-skill baseline equal to the positive
+prevalence π — so a raw AP of 0.30 is excellent on a 1%-default dataset
+but worthless on a 30%-default one, and raw AP cannot be compared across
+datasets. Every PD fold therefore also records the **normalised deviation**
+
+```
+AP_normalized = (AP − π) / (1 − π)
+```
+
+which is 0 for a no-skill ranker and 1 for a perfect one regardless of
+prevalence (Flach & Kull, *Precision-Recall-Gain Curves*, NeurIPS 2015).
+This — not the raw absolute gap `AP − π` (which ignores how much headroom
+`1 − π` is even available) nor the unbounded ratio `AP / π` — is the
+quantity to compare across datasets. All four (`AP`, `AP_baseline` = π,
+`AP_minus_baseline`, `AP_normalized`) are stored so you can recompute
+either gap yourself.
 
 LGD predictions and LGD targets are both clipped to `[0, 1]`:
 preprocessing clips the raw `y`, inference clips every prediction. The
@@ -296,6 +322,17 @@ Dataset selection for the sweep experiments is automatic:
   subsamples the minority class *down* from that ceiling, so a dataset
   already more imbalanced than the ceiling can't reach the top and is
   dropped (logged at INFO level).
+
+  The subsampling is **nested / cumulative**: a single fixed-seed
+  permutation of the minority rows is taken once, and each lower target
+  keeps a shorter **prefix** of it. So stepping `0.15 → 0.1495` only ever
+  *deletes more* of the same minority rows — it never re-draws a fresh
+  random subset. The performance trend is therefore attributable purely to
+  *fewer minority cases*, with no lucky/unlucky-draw variance between
+  adjacent sweep points. The whole dataset (train, validation **and** test)
+  is subsampled to the target rate, so every metric is measured on the
+  subsampled distribution. The majority class is never touched, so dataset
+  size shrinks only because minority rows leave.
 
 ---
 

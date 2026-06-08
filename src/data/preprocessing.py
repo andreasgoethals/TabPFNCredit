@@ -23,6 +23,7 @@ after splitting in data_feeder.py to prevent data leakage.
 from __future__ import annotations
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Tuple, Optional
 import numpy as np
@@ -115,15 +116,31 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
     }
 
     # ----------------------------------------------------------
-    # 4. Cache arrays in standard TALENT format
+    # 4. Cache arrays in standard TALENT format.
+    #    Writes are ATOMIC (temp file + os.replace) and y.npy is written LAST,
+    #    because on the cluster several array tasks may preprocess the SAME
+    #    not-yet-staged dataset (e.g. 0014.algorithmwatch) concurrently on
+    #    different compute nodes that share $VSC_DATA. Atomic replace means a
+    #    concurrent reader never sees a half-written file; writing y.npy last
+    #    means the "already cached?" gate above only fires once N/C/info are
+    #    fully in place. Preprocessing is deterministic, so identical inputs
+    #    produce identical bytes and a last-writer-wins race is harmless.
     # ----------------------------------------------------------
+    def _atomic_np_save(name: str, arr) -> None:
+        tmp = dataset_dir / f".{name}.{os.getpid()}.tmp"
+        with open(tmp, "wb") as fh:
+            np.save(fh, arr)
+        os.replace(tmp, dataset_dir / name)
+
     if N is not None:
-        np.save(dataset_dir / "N.npy", N)
+        _atomic_np_save("N.npy", N)
     if C is not None:
-        np.save(dataset_dir / "C.npy", C)
-    np.save(dataset_dir / "y.npy", y)
-    with open(dataset_dir / "info.json", "w") as f:
+        _atomic_np_save("C.npy", C)
+    info_tmp = dataset_dir / f".info.json.{os.getpid()}.tmp"
+    with open(info_tmp, "w") as f:
         json.dump(info, f, indent=4)
+    os.replace(info_tmp, dataset_dir / "info.json")
+    _atomic_np_save("y.npy", y)  # LAST -- gates the cached-load check above
 
     logger.info(f"  Cached preprocessed dataset: {dataset_dir.name}")
     return N, C, y, info

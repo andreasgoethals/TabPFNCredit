@@ -18,10 +18,21 @@ early_stopping_patience: 10
 # -----------------------------------------------------------------------------
 # Imbalance sweep
 # -----------------------------------------------------------------------------
-# We undersample the majority class until the minority proportion hits the
-# target. The sweep walks DOWN from `max` to `min` in increments of `step`.
+# At each step we randomly DELETE minority-class rows (the majority class is
+# kept in full) until the minority proportion hits the target. The sweep walks
+# DOWN from `max` to `min` in increments of `step`.
 # Defaults (per your request): 0.15 -> 0.0025 in steps of 0.0005
-# (= 295 points per dataset, per method).
+# (= 296 points per dataset, per method).
+#
+# NESTED / CUMULATIVE removal -- the removal uses a single fixed-seed
+# permutation of the minority indices and keeps a PREFIX of it, so a lower
+# target's surviving minority rows are a strict SUBSET of any higher target's.
+# Going 0.15 -> 0.1495 only ever *deletes more* of the same minority rows; it
+# never re-draws a fresh random subset, so the performance trend is due purely
+# to fewer minority cases (not lucky/unlucky draws).
+#
+# The whole dataset (train, val AND test) is subsampled to the target rate, so
+# every metric is measured on the subsampled distribution.
 # -----------------------------------------------------------------------------
 minority_proportion_max: 0.15
 minority_proportion_min: 0.0025

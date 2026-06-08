@@ -33,15 +33,19 @@ early_stopping_patience: 10
 # So to change which datasets take part, just change row_max here.
 #
 # Defaults:
-#   PD  -- sweep 30 000 -> 100 (step 5); datasets with >= 30 000 rows.
-#   LGD -- sweep  4 600 -> 100 (step 5); datasets with >=  4 600 rows.
+#   PD  -- sweep 30 000 -> 1 000 (step 5); datasets with >= 30 000 rows.
+#   LGD -- sweep  4 600 ->   200 (step 5); datasets with >=  4 600 rows.
+# The step is deliberately small (5 rows) for a fine-grained learning curve;
+# that means ~5 800 (PD) / ~880 (LGD) points per dataset per method. Each point
+# is saved as its own results file and skip-if-done makes the sweep resumable,
+# so a slot that hits the wall-clock cap simply continues on the next submit.
 # -----------------------------------------------------------------------------
 learning_curve:
   pd:
     row_max: 30000
     row_min: 1000
-    row_step: 1000     # 30000 -> 1000 in 1000-row steps = 30 points
+    row_step: 5
   lgd:
     row_max: 4600
     row_min: 200
-    row_step: 200      # 4600 -> 200 in 200-row steps = 23 points
+    row_step: 5

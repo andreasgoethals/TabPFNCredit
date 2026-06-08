@@ -66,7 +66,7 @@ from src.methods.method_config import (  # noqa: E402
     HPO_METHODS,
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
-from src.methods.runtime_profile import get_profile  # noqa: E402
+from src.methods.runtime_profile import get_profile, estimate_point_seconds  # noqa: E402
 from src.utils.slurm_generator import (  # noqa: E402
     generate_scripts_for_experiment,
     generate_summarize_script,
@@ -205,6 +205,8 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
             preprocess_dataset(task, dataset)
             console.print(f"  [green]ok[/green]   {task}/{dataset}")
         except FileNotFoundError:
+            # The RAW file genuinely isn't on this machine -- the dataset
+            # cannot run anywhere, so drop its cells (with a warning).
             console.print(
                 f"  [yellow]skip[/yellow] {task}/{dataset} "
                 f"-- raw file not found under data/raw/{task}/ on this machine"
@@ -212,18 +214,19 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
             logger.warning("Skipping %s/%s: raw data file missing.", task, dataset)
             unavailable.add((task, dataset))
         except Exception as exc:  # pragma: no cover -- defensive
-            # One-line warning, not a full traceback: this is a handled skip
-            # (e.g. the algorithmwatch parquet is too large to read on a
-            # memory-limited login node). The dataset is dropped and the
-            # sweep continues. Copy data/processed/ from a machine that has
-            # it preprocessed to include the dataset without a login-node
-            # preprocess. Run with --verbose for the full traceback.
+            # The raw file EXISTS but preprocessing failed HERE -- typically
+            # the login node runs out of memory on a large dataset (e.g.
+            # 0014.algorithmwatch's parquet). Do NOT drop the cell: a compute
+            # node (256 GB on wICE) will preprocess it inside DataFeeder when
+            # the job runs. Dropping it here is exactly why that dataset went
+            # missing from a previous run. preprocess_dataset writes atomically
+            # and is idempotent, so concurrent compute-node preprocessing is
+            # safe. Run with --verbose for the full traceback.
             console.print(
-                f"  [yellow]skip[/yellow] {task}/{dataset} -- could not preprocess "
-                f"here ({type(exc).__name__}: {exc})"
+                f"  [yellow]defer[/yellow] {task}/{dataset} -- could not preprocess "
+                f"here ({type(exc).__name__}); the compute node will do it at run time"
             )
-            logger.debug("Preprocessing failed for %s/%s", task, dataset, exc_info=True)
-            unavailable.add((task, dataset))
+            logger.debug("Login-node preprocessing deferred for %s/%s", task, dataset, exc_info=True)
     return unavailable
 
 
@@ -289,6 +292,12 @@ def _sweep_points(experiment: str, config: dict, cell: dict) -> List[dict]:
         if not (pmax and pstep):
             return [{"name": method, "tune": False, "row_limit": base_row, "sampling": base_sampling}]
         props = _frange_desc(pmax, pmin or 0, pstep)
+        # One point per minority proportion. The whole dataset (train, val AND
+        # test) is subsampled to the target rate, so evaluation happens on the
+        # subsampled distribution. Removal is nested across the sweep (see
+        # DataFeeder._nested_minority_keep_mask): a lower target's kept minority
+        # is a strict subset of any higher target's, so the only thing changing
+        # between points is how many minority rows remain.
         return [{"name": build_method_name(method, {"min": p}), "tune": False,
                  "row_limit": base_row, "sampling": p} for p in props]
 
@@ -426,16 +435,38 @@ def _run_experiment_vsc(
     # poison the next sbatch run.
     _wipe_generated_dir(out_dir)
 
-    # 2) Walltime estimate needs the sweep-point count for Exp2/3.
-    n_sweep_points = _estimate_sweep_points(experiment, config)
+    # 2) Expand every cell into its sweep POINTS and estimate each point's cost.
+    #    The point -- not the cell -- is the scheduling unit, so a cell with
+    #    thousands of points (Experiment 2's row sweep, Experiment 3's minority
+    #    sweep) gets sharded across many array slots and each slot stays under
+    #    the 72 h wall instead of one slot running the whole cell serially.
+    cv = config["split"]["cv_splits"]
+    n_trials = (config.get("tuning") or {}).get("n_trials", 1)
+    work_items: List[dict] = []
+    for cell in cells:
+        for point in _sweep_points(experiment, config, cell):
+            work_items.append({
+                "dataset": cell["dataset"],
+                "method": cell["method"],
+                "task": cell["task"],
+                "name": point["name"],
+                "tune": point.get("tune", False),
+                "row_limit": point.get("row_limit"),
+                "sampling": point.get("sampling"),
+                "est_seconds": estimate_point_seconds(
+                    cell["method"], n_folds=cv,
+                    row_limit=point.get("row_limit"),
+                    tune=point.get("tune", False), n_trials=n_trials,
+                ),
+            })
 
-    # 3) Emit per-partition .slurm + .json plans.
+    # 3) Emit per-partition .slurm + .json plans (one array slot = a balanced
+    #    bundle of points, packed under the 72 h wall).
     jobs = generate_scripts_for_experiment(
         experiment=experiment,
-        tasks=list(cells),
+        work_items=work_items,
         out_dir=out_dir,
-        n_folds=config["split"]["cv_splits"],
-        n_sweep_points=n_sweep_points,
+        n_folds=cv,
     )
     if not jobs:
         console.print("[red]No SLURM scripts were generated (no cells).[/red]")
@@ -658,7 +689,7 @@ def cmd_slurm_task(
         raise typer.Exit(code=2)
 
     slot = slots[array_id]
-    console.print(f"[bold]Slot {array_id}/{len(slots) - 1}:[/bold] {len(slot)} cell(s)")
+    console.print(f"[bold]Slot {array_id}/{len(slots) - 1}:[/bold] {len(slot)} point(s)")
 
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -666,13 +697,21 @@ def cmd_slurm_task(
     config = load_config(experiment)
     results_root = _results_root()
 
-    # Expand each cell into its sweep points (same logic the local runner
-    # uses) and run each point. This is what actually executes Experiment 1's
-    # HPO mode, Experiment 2's row-limit curve and Experiment 3's minority
-    # sweep -- each point saved under its own ``<method>__<suffix>`` file.
-    for cell in slot:
-        for point in _sweep_points(experiment, config, cell):
-            _run_one_point(experiment, config, cell, point, results_root, verbose=verbose)
+    # The plan already holds the exact sweep POINTS assigned to this slot
+    # (the generator sharded each cell's points across slots so no slot blows
+    # the 72 h wall). Run each point directly -- no re-expansion -- so a cell's
+    # thousands of points really do run in parallel across array tasks. Each
+    # point is saved under its own ``<method>__<suffix>`` file; skip-if-done
+    # makes a re-submit resume any point a timed-out slot didn't finish.
+    for item in slot:
+        cell = {"dataset": item["dataset"], "method": item["method"], "task": item["task"]}
+        point = {
+            "name": item.get("name") or item["method"],
+            "tune": item.get("tune", False),
+            "row_limit": item.get("row_limit"),
+            "sampling": item.get("sampling"),
+        }
+        _run_one_point(experiment, config, cell, point, results_root, verbose=verbose)
 
 
 # ============================================================================

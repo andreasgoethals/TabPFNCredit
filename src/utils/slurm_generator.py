@@ -169,93 +169,70 @@ def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
 
 
 # ============================================================================
-#  Batch packing
+#  Work-item packing (point-level sharding)
 # ============================================================================
 #
-# The VSC docs warn that any work item under ~3-4 minutes wastes scheduler
-# time. We pack cells so each array slot runs at least PACK_TARGET_SECONDS of
-# work. The packing only applies to CPU partitions and the FAST tier --
-# foundation models normally get one slot each (their walltime varies wildly
-# and GPU memory is exclusive).
+# The scheduling unit is a SWEEP POINT (one result file), not a whole
+# (dataset, method) cell. This matters for Experiment 2/3: a single cell can
+# expand into thousands of points (the row / minority sweep), which would blow
+# past the 72 h wall if run sequentially in one slot. We therefore bin-pack the
+# *points* across array slots so each slot's estimated work fits under the
+# partition wall, while honouring the VSC per-user submit limit.
 #
-# HARD CAP -- VSC's ``normal`` QOS enforces a MaxSubmitJobsPerUser limit, and
-# every array TASK counts against it (a 446-task array = 446 jobs). Exceeding
-# it makes sbatch fail with ``QOSMaxSubmitJobPerUserLimit``. So we never emit
-# more than MAX_ARRAY_SLOTS tasks per partition: if natural packing would
-# produce more, we LPT-rebalance ALL cells (foundation included) across
-# exactly MAX_ARRAY_SLOTS slots. Each slot then runs several cells in
-# sequence -- longer walltime, but well under the partition's 72 h cap and,
-# crucially, under the submit limit.
+# TWO HARD CONSTRAINTS (VSC docs, confirmed):
+#   * Wall-clock <= 72 h on every wICE partition (gpu_a100/gpu_h100/
+#     batch_sapphirerapids); there is NO `_long` GPU partition on wICE.
+#   * MaxSubmitJobsPerUser (~500 on the `normal` QOS) and EACH array element
+#     counts. So #slots is capped at MAX_ARRAY_SLOTS per partition.
+#
+# Packing: n_slots = clamp(ceil(total_est / cap_seconds), 1, max_slots), then
+# greedy longest-processing-time-first (heaviest point into the least-loaded
+# slot) for an even spread. When the work needs MORE slots than the cap allows,
+# we still emit max_slots slots (each then exceeds the 72 h estimate) and the
+# caller warns -- skip-if-done makes a timed-out slot resumable on re-submit.
 
-PACK_TARGET_SECONDS = 600    # ~10 minutes per array slot for FAST cells
-PACK_MAX_PER_SLOT = 64       # never bundle more than this many cells per slot
-# Hard cap on array tasks per partition. Chosen so even the full
-# run_all_experiments.sh chain stays under VSC's per-user submit limit:
-# afterok pre-submits every experiment at once, so 4 experiments x 3
-# partitions x 40 = 480 tasks (< the ~500 `normal`-QOS ceiling). A single
-# experiment is far under. 40-way parallelism is ample given the array is
-# throttled to ~16 concurrent anyway. Override with $TABPFN_MAX_ARRAY_SLOTS.
+# Hard cap on array tasks PER PARTITION. Default 40 keeps the full
+# run_all_experiments.sh chain (4 experiments pre-submitted at once via afterok,
+# up to 3 partitions each) under the ~500 `normal`-QOS submit ceiling:
+# 4 x 3 x 40 = 480 < 500. For a big STANDALONE sweep (e.g. Experiment 2) raise
+# it via $TABPFN_MAX_ARRAY_SLOTS -- e.g. 150 gives ~450 tasks across 3
+# partitions, still < 500 -- to shorten each slot and parallelise harder.
 MAX_ARRAY_SLOTS = 40
 
 
-def pack_cells(
-    cells: List[dict],
+def pack_work_items(
+    items: List[dict],
     *,
-    target_seconds: int = PACK_TARGET_SECONDS,
+    cap_seconds: int,
     max_slots: int = MAX_ARRAY_SLOTS,
-) -> List[List[dict]]:
-    """Group cells into array slots.
+) -> tuple[List[List[dict]], int]:
+    """Greedy LPT bin-pack work items into ``<= max_slots`` slots.
 
-    Two-stage:
-      1. Natural packing -- bundle FAST/MEDIUM cells to ~``target_seconds``
-         per slot; foundation models go solo.
-      2. Cap -- if that produced more than ``max_slots`` slots (which would
-         blow the VSC per-user submit limit), rebalance ALL cells across
-         exactly ``max_slots`` slots with greedy longest-processing-time-first
-         bin packing, so the walltime is spread as evenly as possible.
+    ``items`` are dicts each carrying an ``est_seconds`` cost plus the point
+    payload (``dataset``, ``method``, ``task``, ``name``, ``tune``,
+    ``row_limit``, ``sampling``). The slot count is
+    ``clamp(ceil(total / cap_seconds), 1, max_slots)`` so the per-slot load
+    targets ``cap_seconds`` (~95% of the wall) but never produces more tasks
+    than the submit limit allows.
 
-    ``cells`` is a list of dicts with at least ``{"method", "dataset", "task"}``.
+    Returns ``(slots, max_slot_seconds)``. ``max_slot_seconds`` lets the caller
+    detect when the work could not be squeezed under ``cap_seconds`` (i.e. it
+    needed more than ``max_slots`` slots) and warn accordingly.
     """
-    bins: List[List[dict]] = []
-    current: List[dict] = []
-    current_sec = 0
-    for cell in cells:
-        profile = get_profile(cell["method"])
-        sec = profile.seconds_per_fold_estimate
-        # Foundation models normally go solo so a slow run doesn't block a
-        # fast one in the same slot.
-        if profile.tier == Tier.FOUNDATION:
-            if current:
-                bins.append(current)
-                current, current_sec = [], 0
-            bins.append([cell])
-            continue
-        if current and (current_sec + sec > target_seconds or len(current) >= PACK_MAX_PER_SLOT):
-            bins.append(current)
-            current, current_sec = [], 0
-        current.append(cell)
-        current_sec += sec
-    if current:
-        bins.append(current)
+    items = [it for it in items if it]
+    if not items:
+        return [], 0
+    total = sum(int(it.get("est_seconds", 0)) for it in items)
+    needed = max(1, math.ceil(total / max(1, cap_seconds)))
+    n_slots = max(1, min(needed, max_slots, len(items)))
 
-    if len(bins) <= max_slots:
-        return bins
-
-    # Too many slots for the QOS submit limit -- rebalance everything across
-    # exactly ``max_slots`` slots via greedy LPT (heaviest cell first into the
-    # currently-least-loaded slot).
-    flat = [c for b in bins for c in b]
-    flat.sort(
-        key=lambda c: get_profile(c["method"]).seconds_per_fold_estimate,
-        reverse=True,
-    )
-    rebinned: List[List[dict]] = [[] for _ in range(max_slots)]
-    loads = [0] * max_slots
-    for cell in flat:
-        i = min(range(max_slots), key=lambda k: loads[k])
-        rebinned[i].append(cell)
-        loads[i] += get_profile(cell["method"]).seconds_per_fold_estimate
-    return [b for b in rebinned if b]
+    slots: List[List[dict]] = [[] for _ in range(n_slots)]
+    loads = [0] * n_slots
+    for it in sorted(items, key=lambda x: int(x.get("est_seconds", 0)), reverse=True):
+        k = min(range(n_slots), key=lambda j: loads[j])
+        slots[k].append(it)
+        loads[k] += int(it.get("est_seconds", 0))
+    return [s for s in slots if s], (max(loads) if loads else 0)
 
 
 # ============================================================================
@@ -290,6 +267,23 @@ def _prologue(*, cluster: str, partition: str) -> str:
 
         # Memory-fragmentation mitigation for long-running PyTorch jobs.
         export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+        # ---- Foundation-model weight caches (shared $VSC_DATA, OFFLINE) ----
+        # wICE compute nodes have NO outbound internet, so foundation models
+        # (TabPFN v2.5/v3, TabICL, Mitra, TabDPT, HyperFast) cannot download
+        # their weights or accept the TabPFN license at run time. Download +
+        # accept ONCE on the login node with `bash scripts/prestage_models.sh`,
+        # which populates these shared caches; here we point at them and force
+        # offline mode so a missing weight fails fast with a clear error instead
+        # of hanging on a blocked network call. (Last run, TabPFN/Mitra/HyperFast
+        # all failed precisely because they tried to reach the network here.)
+        export HF_HOME="${VSC_DATA}/TabPFNCredit/.model_cache/huggingface"
+        export HUGGINGFACE_HUB_CACHE="${HF_HOME}/hub"
+        export TORCH_HOME="${VSC_DATA}/TabPFNCredit/.model_cache/torch"
+        export XDG_CACHE_HOME="${VSC_DATA}/TabPFNCredit/.model_cache/xdg"
+        export TABPFN_MODEL_CACHE_DIR="${VSC_DATA}/TabPFNCredit/.model_cache/tabpfn"
+        export HF_HUB_OFFLINE=1
+        export TRANSFORMERS_OFFLINE=1
 
         # Plain ``module purge`` (NOT --force) -- keeps the sticky cluster
         # module that's auto-loaded for this node, then load the toolchain.
@@ -408,86 +402,108 @@ class GeneratedJob:
 def generate_scripts_for_experiment(
     *,
     experiment: str,
-    tasks: List[dict],
+    work_items: List[dict],
     out_dir: Path,
     n_folds: int = 5,
-    n_sweep_points: int = 1,
     prefer_h100: bool = True,
     gpu_cmode: str = "shared",
     max_concurrent: int = 16,
     mail_email: str = "",
+    max_slots: Optional[int] = None,
 ) -> List[GeneratedJob]:
-    """Write SLURM scripts for one experiment, split by partition + tier.
+    """Write SLURM scripts for one experiment, sharding sweep POINTS across slots.
 
     Parameters
     ----------
     experiment : str
         ``"Experiment0"`` etc. (case-insensitive); used in the job name.
-    tasks : list of dict
-        One entry per (dataset, method, task). Each dict must have the keys
-        ``"dataset"``, ``"method"``, ``"task"``.
+    work_items : list of dict
+        One entry per SWEEP POINT (not per cell). Each dict must carry
+        ``"dataset"``, ``"method"``, ``"task"``, ``"name"`` (the result-file
+        stem incl. sweep suffix), ``"tune"``, ``"row_limit"``, ``"sampling"``
+        and ``"est_seconds"`` (per-point cost, from
+        :func:`runtime_profile.estimate_point_seconds`). The points are
+        bin-packed across array slots so each slot fits under the 72 h wall.
     out_dir : Path
         Directory to write the generated scripts into.
     n_folds : int
-        For walltime estimation.
-    n_sweep_points : int
-        For walltime estimation (Experiment 2/3 sweep multiple points per cell).
+        Unused here (kept for API stability); point costs already fold in folds.
     prefer_h100 : bool
         Use H100 wICE partition for foundation models; fall back to A100 if False.
     gpu_cmode : str
         ``shared`` (default; multiple processes per GPU OK) or ``exclusive``.
     max_concurrent : int
-        SLURM array ``%`` throttle. Pick this so total concurrent slots stay
-        under the per-partition GPU count (e.g. wICE has 20 H100s total).
+        SLURM array ``%`` throttle.
     mail_email : str
         If non-empty, add ``--mail-type=FAIL,TIME_LIMIT,REQUEUE`` notifications.
+    max_slots : int, optional
+        Per-partition array-task cap. Defaults to ``$TABPFN_MAX_ARRAY_SLOTS``
+        or :data:`MAX_ARRAY_SLOTS`.
 
     Returns
     -------
     list of :class:`GeneratedJob`
     """
-    if not tasks:
+    if not work_items:
         return []
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1) Group tasks by partition
+    if max_slots is None:
+        max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", MAX_ARRAY_SLOTS))
+
+    import logging
+    _log = logging.getLogger(__name__)
+
+    # 1) Group POINTS by partition (keyed on the point's method).
     by_partition: dict[str, list[dict]] = {}
-    for cell in tasks:
-        key = partition_for_method(cell["method"], prefer_h100=prefer_h100)
-        by_partition.setdefault(key, []).append(cell)
+    for item in work_items:
+        key = partition_for_method(item["method"], prefer_h100=prefer_h100)
+        by_partition.setdefault(key, []).append(item)
 
     generated: List[GeneratedJob] = []
 
-    for partition_key, cells in sorted(by_partition.items()):
+    for partition_key, items in sorted(by_partition.items()):
         if partition_key not in PARTITIONS:
             continue
         spec = PARTITIONS[partition_key]
         n_gpus = 1 if spec.gpus_per_node else 0
 
-        # 2) Pack cheap cells together; foundation models go solo. The
-        #    per-partition slot count is hard-capped (QOS submit limit);
-        #    $TABPFN_MAX_ARRAY_SLOTS overrides the default.
-        max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", MAX_ARRAY_SLOTS))
-        slots = pack_cells(cells, max_slots=max_slots)
-
-        # 3) Walltime: dominated by the slowest cell in any slot, capped at
-        #    the partition's hard walltime.
-        max_seconds_in_any_slot = max(
-            sum(
-                estimate_walltime_seconds(
-                    c["method"], n_folds=n_folds, n_sweep_points=n_sweep_points
-                )
-                for c in slot
-            )
-            for slot in slots
+        # 2) Shard the partition's points across <= max_slots array tasks,
+        #    targeting ~95% of the wall per slot so each slot finishes inside
+        #    the 72 h cap whenever the work fits in the slot budget.
+        cap_seconds = int(0.95 * spec.max_walltime_hours * 3600)
+        slots, max_slot_seconds = pack_work_items(
+            items, cap_seconds=cap_seconds, max_slots=max_slots,
         )
-        cap_seconds = spec.max_walltime_hours * 3600
-        walltime_seconds = min(max_seconds_in_any_slot, cap_seconds)
+        if not slots:
+            continue
+
+        # 3) Walltime = the heaviest slot's estimate, floored at 10 min and
+        #    capped at the partition's hard wall.
+        hard_cap = spec.max_walltime_hours * 3600
+        walltime_seconds = min(max(max_slot_seconds, 600), hard_cap)
         walltime = _format_walltime(walltime_seconds)
 
-        # 4) Persist the per-slot task plan as a JSON sibling so slurm-task
+        # If the work could not be squeezed under the wall with the available
+        # slots, warn: the slot will hit the 72 h limit and need a re-submit
+        # (skip-if-done resumes), OR the user can raise the slot cap.
+        if max_slot_seconds > cap_seconds:
+            needed = math.ceil(
+                sum(int(it.get("est_seconds", 0)) for it in items) / max(1, cap_seconds)
+            )
+            _log.warning(
+                "slurm-generate: %s/%s needs ~%d slots to fit every slot under "
+                "%dh but is capped at %d. Slots may hit the wall and require a "
+                "re-submit to resume (safe -- skip-if-done). To parallelise "
+                "harder in one shot, raise the cap, e.g. "
+                "TABPFN_MAX_ARRAY_SLOTS=%d (keep TOTAL submitted array tasks < 500).",
+                experiment, partition_key, needed, spec.max_walltime_hours,
+                len(slots), min(needed, 450),
+            )
+
+        # 4) Persist the per-slot point plan as a JSON sibling so slurm-task
         #    knows what to run.
         plan_path = out_dir / f"{experiment.lower()}_{partition_key}_plan.json"
         _write_plan(plan_path, slots)
@@ -542,15 +558,18 @@ def generate_scripts_for_experiment(
             walltime=walltime,
         ))
 
-    # 6) Worker-framework hint
+    # 6) Submit-limit guard. EACH array element counts toward the VSC
+    #    MaxSubmitJobsPerUser (~500 on the `normal` QOS), and the
+    #    run_all_experiments.sh chain pre-submits every experiment at once via
+    #    afterok -- so the TOTAL across all submitted arrays must stay < 500.
     total_slots = sum(j.n_array_slots for j in generated)
-    if total_slots > 500:
-        import logging
-        logging.getLogger(__name__).warning(
-            "slurm-generate: %d array slots requested. VSC docs recommend the "
-            "Worker framework (module load worker-ng/1.0.11-GCCcore-10.3.0) "
-            "for sweeps >500 work items. Job arrays still work but may load "
-            "the scheduler.",
+    if total_slots > 450:
+        _log.warning(
+            "slurm-generate: %d array tasks for this experiment alone. EACH "
+            "counts toward the VSC per-user submit limit (~500 on the `normal` "
+            "QOS); if you also chain other experiments you may hit "
+            "QOSMaxSubmitJobPerUserLimit. Lower $TABPFN_MAX_ARRAY_SLOTS or "
+            "submit experiments one at a time.",
             total_slots,
         )
 
@@ -567,12 +586,21 @@ def _format_walltime(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+_PLAN_ITEM_KEYS = ("dataset", "method", "task", "name", "tune", "row_limit", "sampling")
+
+
 def _write_plan(path: Path, slots: List[List[dict]]) -> None:
-    """Persist the per-slot task plan as JSON. ``slurm-task`` reads it."""
+    """Persist the per-slot POINT plan as JSON. ``slurm-task`` reads it.
+
+    Each item keeps the full sweep-point payload (``name``/``tune``/
+    ``row_limit``/``sampling``) so the worker runs exactly the point assigned to
+    its slot -- no re-expansion, so a cell's thousands of points can be split
+    across many slots.
+    """
     import json
     payload = {
         "slots": [
-            [{"dataset": c["dataset"], "method": c["method"], "task": c["task"]} for c in slot]
+            [{k: item.get(k) for k in _PLAN_ITEM_KEYS} for item in slot]
             for slot in slots
         ],
     }
@@ -671,7 +699,8 @@ __all__ = [
     "PartitionSpec",
     "PARTITIONS",
     "partition_for_method",
-    "pack_cells",
+    "pack_work_items",
+    "MAX_ARRAY_SLOTS",
     "GeneratedJob",
     "generate_scripts_for_experiment",
     "load_plan",

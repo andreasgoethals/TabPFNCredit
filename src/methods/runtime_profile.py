@@ -216,6 +216,40 @@ def estimate_walltime_seconds(method: str, *, n_folds: int = 1, n_sweep_points: 
     return max(60, int(base * 1.3) + 60)
 
 
+# Reference training-set size the per-fold budgets are calibrated against.
+# A learning-curve point at ``row_limit`` rows is scaled by row_limit/REFERENCE
+# (clamped) so small-row points pack as much cheaper than full-size ones.
+ROW_REFERENCE = 30_000
+
+
+def estimate_point_seconds(
+    method: str,
+    *,
+    n_folds: int = 1,
+    row_limit: Optional[int] = None,
+    tune: bool = False,
+    n_trials: int = 1,
+) -> int:
+    """Per-SWEEP-POINT walltime estimate, used to BALANCE points across SLURM slots.
+
+    Unlike :func:`estimate_walltime_seconds` (one whole cell), this estimates a
+    single sweep point so the generator can shard a cell's many points across
+    array tasks. It scales the per-fold budget by ``row_limit / ROW_REFERENCE``
+    (Experiment 2 -- a 100-row point is far cheaper than a 30 000-row one) and
+    multiplies by the HPO trial count when tuning (Experiment 1). It need not be
+    exact -- only monotone and relative -- since it is used purely for
+    load-balancing; the per-slot walltime request is capped at the partition's
+    hard limit and skip-if-done makes any overrun resumable.
+    """
+    p = get_profile(method)
+    per_fold = float(p.seconds_per_fold_estimate)
+    if row_limit:
+        per_fold *= max(0.05, min(1.0, row_limit / float(ROW_REFERENCE)))
+    trials = max(1, n_trials) if tune else 1
+    base = per_fold * n_folds * trials
+    return max(5, int(base * 1.3) + 30)
+
+
 def methods_by_tier(tier: Tier, *, hardware: Optional[str] = None) -> set:
     """Return all method names with the given tier (and optional hardware)."""
     names = {m for m, p in _PROFILES.items() if p.tier == tier}
