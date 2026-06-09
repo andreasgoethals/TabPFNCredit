@@ -91,20 +91,11 @@ def _split_sweep_suffix(method_stem: str):
     return base, hpo_mode, sweep_axis, sweep_value
 
 
-def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
-    """Yield one row per fold inside ``<method>.json``."""
-    rel = path.relative_to(base).parts
-    _experiment, task, dataset, method_file = rel
-    method_stem = method_file[:-5]  # strip ".json"
+def _rows_from_point(method_stem: str, point: Dict[str, Any], task: str, dataset: str
+                     ) -> Iterable[Dict[str, Any]]:
+    """Yield one row per fold for a single logical result (``method_stem`` + folds)."""
     bare_method, hpo_mode, sweep_axis, sweep_value = _split_sweep_suffix(method_stem)
-
-    try:
-        payload = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        logger.warning("Skipping malformed JSON: %s", path)
-        return
-
-    folds = payload.get("folds") or {}
+    folds = point.get("folds") or {}
     for fold_id_str, fold in folds.items():
         try:
             fold_id = int(fold_id_str)
@@ -129,6 +120,30 @@ def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
             if isinstance(v, (int, float)):
                 row[f"metric.{k}"] = float(v)
         yield row
+
+
+def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
+    """Yield one row per fold inside ``<method>.json``.
+
+    Handles both layouts: a plain single result (top-level ``folds``) and a
+    PACKED file (Experiment 2/3 -- many sweep points under ``points``), in
+    which case each point's name carries its own sweep suffix.
+    """
+    rel = path.relative_to(base).parts
+    _experiment, task, dataset, method_file = rel
+    method_stem = method_file[:-5]  # strip ".json"
+
+    try:
+        payload = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        logger.warning("Skipping malformed JSON: %s", path)
+        return
+
+    if isinstance(payload, dict) and "points" in payload:
+        for point_name, entry in (payload.get("points") or {}).items():
+            yield from _rows_from_point(point_name, entry, task, dataset)
+    else:
+        yield from _rows_from_point(method_stem, payload, task, dataset)
 
 
 def collect_fold_results(base: Path, experiment: str):

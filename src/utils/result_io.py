@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Tuple
 
@@ -101,21 +102,42 @@ def save_method(
     payload["aggregates"] = _aggregate(payload["folds"])
     payload["n_folds"] = len(payload["folds"])
 
-    json_path.write_text(json.dumps(payload, indent=2))
+    # Write the npz (arrays) FIRST, then the JSON (scalars) LAST -- each via a
+    # temp file + os.replace so a crash, kill, or "Disk quota exceeded" error
+    # mid-write can never leave a half-written file. Because has_complete_result()
+    # keys on the JSON, writing it last guarantees the invariant: a complete,
+    # parseable <method>.json implies its <method>.npz is already fully on disk.
+    # So an interrupted save is never mistaken for a finished (skippable) result
+    # -- a re-run cleanly redoes that point.
+    # Remove any stale temp files left by a previously killed save of this
+    # point (e.g. after `scancel`) so interrupted runs don't leak inodes on
+    # the file-count-limited project storage.
+    out_dir = json_path.parent
+    for _stale in list(out_dir.glob(f".{json_path.name}.*.tmp")) + \
+                  list(out_dir.glob(f".{npz_path.name}.*.tmp")):
+        try:
+            _stale.unlink()
+        except OSError:
+            pass
 
-    # ------ npz (arrays only) -------------------------------------------
     arrays: Dict[str, np.ndarray] = {}
     for fold_id, fold in method_results.items():
         for k in _ARRAY_KEYS:
             v = fold.get(k)
             if v is None:
                 continue
-            arr = np.asarray(v)
-            arrays[f"fold_{fold_id}_{k}"] = arr
+            arrays[f"fold_{fold_id}_{k}"] = np.asarray(v)
     if arrays:
-        np.savez_compressed(npz_path, **arrays)
+        tmp_npz = npz_path.parent / f".{npz_path.name}.{os.getpid()}.tmp"
+        with open(tmp_npz, "wb") as fh:
+            np.savez_compressed(fh, **arrays)
+        os.replace(tmp_npz, npz_path)
     elif npz_path.exists():
         npz_path.unlink()
+
+    tmp_json = json_path.parent / f".{json_path.name}.{os.getpid()}.tmp"
+    tmp_json.write_text(json.dumps(payload, indent=2))
+    os.replace(tmp_json, json_path)
 
     return json_path, npz_path
 
@@ -157,7 +179,13 @@ def load_method(
 
 
 def scan_results(base: Path) -> Iterator[Tuple[str, str, str, str, Dict[str, Any]]]:
-    """Walk every JSON result file and yield ``(experiment, task, dataset, method, payload)``."""
+    """Walk every JSON result file and yield ``(experiment, task, dataset, method, payload)``.
+
+    Packed files (Experiment 2/3 -- one ``<method>.json`` holding many sweep
+    points under ``payload["points"]``) are expanded: each point is yielded as
+    its own logical result, with ``method`` set to the point name and a payload
+    carrying that point's ``folds`` / ``aggregates``.
+    """
     if not base.exists():
         return
     for json_path in base.rglob("*.json"):
@@ -172,7 +200,14 @@ def scan_results(base: Path) -> Iterator[Tuple[str, str, str, str, Dict[str, Any
         except json.JSONDecodeError:
             logger.warning(f"Skipping malformed JSON: {json_path}")
             continue
-        yield experiment, task, dataset, method, payload
+        if isinstance(payload, dict) and "points" in payload:
+            info = payload.get("info", {})
+            for point_name, entry in (payload.get("points") or {}).items():
+                point_payload = dict(entry)
+                point_payload.setdefault("info", info)
+                yield experiment, task, dataset, point_name, point_payload
+        else:
+            yield experiment, task, dataset, method, payload
 
 
 # ============================================================================
@@ -253,6 +288,107 @@ def has_complete_result(
         return False
     folds = payload.get("folds") or {}
     return len(folds) >= int(expected_folds)
+
+
+# ============================================================================
+#  Packed results (Experiment 2 / 3) -- many sweep points in ONE file
+# ============================================================================
+#
+# Experiments 2 & 3 sweep over many points per (dataset, method) cell. Writing
+# one ``<method>__<suffix>.{json,npz}`` per point creates tens of thousands of
+# tiny files and exhausts the project-storage inode quota (~150k inodes/TB).
+# Instead we PACK every point of a cell into a single ``<method>.json``:
+#
+#     {"experiment","task","dataset","method","packed":true,
+#      "points": {"<method>__rowN": {"folds":{...},"aggregates":{...},"n_folds":k}, ...},
+#      "info": {...}}
+#
+# No npz is written (predictions are dropped for these experiments). The SLURM
+# generator keeps all of a cell's points in ONE array task, so the
+# read-modify-write below is a safe single writer -- no file lock needed.
+
+def _scalars_payload(method_results: Mapping[int, Mapping[str, Any]]) -> Dict[str, Any]:
+    """Build the metrics-only ``{folds, aggregates, n_folds}`` block for a result."""
+    folds = {
+        str(fid): {k: _to_jsonable(fold.get(k)) for k in _SCALAR_KEYS_PER_FOLD}
+        for fid, fold in sorted(method_results.items())
+    }
+    return {"folds": folds, "aggregates": _aggregate(folds), "n_folds": len(folds)}
+
+
+def save_packed_point(
+    method_results: Mapping[int, Mapping[str, Any]],
+    *,
+    base: Path,
+    experiment: str,
+    task: str,
+    dataset: str,
+    method_base: str,
+    point_name: str,
+) -> Path:
+    """Add/overwrite ONE sweep point inside the cell's packed ``<method_base>.json``.
+
+    Metrics only (no npz). Safe because a cell's points are all run by a single
+    array task (see the SLURM generator's cell-grouped packing), so this
+    read-modify-write never races another writer. Written atomically.
+    """
+    if not method_results:
+        raise ValueError(f"save_packed_point called with empty results for {point_name}")
+    out_dir = base / experiment.lower() / task.lower() / dataset
+    out_dir.mkdir(parents=True, exist_ok=True)
+    json_path = out_dir / f"{method_base}.json"
+
+    payload: Optional[Dict[str, Any]] = None
+    if json_path.exists():
+        try:
+            payload = json.loads(json_path.read_text())
+        except json.JSONDecodeError:
+            payload = None  # truncated by an earlier kill -> start fresh
+    if not isinstance(payload, dict) or "points" not in payload:
+        payload = {
+            "experiment": experiment.lower(), "task": task.lower(),
+            "dataset": dataset, "method": method_base, "packed": True, "points": {},
+        }
+
+    payload["points"][point_name] = _scalars_payload(method_results)
+    payload["n_points"] = len(payload["points"])
+    if "info" not in payload:
+        payload["info"] = _to_jsonable(next(iter(method_results.values())).get("info", {}))
+
+    # stale-temp cleanup + atomic write (see save_method)
+    for _stale in out_dir.glob(f".{json_path.name}.*.tmp"):
+        try:
+            _stale.unlink()
+        except OSError:
+            pass
+    tmp = out_dir / f".{json_path.name}.{os.getpid()}.tmp"
+    tmp.write_text(json.dumps(payload, indent=2))
+    os.replace(tmp, json_path)
+    return json_path
+
+
+def has_complete_packed_point(
+    *,
+    base: Path,
+    experiment: str,
+    task: str,
+    dataset: str,
+    method_base: str,
+    point_name: str,
+    expected_folds: int,
+) -> bool:
+    """True iff the packed ``<method_base>.json`` holds ``point_name`` with all folds."""
+    json_path, _ = _result_paths(base, experiment, task, dataset, method_base)
+    if not json_path.exists():
+        return False
+    try:
+        payload = json.loads(json_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    point = (payload.get("points") or {}).get(point_name)
+    if not point:
+        return False
+    return len(point.get("folds") or {}) >= int(expected_folds)
 
 
 # ============================================================================
@@ -349,5 +485,6 @@ def parse_method_name(filename_stem: str) -> Dict[str, Any]:
 
 __all__ = [
     "save_method", "load_method", "scan_results", "has_complete_result",
+    "save_packed_point", "has_complete_packed_point",
     "build_method_name", "parse_method_name",
 ]

@@ -80,8 +80,10 @@ from src.utils.paths import (  # noqa: E402
 )
 from src.utils.result_io import (  # noqa: E402
     build_method_name,
+    has_complete_packed_point,
     has_complete_result,
     save_method,
+    save_packed_point,
 )
 from src.utils.runtime_quiet import configure_quiet_runtime  # noqa: E402
 
@@ -317,10 +319,23 @@ def _run_one_point(
     task, dataset, method = cell["task"], cell["dataset"], cell["method"]
     name = point["name"]
     cv = config["split"]["cv_splits"]
-    if has_complete_result(
-        base=results_root, experiment=experiment.lower(),
-        task=task, dataset=dataset, method=name, expected_folds=cv,
-    ):
+    # Experiments 2 & 3 PACK all of a cell's sweep points into one
+    # <method>.json (metrics only), instead of one file per point — otherwise
+    # the sweep exhausts the project-storage inode quota. The SLURM generator
+    # keeps a cell's points in a single array task, so the packed file has a
+    # single writer (no lock needed).
+    packed = experiment.lower() in ("experiment2", "experiment3")
+    if packed:
+        already_done = has_complete_packed_point(
+            base=results_root, experiment=experiment.lower(), task=task,
+            dataset=dataset, method_base=method, point_name=name, expected_folds=cv,
+        )
+    else:
+        already_done = has_complete_result(
+            base=results_root, experiment=experiment.lower(),
+            task=task, dataset=dataset, method=name, expected_folds=cv,
+        )
+    if already_done:
         console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{name} (already done)")
         return "skip"
     console.print(f"  [bold]run[/bold]  {task}/{dataset}/{name}")
@@ -341,11 +356,23 @@ def _run_one_point(
             early_stopping_patience=config["training"]["early_stopping_patience"],
             verbose=verbose,
         )
-        # Save under the sweep-suffixed name so points don't collide.
-        save_method(
-            fold_results, base=results_root, experiment=experiment.lower(),
-            task=task, dataset=dataset, method=name,
-        )
+        if packed:
+            # Metrics only: drop the per-fold prediction arrays (no npz) and
+            # append this point into the cell's single packed <method>.json.
+            for _fold in fold_results.values():
+                for _k in ("y_true", "y_prob", "y_pred", "val_y_true", "val_y_prob"):
+                    if _k in _fold:
+                        _fold[_k] = None
+            save_packed_point(
+                fold_results, base=results_root, experiment=experiment.lower(),
+                task=task, dataset=dataset, method_base=method, point_name=name,
+            )
+        else:
+            # One file per (dataset, method) point (Experiment 0/1).
+            save_method(
+                fold_results, base=results_root, experiment=experiment.lower(),
+                task=task, dataset=dataset, method=name,
+            )
         return "done"
     except Exception as exc:  # pragma: no cover -- defensive
         console.print(f"  [red]fail[/red] {task}/{dataset}/{name}: {exc}")

@@ -2,11 +2,13 @@
 
 Designed against the VSC documentation. Highlights:
 
-* **Results + regenerable caches land on the shared project storage**
-  (``$TABPFN_STAGING_ROOT``, large and non-purged) so the small general data
-  storage cannot fill up mid-run. **Logs deliberately stay on the general
-  data storage** (the repo root) -- they are tiny and must persist. Datasets
-  and checkpoints are read from the repo first, then the project storage.
+* **Results land on the shared project storage** (``$TABPFN_STAGING_ROOT``,
+  large and non-purged) so the small general data storage cannot fill mid-run.
+  The **regenerable joblib cache goes to ``$VSC_SCRATCH``** -- the project
+  storage is inode-limited (~150k inodes/TB) and a cache of many tiny files
+  would exhaust it. **Logs deliberately stay on the general data storage**
+  (the repo root) -- tiny and must persist. Datasets and checkpoints are read
+  from the repo first, then the project storage.
 * **CPU + memory right-sized per partition** so the job uses the
   documented per-GPU caps efficiently (P100: 9c/45 GB, A100: 18c/126 GB,
   H100: 16c/187 GB).
@@ -73,8 +75,9 @@ from src.methods.runtime_profile import (
 # ``$VSC_DATA/TabPFNCredit/logs`` -- on the general data storage, no surprises.
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
-# Shared project-storage root (env-overridable). Results + regenerable caches
-# live here so they never fill the small general data storage; logs do NOT.
+# Shared project-storage root (env-overridable). Results live here so they
+# never fill the small general data storage; logs and the (inode-heavy) joblib
+# cache do NOT (the cache goes to $VSC_SCRATCH).
 _DEFAULT_STAGING_ROOT = "/staging/leuven/stg_00211"
 
 
@@ -93,8 +96,13 @@ def _results_root_bash() -> str:
 
 
 def _cache_root_bash() -> str:
-    """Quoted bash expr for the regenerable-cache root on the shared project storage."""
-    return f'"{_staging_bash()}/cache"'
+    """Quoted bash expr for the regenerable-cache root on ``$VSC_SCRATCH``.
+
+    Caches are many tiny files; the project storage is inode-limited
+    (~150k inodes/TB), so the joblib folds cache goes to scratch (the
+    purge-after-28-days parallel FS meant for regenerable job I/O) instead.
+    """
+    return '"${VSC_SCRATCH:-/tmp}/tabpfncredit/cache"'
 
 
 def _log_dir(experiment: str) -> str:
@@ -235,6 +243,13 @@ def pack_work_items(
 ) -> tuple[List[List[dict]], int]:
     """Greedy LPT bin-pack work items into ``<= max_slots`` slots.
 
+    Points are first grouped by their ``(task, dataset, method)`` **cell**, and
+    each whole cell is packed as a unit — so every sweep point of a cell lands
+    in the SAME slot (one array task). Experiment 2/3 depend on this: their
+    points are packed into a single per-cell ``<method>.json``, which is only
+    race-free when one task owns the whole cell. For non-sweep experiments a
+    cell is just 1-2 points, so the grouping is a no-op.
+
     ``items`` are dicts each carrying an ``est_seconds`` cost plus the point
     payload (``dataset``, ``method``, ``task``, ``name``, ``tune``,
     ``row_limit``, ``sampling``). The slot count is
@@ -244,21 +259,30 @@ def pack_work_items(
 
     Returns ``(slots, max_slot_seconds)``. ``max_slot_seconds`` lets the caller
     detect when the work could not be squeezed under ``cap_seconds`` (i.e. it
-    needed more than ``max_slots`` slots) and warn accordingly.
+    needed more than ``max_slots`` slots, or a single cell exceeds the cap) and
+    warn accordingly.
     """
     items = [it for it in items if it]
     if not items:
         return [], 0
-    total = sum(int(it.get("est_seconds", 0)) for it in items)
+
+    # Group points by cell so a cell is never split across array tasks.
+    groups: dict = {}
+    for it in items:
+        groups.setdefault((it.get("task"), it.get("dataset"), it.get("method")), []).append(it)
+    group_list = list(groups.values())
+    group_est = [sum(int(it.get("est_seconds", 0)) for it in g) for g in group_list]
+
+    total = sum(group_est)
     needed = max(1, math.ceil(total / max(1, cap_seconds)))
-    n_slots = max(1, min(needed, max_slots, len(items)))
+    n_slots = max(1, min(needed, max_slots, len(group_list)))
 
     slots: List[List[dict]] = [[] for _ in range(n_slots)]
     loads = [0] * n_slots
-    for it in sorted(items, key=lambda x: int(x.get("est_seconds", 0)), reverse=True):
+    for gi in sorted(range(len(group_list)), key=lambda j: group_est[j], reverse=True):
         k = min(range(n_slots), key=lambda j: loads[j])
-        slots[k].append(it)
-        loads[k] += int(it.get("est_seconds", 0))
+        slots[k].extend(group_list[gi])
+        loads[k] += group_est[gi]
     return [s for s in slots if s], (max(loads) if loads else 0)
 
 
@@ -404,11 +428,11 @@ def _sbatch_header(
 
 def _python_invocation(experiment: str, partition_key: str) -> str:
     """The actual work line -- delegates to the Typer CLI."""
-    # Results + regenerable caches live on the shared project storage (large,
-    # non-purged). These run in the script BODY, where env vars DO expand
-    # (unlike #SBATCH directives), so we can use ``$TABPFN_STAGING_ROOT``.
-    # Per-fold scratch (TALENT's internal save_path) goes to a tempfile dir
-    # cleaned up at fold exit.
+    # Results live on the shared project storage (large, non-purged); the
+    # regenerable joblib cache goes to $VSC_SCRATCH (the project storage is
+    # inode-limited, bad for many tiny cache files). These run in the script
+    # BODY, where env vars DO expand (unlike #SBATCH directives). Per-fold
+    # scratch (TALENT's internal save_path) is a tempfile dir cleaned at exit.
     return dedent(f"""\
         cd "{_REPO_ROOT}"
 

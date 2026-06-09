@@ -160,16 +160,19 @@ def logs_root() -> Path:
 def cache_root() -> Path:
     """Root for regenerable caches (joblib folds cache, TALENT scratch).
 
-    Honours ``$TABPFN_CACHE_ROOT``; otherwise defaults to ``<staging>/cache``
-    when project storage exists (keeps the cache off the small general data
-    storage), else the repo-local ``.cache``.
+    Honours ``$TABPFN_CACHE_ROOT``. Otherwise prefers ``$VSC_SCRATCH`` -- the
+    cluster's purge-after-28-days parallel filesystem meant for regenerable job
+    I/O. We deliberately do NOT cache on the project storage: joblib writes
+    thousands of tiny files and that filesystem is inode-limited
+    (~150k inodes/TB), so a cache there exhausts the file quota. Falls back to
+    the repo-local ``.cache`` off-cluster.
     """
     env = os.environ.get("TABPFN_CACHE_ROOT")
     if env:
         return Path(env)
-    st = staging_root()
-    if st is not None:
-        return st / "cache"
+    scratch = os.environ.get("VSC_SCRATCH")
+    if scratch and Path(scratch).is_dir():
+        return Path(scratch) / "tabpfncredit" / "cache"
     return PROJECT_ROOT / ".cache"
 
 
