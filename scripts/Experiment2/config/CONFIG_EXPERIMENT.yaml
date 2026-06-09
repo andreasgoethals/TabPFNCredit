@@ -44,7 +44,7 @@ learning_curve:
   pd:
     row_max: 30000
     row_min: 1000
-    row_step: 10
+    row_step: 25
   lgd:
     row_max: 4600
     row_min: 200
