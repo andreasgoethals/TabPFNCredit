@@ -82,6 +82,7 @@ from src.utils.result_io import (  # noqa: E402
     build_method_name,
     has_complete_packed_point,
     has_complete_result,
+    load_method,
     save_method,
     save_packed_point,
 )
@@ -272,13 +273,20 @@ def _sweep_points(experiment: str, config: dict, cell: dict) -> List[dict]:
     base_sampling = config["split"].get("sampling")
 
     if exp == "experiment1":
-        # NO_HPO point for every method; an extra HPO point only for methods
-        # that actually support tuning (TabICL etc. are NO_HPO-only).
+        # Every method gets a NO_HPO point AND an HPO point, so the HPO-vs-NO_HPO
+        # comparison is complete for all methods. Methods that support tuning get
+        # a real tuned run; methods that can't be tuned (TabICL, TabPFN, ... are
+        # NO_HPO-only) get an HPO point that simply COPIES their NO_HPO result --
+        # their "tuned" performance is, by definition, their default performance.
+        hpo_name = build_method_name(method, {"HPO": True})
         points = [{"name": method, "tune": False,
                    "row_limit": base_row, "sampling": base_sampling}]
         if method in HPO_METHODS:
-            points.append({"name": build_method_name(method, {"HPO": True}),
-                           "tune": True, "row_limit": base_row, "sampling": base_sampling})
+            points.append({"name": hpo_name, "tune": True,
+                           "row_limit": base_row, "sampling": base_sampling})
+        else:
+            points.append({"name": hpo_name, "tune": False, "copy_from": method,
+                           "row_limit": base_row, "sampling": base_sampling})
         return points
 
     if exp == "experiment2":
@@ -338,6 +346,32 @@ def _run_one_point(
     if already_done:
         console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{name} (already done)")
         return "skip"
+
+    # HPO mode for a method that can't be tuned: its HPO result is just a copy of
+    # its NO_HPO result. The NO_HPO point shares this cell (same array task) and
+    # runs first, so the source result is already on disk -- no recompute.
+    copy_from = point.get("copy_from")
+    if copy_from:
+        try:
+            src_results = load_method(
+                base=results_root, experiment=experiment.lower(),
+                task=task, dataset=dataset, method=copy_from,
+            )
+        except FileNotFoundError:
+            console.print(
+                f"  [red]fail[/red] {task}/{dataset}/{name}: "
+                f"NO_HPO source '{copy_from}' not found to copy"
+            )
+            return "fail"
+        save_method(
+            src_results, base=results_root, experiment=experiment.lower(),
+            task=task, dataset=dataset, method=name,
+        )
+        console.print(
+            f"  [bold]copy[/bold] {task}/{dataset}/{name} <- {copy_from} (method has no HPO)"
+        )
+        return "done"
+
     console.print(f"  [bold]run[/bold]  {task}/{dataset}/{name}")
     try:
         fold_results = run_talent_method(
@@ -743,6 +777,7 @@ def cmd_slurm_task(
             "tune": item.get("tune", False),
             "row_limit": item.get("row_limit"),
             "sampling": item.get("sampling"),
+            "copy_from": item.get("copy_from"),
         }
         _run_one_point(experiment, config, cell, point, results_root, verbose=verbose)
 

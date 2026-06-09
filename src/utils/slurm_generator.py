@@ -649,7 +649,7 @@ def _format_walltime(seconds: int) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-_PLAN_ITEM_KEYS = ("dataset", "method", "task", "name", "tune", "row_limit", "sampling")
+_PLAN_ITEM_KEYS = ("dataset", "method", "task", "name", "tune", "row_limit", "sampling", "copy_from")
 
 
 def _write_plan(path: Path, slots: List[List[dict]]) -> None:
