@@ -39,6 +39,11 @@ from src.utils.result_io import scan_results
 
 Combo = Tuple[str, str, str]  # (task, dataset, name)
 
+# Methods whose predictions are constant by design, so a zero across-fold
+# variance (std=0) is EXPECTED, not anomalous (e.g. the Dummy baseline always
+# predicts the prior, giving an identical AUC=0.5 every fold).
+_CONSTANT_BASELINES = {"dummy"}
+
 
 # ============================================================================
 #  Expected combinations (the source of truth: the experiment's YAML config)
@@ -270,8 +275,9 @@ def audit_experiment(experiment: str, results_root: Optional[Path | str] = None)
             for m, a in aggregates.items()
         }
         issues = metric_anomalies(task, means)
-        # zero-variance across folds (suspicious unless 1 fold)
-        if n_folds > 1:
+        # zero-variance across folds (suspicious) -- but EXPECTED for constant
+        # baselines like the Dummy classifier, so skip those.
+        if n_folds > 1 and base_method(name) not in _CONSTANT_BASELINES:
             for m, a in aggregates.items():
                 if isinstance(a, dict) and a.get("std") == 0 and m in ("AUC", "R2"):
                     issues.append(f"{m} identical across folds (std=0)")
