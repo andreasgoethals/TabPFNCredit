@@ -181,9 +181,26 @@ METHOD_ROW_LIMITS: dict = {
     if spec.train_row_limit is not None
 }
 
-# Test/val limits default to the training limit. Override here if a
-# specific method needs a different cap.
-METHOD_TEST_VAL_LIMITS: dict = dict(METHOD_ROW_LIMITS)
+# Inference-OOM escape hatch ONLY -- NOT a fairness/normalisation device.
+#
+# The val/test cap exists solely to prevent inference OOM (cross-attention is
+# O(N_train * N_test) on a *non-batching* path; see _apply_val_test_caps in
+# method_runner.py). It is decoupled from the per-method TRAIN cap, which is a
+# separate data-regime concern (METHOD_ROW_LIMITS / TALENT `general.sample_size`).
+#
+# DEFAULT POLICY: empty -> every method is scored on the FULL test/val fold, so
+# all methods are evaluated on the identical test set (required for cross-method
+# comparability in the benchmark). Add an entry HERE *only* for a method that is
+# actually observed to OOM at inference on the largest folds (~60k rows), and set
+# the value to a generous safe cap (the most the GPU reliably handles, e.g. the
+# in-context family on an 80GB H100). Any method that ends up capped is scored on
+# fewer test points than the rest on that dataset and MUST be disclosed in the
+# paper's methods section.
+#
+# Do NOT re-derive this from METHOD_ROW_LIMITS: that aliased the inference-OOM
+# cap to whichever methods happened to carry a registry train_row_limit (only
+# the TabPFN family), which is an accident of mechanism, not a design choice.
+METHOD_TEST_VAL_LIMITS: dict[str, int] = {}
 
 
 # ============================================================================

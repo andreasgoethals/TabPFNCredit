@@ -209,7 +209,14 @@ def _apply_val_test_caps(
     is_classification: bool,
     seed: int,
 ) -> Tuple[Optional[Dict], Optional[Dict], Dict, Dict[str, int]]:
-    """Cap val and test splits if the method has a context-size limit."""
+    """Cap val/test splits ONLY for methods explicitly listed in
+    METHOD_TEST_VAL_LIMITS as inference-OOM-prone.
+
+    The cap exists solely to avoid inference OOM, not to normalise evaluation.
+    By default METHOD_TEST_VAL_LIMITS is empty, so every method is scored on the
+    full val/test fold (identical test set across methods -- required for
+    cross-method comparability).
+    """
     if method not in METHOD_TEST_VAL_LIMITS:
         return N, C, y, {}
 
