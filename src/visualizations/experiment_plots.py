@@ -98,24 +98,36 @@ def reset_figure_dir(figures_dir: Path) -> Path:
 #  Summary loaders
 # ---------------------------------------------------------------------------
 
-def load_summary(summary_dir: Path, *, task: str, aggregated: bool = True) -> pd.DataFrame:
-    """Load the polars-written summary CSV produced by ``summarize_to_csv``.
+def load_summary(
+    summary_dir: Path,
+    *,
+    experiment: str,
+    task: str,
+    aggregated: bool = True,
+    hpo_mode: Optional[str] = "NO_HPO",
+) -> pd.DataFrame:
+    """Load ONE experiment's summary CSV produced by ``summarize_to_csv``.
 
-    ``task`` is "pd" or "lgd"; ``aggregated`` picks per-method aggregates
-    over per-fold rows.
+    ``experiment`` is e.g. ``"experiment1"`` -- the CSVs are named
+    ``<experiment>_per_method.csv`` / ``<experiment>_per_fold.csv``, and
+    selecting by experiment here is what keeps Experiment 2's notebook from
+    silently plotting Experiment 0's numbers. ``task`` is "pd" or "lgd".
+    ``hpo_mode`` filters to "NO_HPO" (default) or "HPO"; pass ``None`` to
+    keep both (e.g. for HPO-vs-NO_HPO comparisons).
     """
     summary_dir = Path(summary_dir)
     suffix = "per_method.csv" if aggregated else "per_fold.csv"
-    # Try the canonical pattern first; fall back to legacy filenames.
-    for pattern in (
-        f"*_per_method.csv" if aggregated else "*_per_fold.csv",
-        f"summary_{task}_aggregated.csv" if aggregated else f"summary_{task}_raw.csv",
-    ):
-        for path in summary_dir.glob(pattern):
-            df = pd.read_csv(path)
-            if "task" not in df.columns or (df["task"] == task).any():
-                return df[df.get("task", task) == task] if "task" in df.columns else df
-    raise FileNotFoundError(f"No {task} {suffix} found under {summary_dir}")
+    path = summary_dir / f"{experiment.lower()}_{suffix}"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found -- run `tabpfncredit summarize` first")
+    df = pd.read_csv(path)
+    if "task" in df.columns:
+        df = df[df["task"] == task]
+    if hpo_mode is not None and "hpo_mode" in df.columns:
+        df = df[df["hpo_mode"] == hpo_mode]
+    if df.empty:
+        raise FileNotFoundError(f"No {task}/{hpo_mode} rows in {path}")
+    return df.reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -227,27 +239,44 @@ def per_dataset_bars(
 #  Experiment 2 (learning curve) + Experiment 3 (imbalance curve)
 # ---------------------------------------------------------------------------
 
-def _curve(
+def _sweep_curve(
     df: pd.DataFrame,
     *,
-    x_col: str,
+    sweep_axis: str,
     metric: str,
-    task_name: str,
     title: str,
     xlabel: str,
     figsize: Tuple[int, int],
     out_dir: Optional[Path],
     plot_name: str,
+    logx: bool = False,
 ) -> Optional[Path]:
+    """ONE line per METHOD: the metric averaged over all datasets at each
+    sweep value, with a +-1 std band across datasets. The summary CSV encodes
+    the sweep in the ``sweep_axis`` / ``sweep_value`` columns."""
     mean_col = _resolve_mean_column(df, metric)
-    pivot = df.pivot_table(index=x_col, columns="method", values=mean_col, aggfunc="mean")
+    sub = df[df["sweep_axis"] == sweep_axis].dropna(subset=["sweep_value"])
+    if sub.empty:
+        logger.warning("No rows with sweep_axis=%s -- is this the right experiment?",
+                       sweep_axis)
+        return None
+    grp = sub.groupby(["method", "sweep_value"])[mean_col].agg(["mean", "std"]).reset_index()
+
     fig, ax = plt.subplots(figsize=figsize)
-    for method in pivot.columns:
-        ax.plot(pivot.index, pivot[method], marker="o", label=method, linewidth=1.6)
+    palette = sns.color_palette("tab10", n_colors=grp["method"].nunique())
+    for color, (method, g) in zip(palette, grp.groupby("method")):
+        g = g.sort_values("sweep_value")
+        ax.plot(g["sweep_value"], g["mean"], marker="o", ms=4, lw=2,
+                label=method, color=color)
+        ax.fill_between(g["sweep_value"], g["mean"] - g["std"], g["mean"] + g["std"],
+                        alpha=0.12, color=color)
+    if logx:
+        ax.set_xscale("log")
     ax.set_xlabel(xlabel, fontsize=12, fontweight="bold")
     ax.set_ylabel(metric, fontsize=12, fontweight="bold")
-    ax.set_title(title, fontsize=14, fontweight="bold")
-    ax.legend(loc="best", fontsize=8, ncol=2)
+    ax.set_title(f"{title}\n(mean over datasets; band = +-1 std across datasets)",
+                 fontsize=14, fontweight="bold")
+    ax.legend(loc="best", fontsize=10)
     plt.tight_layout()
     return _save(fig, out_dir, plot_name)
 
@@ -258,13 +287,15 @@ def learning_curve(
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = (14, 8),
+    logx: bool = True,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Experiment 2: ``metric`` vs training rows."""
-    return _curve(
-        df, x_col="row_limit", metric=metric, task_name=task_name,
+    """Experiment 2: ``metric`` vs training rows -- one line per method,
+    averaged over every included dataset."""
+    return _sweep_curve(
+        df, sweep_axis="row_limit", metric=metric,
         title=f"{task_name} learning curve: {metric}",
-        xlabel="Training rows", figsize=figsize, out_dir=out_dir,
+        xlabel="Training rows", figsize=figsize, out_dir=out_dir, logx=logx,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
@@ -277,13 +308,110 @@ def imbalance_curve(
     figsize: Tuple[int, int] = (14, 8),
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Experiment 3: ``metric`` vs minority-class proportion."""
-    return _curve(
-        df, x_col="minority_proportion", metric=metric, task_name=task_name,
+    """Experiment 3: ``metric`` vs minority proportion -- one line per method,
+    averaged over every included dataset."""
+    return _sweep_curve(
+        df, sweep_axis="minority_proportion", metric=metric,
         title=f"{task_name} imbalance robustness: {metric}",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
+
+
+# ---------------------------------------------------------------------------
+#  Distribution, HPO-effect and cost plots
+# ---------------------------------------------------------------------------
+
+def metric_boxplots(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    task_name: str = "PD",
+    higher_is_better: bool = True,
+    figsize: Tuple[int, int] = (16, 7),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Box + strip plot of the metric's distribution across datasets per method."""
+    mean_col = _resolve_mean_column(df, metric)
+    order = (df.groupby("method")[mean_col].median()
+             .sort_values(ascending=not higher_is_better).index)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.boxplot(data=df, x="method", y=mean_col, order=order, color="#cfe8ff", ax=ax)
+    sns.stripplot(data=df, x="method", y=mean_col, order=order,
+                  color="#1f4e79", size=4, alpha=0.6, ax=ax)
+    ax.tick_params(axis="x", rotation=45)
+    for lbl in ax.get_xticklabels():
+        lbl.set_horizontalalignment("right")
+    ax.set_ylabel(metric, fontsize=12, fontweight="bold")
+    ax.set_xlabel("")
+    ax.set_title(f"{task_name} {metric} distribution across datasets",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_box_{metric.lower()}")
+
+
+def hpo_improvement_bars(
+    df_both: pd.DataFrame,
+    metric: str,
+    *,
+    task_name: str = "PD",
+    higher_is_better: bool = True,
+    figsize: Tuple[int, int] = (14, 7),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Mean HPO-minus-NO_HPO improvement per method (Experiment 1).
+
+    ``df_both`` must be loaded with ``hpo_mode=None``. Methods whose HPO run
+    is a copy of NO_HPO (foundation models) show a 0 bar by construction.
+    """
+    mean_col = _resolve_mean_column(df_both, metric)
+    piv = df_both.pivot_table(index=["dataset", "method"], columns="hpo_mode",
+                              values=mean_col, aggfunc="mean").dropna()
+    if not {"HPO", "NO_HPO"} <= set(piv.columns):
+        logger.warning("hpo_improvement_bars: need both HPO and NO_HPO rows")
+        return None
+    delta = (piv["HPO"] - piv["NO_HPO"]) * (1 if higher_is_better else -1)
+    per_method = delta.groupby("method").agg(["mean", "std"]).sort_values("mean")
+    fig, ax = plt.subplots(figsize=figsize)
+    colors = ["#2ca02c" if v >= 0 else "#d62728" for v in per_method["mean"]]
+    ax.barh(per_method.index, per_method["mean"], xerr=per_method["std"].fillna(0),
+            color=colors, error_kw={"alpha": 0.4})
+    ax.axvline(0, color="black", lw=1)
+    ax.set_xlabel(f"HPO improvement in {metric} (positive = tuning helps)",
+                  fontsize=12, fontweight="bold")
+    ax.set_title(f"{task_name}: effect of hyper-parameter tuning on {metric}",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_hpo_effect_{metric.lower()}")
+
+
+def runtime_performance_scatter(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    task_name: str = "PD",
+    figsize: Tuple[int, int] = (12, 8),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Mean train time (log x) vs mean metric -- the cost/quality frontier."""
+    mean_col = _resolve_mean_column(df, metric)
+    if "train_time_mean" not in df.columns:
+        logger.warning("runtime_performance_scatter: no train_time_mean column")
+        return None
+    agg = df.groupby("method").agg(
+        perf=(mean_col, "mean"), time=("train_time_mean", "mean")).reset_index()
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.scatter(agg["time"], agg["perf"], s=70, c=sns.color_palette("tab10", len(agg)))
+    for _i, r in agg.iterrows():
+        ax.annotate(r["method"], (r["time"], r["perf"]),
+                    xytext=(5, 4), textcoords="offset points", fontsize=9)
+    ax.set_xscale("log")
+    ax.set_xlabel("Mean train time per fold (s, log scale)", fontsize=12, fontweight="bold")
+    ax.set_ylabel(f"Mean {metric}", fontsize=12, fontweight="bold")
+    ax.set_title(f"{task_name}: performance vs training cost",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_cost_quality_{metric.lower()}")
 
 
 # ---------------------------------------------------------------------------
@@ -337,4 +465,7 @@ __all__ = [
     "per_dataset_bars",
     "learning_curve",
     "imbalance_curve",
+    "metric_boxplots",
+    "hpo_improvement_bars",
+    "runtime_performance_scatter",
 ]

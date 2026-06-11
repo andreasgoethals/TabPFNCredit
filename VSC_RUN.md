@@ -146,6 +146,15 @@ the wall-time budget), so the generator may ask for more slots than the run
 actually needs. Because runs are resumable, an over- or under-estimate is
 harmless.
 
+### Scheduler tuning knobs (env vars, all optional)
+
+| Variable | Default | Effect |
+|---|---|---|
+| `TABPFN_MAX_ARRAY_SLOTS` | 40 | Array tasks per partition. Every element counts toward the ~500-job submit limit. |
+| `TABPFN_MAX_CONCURRENT` | unset | Re-adds a `%N` throttle on how many array elements run at once (none by default — SLURM fairshare governs). |
+| `TABPFN_CPU_CORES_PER_TASK` | 18 | Cores per CPU array task (half a node → two tasks pack per node). Set 36 for a whole node. |
+| `TABPFN_GPU_SPREAD` | 1 | Spill whole cells between `gpu_a100` ↔ `gpu_h100` when one queue is overloaded. Set 0 to pin work to its home partition (H100 costs ~4× the credits of A100). |
+
 ---
 
 ## 5. Resume — and reuse results you already have
@@ -161,6 +170,19 @@ nothing is lost between submissions:
 scancel -M all -u $USER                # (optional) clear anything still queued
 tabpfncredit experiment Experiment0    # re-runs only the missing points
 ```
+
+When most of an experiment is already done, prefer **`resubmit`** — it scans
+the results, prints an `expected / done / missing` report, and packs ONLY the
+missing points into dense fresh arrays (instead of re-sharding everything and
+queueing slots with nothing left to do):
+
+```bash
+tabpfncredit resubmit Experiment1      # one experiment
+tabpfncredit resubmit --all            # all four at once
+```
+
+It wipes `scripts/<Exp>/_generated/` before writing new scripts, so cancel
+any still-pending arrays first (`squeue -u $USER`).
 
 **Already have results from an earlier run?** Copy them into the new results
 root once and they're skipped automatically. Results now live on project

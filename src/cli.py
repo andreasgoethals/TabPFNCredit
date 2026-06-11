@@ -809,13 +809,26 @@ def cmd_resubmit(
 def cmd_summarize(
     experiment: str = typer.Option(..., help="e.g. 'Experiment1'."),
     out_dir: Optional[Path] = typer.Option(None, help="Where to write the CSVs."),
+    results_root: Optional[Path] = typer.Option(
+        None,
+        help="Results root to read (e.g. a locally downloaded copy). "
+             "Default: the auto-resolved root ($TABPFN_RESULTS_ROOT / project "
+             "storage / ./results).",
+    ),
 ) -> None:
-    """Aggregate every fold result into per-fold and per-method CSVs."""
+    """Aggregate every fold result into per-fold and per-method CSVs.
+
+    Safe to run at ANY time, including mid-run: it summarizes whatever result
+    files exist right now, and the next invocation simply overwrites the two
+    CSVs. Partial summaries are just missing the not-yet-finished rows --
+    nothing breaks downstream (notebooks show fewer points).
+    """
     from src.utils.result_summary import summarize_to_csv
 
-    out_dir = out_dir or (_results_root() / "summaries")
+    base = Path(results_root) if results_root else _results_root()
+    out_dir = out_dir or (base / "summaries")
     paths = summarize_to_csv(
-        base=_results_root(),
+        base=base,
         experiment=experiment.lower(),
         out_dir=out_dir,
     )

@@ -442,10 +442,11 @@ def plot_metric_distributions(audit: Audit, metric: str = "AUC", ax=None):
 
 
 def plot_sweep_curves(audit: Audit, task: str, metric: str = "AUC", ax=None):
-    """For Exp 2/3: metric vs sweep value, one line per (dataset, method).
+    """For Exp 2/3: metric vs sweep value -- ONE line per METHOD, the metric
+    averaged over every included dataset at each sweep value (+-1 std band).
 
-    A quick eyeball for monotonic learning curves / imbalance curves and for
-    holes (missing sweep points show up as gaps).
+    One call per task gives the two headline graphs (PD and LGD). Holes in a
+    line still reveal missing sweep points.
     """
     plt, _ = _import_plt()
     df = audit.table
@@ -456,17 +457,22 @@ def plot_sweep_curves(audit: Audit, task: str, metric: str = "AUC", ax=None):
     if sub.empty:
         return None
     if ax is None:
-        _, ax = _p.subplots(figsize=(9, 5))
-    for (dset, meth), g in sub.groupby(["dataset", "base_method"]):
+        _, ax = _p.subplots(figsize=(10, 6))
+    grp = (sub.groupby(["base_method", "sweep_value"])[metric]
+           .agg(["mean", "std"]).reset_index())
+    for meth, g in grp.groupby("base_method"):
         g = g.sort_values("sweep_value")
-        ax.plot(g["sweep_value"], g[metric], marker="o", ms=2, lw=1,
-                label=f"{dset}/{meth}")
+        line, = ax.plot(g["sweep_value"], g["mean"], marker="o", ms=3, lw=1.8,
+                        label=meth)
+        ax.fill_between(g["sweep_value"], g["mean"] - g["std"].fillna(0),
+                        g["mean"] + g["std"].fillna(0),
+                        alpha=0.12, color=line.get_color())
     axis = sub["sweep_axis"].iloc[0] if "sweep_axis" in sub.columns else "sweep"
     ax.set_xlabel(axis)
     ax.set_ylabel(metric)
-    ax.set_title(f"{audit.experiment} — {task.upper()} {metric} vs {axis}")
-    if sub.groupby(["dataset", "base_method"]).ngroups <= 12:
-        ax.legend(fontsize=7, ncol=2)
+    ax.set_title(f"{audit.experiment} — {task.upper()} {metric} vs {axis} "
+                 f"(mean over datasets)")
+    ax.legend(fontsize=9)
     return ax.figure
 
 

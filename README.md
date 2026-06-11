@@ -150,9 +150,15 @@ Helper commands:
 
 | Command | Purpose |
 |---|---|
+| `tabpfncredit resubmit <names...> \| --all` | Scan results for every missing (task, dataset, method, sweep/HPO) point and submit ONLY those, packed into dense fresh arrays. Wipes previously generated scripts first. Works locally (report + scripts) and on a cluster (also submits). |
 | `tabpfncredit summarize --experiment <name>` | Rebuild the per-fold + per-method CSVs. |
 | `tabpfncredit list [--show-profile]` | Print registered methods + runtime tier + target partition. |
 | `tabpfncredit doctor` | Print environment variables, torch / CUDA info, and the results root. |
+
+Re-running `tabpfncredit experiment <name>` is always safe: completed points
+are skipped (one result file per point is the resume unit). `resubmit` does
+the same thing more efficiently when most of an experiment is already done —
+it queues only the missing work instead of re-sharding everything.
 
 ---
 
@@ -385,7 +391,23 @@ data storage (`$VSC_DATA`), named per job + array id — kept off the project
 storage so logs always persist.
 
 Figures are saved as **PDF only** to `figures/<experiment>/<plot>.pdf` and
-rendered inline in the notebook outputs.
+rendered inline in the notebook outputs. Every notebook wipes its own figure
+folder at the top of a run (`reset_figure_dir`), so a rerun never mixes old
+and new figures.
+
+### Analysis notebooks
+
+All plotting / statistics code lives under `src/` — the notebooks are thin
+viewers:
+
+| Notebook | What it shows |
+|---|---|
+| `Data_Exploration` | Dataset inventory, class balance, LGD target shapes, per-dataset structure. |
+| `Experiment0` | Pilot coverage + quick performance / cost overview. |
+| `Experiment1.1-PD` / `1.2-LGD` | Headline benchmark: metric heatmaps, rankings, boxplots, win/loss, PAMA, HPO effect, cost/quality frontier. |
+| `Experiment1.3-Stat` | Full statistical methodology of Demšar (2006) + García & Herrera (2008): Friedman + Iman–Davenport, Nemenyi **critical-difference diagrams**, Bonferroni–Dunn and step procedures, all-pairwise APVs (Holm, **Shaffer**, **Bergmann–Hommel**), Wilcoxon / sign tests (backed by `src/utils/statistical_testing.py`). |
+| `Experiment2` / `Experiment3` | Learning curves / imbalance curves — one line per method, averaged over datasets. |
+| `Results_Checking` | Completeness / sanity audit of the result files. |
 
 ---
 

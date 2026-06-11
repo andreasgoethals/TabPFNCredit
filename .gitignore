@@ -42,6 +42,13 @@ scripts/*/_generated/
 # ---- joblib folds cache (auto-rebuilt on first run) ----
 /.cache/
 
+# ---- SLURM job logs (written under <repo>/logs/<experiment>/ on the cluster) ----
+# Plain `*.log` does not match SLURM's .out/.err files; anchor the whole dir.
+/logs/
+
+# ---- JupyterLab scratch ----
+.virtual_documents/
+
 # ---- Local AI assistant config (Claude Code) ----
 .claude/
 

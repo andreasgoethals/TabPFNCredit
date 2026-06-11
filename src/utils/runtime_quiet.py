@@ -40,6 +40,15 @@ def configure_quiet_runtime() -> None:
     warnings.filterwarnings("ignore", message=r".*'squared' is deprecated.*")
     warnings.filterwarnings("ignore", message=r".*do not sum to one.*")
     warnings.filterwarnings("ignore", message=r".*default value of `dual`.*")
+    # Benign chatter from TALENT's deep methods / bundled libs (TabNet device
+    # banner, NODE init notice, tensor copy-construct hints, legacy indexing).
+    # Deliberately NOT silenced: torch's "Using a target size ..." broadcast
+    # warning -- that one signals a real loss-shape bug and must stay visible.
+    warnings.filterwarnings("ignore", message=r".*Device used : .*")
+    warnings.filterwarnings("ignore", message=r".*Best weights from best epoch.*")
+    warnings.filterwarnings("ignore", message=r".*To copy construct from a tensor.*")
+    warnings.filterwarnings("ignore", message=r".*non-tuple sequence for multidimensional indexing.*")
+    warnings.filterwarnings("ignore", message=r".*Data-aware initialization is performed.*")
     try:
         from sklearn.exceptions import ConvergenceWarning, UndefinedMetricWarning
         warnings.filterwarnings("ignore", category=UndefinedMetricWarning)

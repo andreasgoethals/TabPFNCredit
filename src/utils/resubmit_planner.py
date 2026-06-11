@@ -56,15 +56,33 @@ def find_missing_work_items(
     by_method: Dict[str, int] = {}
     n_done = 0
 
+    # For PACKED experiments the per-point checker would re-read and re-parse
+    # the cell's whole packed JSON for EVERY point (thousands of parses per
+    # cell -- this froze `resubmit` on Experiment 2). Instead, parse each
+    # cell's packed file ONCE into the set of complete point names.
+    def _complete_points_of_cell(task: str, dataset: str, method: str) -> set:
+        import json
+        path = root / exp / task.lower() / dataset / f"{method}.json"
+        if not path.exists():
+            return set()
+        try:
+            payload = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            return set()
+        return {
+            pname for pname, entry in (payload.get("points") or {}).items()
+            if len(entry.get("folds") or {}) >= cv
+        }
+
     for cell in _build_task_list(config):
+        if packed:
+            cell_done = _complete_points_of_cell(
+                cell["task"], cell["dataset"], cell["method"]
+            )
         for point in _sweep_points(exp, config, cell):
             name = point["name"]
             if packed:
-                complete = has_complete_packed_point(
-                    base=root, experiment=exp, task=cell["task"],
-                    dataset=cell["dataset"], method_base=cell["method"],
-                    point_name=name, expected_folds=cv,
-                )
+                complete = name in cell_done
             else:
                 complete = has_complete_result(
                     base=root, experiment=exp, task=cell["task"],
