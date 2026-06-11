@@ -510,6 +510,12 @@ def _run_experiment_vsc(
     work_items: List[dict] = []
     for cell in cells:
         for point in _sweep_points(experiment, config, cell):
+            # An HPO point for a non-tunable method is a pure file COPY of its
+            # NO_HPO result (see _run_one_point). It must carry copy_from into
+            # the SLURM plan -- dropping it here made the cluster re-RUN the
+            # model for the __HPO point (≠ copy due to GPU nondeterminism, and
+            # double GPU cost) -- and costs seconds, not a full model run.
+            copy_from = point.get("copy_from")
             work_items.append({
                 "dataset": cell["dataset"],
                 "method": cell["method"],
@@ -518,7 +524,8 @@ def _run_experiment_vsc(
                 "tune": point.get("tune", False),
                 "row_limit": point.get("row_limit"),
                 "sampling": point.get("sampling"),
-                "est_seconds": estimate_point_seconds(
+                "copy_from": copy_from,
+                "est_seconds": 5 if copy_from else estimate_point_seconds(
                     cell["method"], n_folds=cv,
                     row_limit=point.get("row_limit"),
                     tune=point.get("tune", False), n_trials=n_trials,
@@ -695,6 +702,103 @@ def _summarize_now(experiment: str) -> None:
         return
     for p in paths:
         console.print(f"[green]wrote[/green] {p}")
+
+
+# ============================================================================
+#  `resubmit` -- pack ONLY the not-yet-done points into fresh dense arrays
+# ============================================================================
+
+@app.command("resubmit")
+def cmd_resubmit(
+    names: Optional[List[str]] = typer.Argument(
+        None, help="Experiment names (e.g. Experiment1 Experiment2). Omit with --all."
+    ),
+    all_experiments: bool = typer.Option(
+        False, "--all", help="Scan and resubmit every experiment (0-3) at once."
+    ),
+    submit: Optional[bool] = typer.Option(
+        None, help="Force on/off the auto-sbatch step. Default: on when on VSC, off locally.",
+    ),
+    verbose: bool = typer.Option(False, help="DEBUG-level logs."),
+) -> None:
+    """Scan results for missing (task, dataset, method[, sweep/HPO]) points and
+    submit ONLY those.
+
+    Unlike re-running ``experiment`` (which re-shards done + missing points and
+    queues slots that have nothing left to do), this packs the missing points
+    into the smallest possible dense array. Works locally (reports + writes
+    scripts) and on the VSC (also submits). Previous ``_generated/`` scripts
+    and plans are wiped first so stale plans can never be picked up.
+    """
+    configure_quiet_runtime()
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG)
+
+    from src.utils.resubmit_planner import find_missing_work_items
+
+    targets = (
+        ["Experiment0", "Experiment1", "Experiment2", "Experiment3"]
+        if all_experiments else list(names or [])
+    )
+    if not targets:
+        console.print("[red]Pass experiment name(s) or --all.[/red]")
+        raise typer.Exit(code=1)
+
+    do_submit = submit if submit is not None else (_on_vsc() and _have_sbatch())
+    console.print(
+        "[yellow]Note:[/yellow] this wipes scripts/<Exp>/_generated/. If arrays from a "
+        "previous submission are still PENDING they would read the new plans -- "
+        "check [bold]squeue -u $USER[/bold] and scancel leftovers first.\n"
+    )
+
+    for exp in targets:
+        console.print(f"[bold]== {exp} ==[/bold]")
+        try:
+            items, summary = find_missing_work_items(exp)
+        except Exception as exc:
+            console.print(f"[red]scan failed for {exp}: {exc}[/red]")
+            continue
+        console.print(
+            f"expected {summary['expected']}  done {summary['done']}  "
+            f"[bold]missing {summary['missing']}[/bold]  "
+            f"(results root: {summary['results_root']})"
+        )
+        for m, n in summary["missing_by_method"].items():
+            console.print(f"    {m}: {n}")
+
+        out_dir = _PROJECT_ROOT / "scripts" / exp / "_generated"
+        _wipe_generated_dir(out_dir)
+        if not items:
+            console.print("  [green]nothing to do.[/green]\n")
+            continue
+
+        cv = load_config(exp)["split"]["cv_splits"]
+        jobs = generate_scripts_for_experiment(
+            experiment=exp, work_items=items, out_dir=out_dir, n_folds=cv,
+        )
+        summarize_script = generate_summarize_script(experiment=exp, out_dir=out_dir)
+        for j in jobs:
+            console.print(
+                f"  generated {j.path.name}  ({j.partition_key}, "
+                f"{j.n_array_slots} slot(s), {j.walltime}/slot)"
+            )
+
+        if not do_submit:
+            console.print("  not submitting (local / --no-submit). To submit on the VSC:")
+            for j in jobs:
+                console.print(f"    sbatch {j.path.name}")
+            console.print("")
+            continue
+
+        array_ids: List[str] = []
+        for j in jobs:
+            jid = _sbatch(j.path)
+            console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
+            array_ids.append(jid)
+        summarize_id = _sbatch(
+            summarize_script, dependency="afterok:" + ":".join(array_ids)
+        )
+        console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}\n")
 
 
 # ============================================================================

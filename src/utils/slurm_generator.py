@@ -395,8 +395,18 @@ def _sbatch_header(
     gpu_cmode: Optional[str] = None,
 ) -> str:
     """Build the #SBATCH block for one batch."""
-    cpus = spec.cpus_per_gpu if n_gpus else spec.cpus_per_gpu  # full-node CPU
-    mem_mb = spec.mem_per_gpu_mb * max(1, n_gpus) if n_gpus else spec.mem_per_gpu_mb
+    if n_gpus:
+        cpus = spec.cpus_per_gpu
+        mem_mb = spec.mem_per_gpu_mb * max(1, n_gpus)
+    else:
+        # CPU arrays default to HALF a node (18 of 36 cores) so two tasks pack
+        # per node -- classical methods scale poorly past ~18 threads, so this
+        # ~doubles CPU throughput for the same node count. Memory scales with
+        # the core share. Override with $TABPFN_CPU_CORES_PER_TASK (e.g. 36
+        # for a whole node when one task genuinely needs all the RAM).
+        cpus = int(os.environ.get("TABPFN_CPU_CORES_PER_TASK", 18))
+        cpus = max(1, min(cpus, spec.cpus_per_gpu))
+        mem_mb = int(spec.mem_per_gpu_mb * cpus / spec.cpus_per_gpu)
 
     lines = [
         f"#SBATCH --job-name={job_name}",
@@ -470,7 +480,7 @@ def generate_scripts_for_experiment(
     n_folds: int = 5,
     prefer_h100: bool = True,
     gpu_cmode: str = "shared",
-    max_concurrent: int = 16,
+    max_concurrent: Optional[int] = None,
     mail_email: str = "",
     max_slots: Optional[int] = None,
 ) -> List[GeneratedJob]:
@@ -525,6 +535,13 @@ def generate_scripts_for_experiment(
         key = partition_for_method(item["method"], prefer_h100=prefer_h100)
         by_partition.setdefault(key, []).append(item)
 
+    # 1b) GPU spillover: when one GPU partition's work exceeds what its slot
+    # cap can finish inside the wall while the other GPU partition has spare
+    # capacity, move whole CELLS across (both wICE GPU partitions run every
+    # GPU method; A100/H100 both have 80 GB). Disable with TABPFN_GPU_SPREAD=0
+    # -- e.g. to keep deep-method work off the ~4x-more-expensive H100.
+    _spillover_gpu(by_partition, max_slots=max_slots, log=_log)
+
     generated: List[GeneratedJob] = []
 
     for partition_key, items in sorted(by_partition.items()):
@@ -571,10 +588,17 @@ def generate_scripts_for_experiment(
         plan_path = out_dir / f"{experiment.lower()}_{partition_key}_plan.json"
         _write_plan(plan_path, slots)
 
-        # 5) Emit the SLURM script
+        # 5) Emit the SLURM script. NO ``%N`` concurrency throttle by default:
+        # the throttle limited how many array elements RUN at once (it never
+        # affected the ~500-job SUBMIT limit -- every element counts as
+        # submitted regardless), so it only kept allocatable nodes idle.
+        # SLURM fairshare governs concurrency; re-throttle for I/O reasons via
+        # $TABPFN_MAX_CONCURRENT or the max_concurrent parameter.
         job_name = f"{experiment.lower()}_{partition_key}"
+        throttle = max_concurrent or int(os.environ.get("TABPFN_MAX_CONCURRENT", 0))
         array_range = (
-            f"0-{len(slots) - 1}%{max_concurrent}" if len(slots) > 1 else "0"
+            f"0-{len(slots) - 1}" + (f"%{throttle}" if throttle else "")
+            if len(slots) > 1 else "0"
         )
         # Logs stay on the general data storage (repo root), NOT on project
         # storage. ABSOLUTE literal path (SLURM does not env-expand
@@ -637,6 +661,61 @@ def generate_scripts_for_experiment(
         )
 
     return generated
+
+
+def _spillover_gpu(by_partition: dict, *, max_slots: int, log) -> None:
+    """Rebalance overflow between the two wICE GPU partitions (in place).
+
+    For each direction (a100->h100, h100->a100): if the source partition's
+    total estimated work exceeds its slot capacity (``0.95 * wall * max_slots``)
+    and the destination has headroom, whole cells (largest first) are moved
+    until the source fits or the destination is full. Cells stay whole so the
+    packed-results invariant (one array task owns a whole cell) holds.
+    """
+    if os.environ.get("TABPFN_GPU_SPREAD", "1") == "0":
+        return
+
+    def _total(items: List[dict]) -> int:
+        return sum(int(it.get("est_seconds", 0)) for it in items)
+
+    def _capacity(p: str) -> int:
+        return int(0.95 * PARTITIONS[p].max_walltime_hours * 3600) * max_slots
+
+    for src, dst in (("gpu_a100", "gpu_h100"), ("gpu_h100", "gpu_a100")):
+        src_items = by_partition.get(src)
+        if not src_items:
+            continue
+        over = _total(src_items) - _capacity(src)
+        if over <= 0:
+            continue
+        dst_items = by_partition.setdefault(dst, [])
+        headroom = _capacity(dst) - _total(dst_items)
+        if headroom <= 0:
+            continue
+
+        cells: dict = {}
+        for it in src_items:
+            cells.setdefault((it.get("task"), it.get("dataset"), it.get("method")), []).append(it)
+
+        moved = 0
+        for _key, cell_items in sorted(cells.items(), key=lambda kv: -_total(kv[1])):
+            cell_est = _total(cell_items)
+            if over <= 0:
+                break
+            if cell_est > headroom:
+                continue
+            for it in cell_items:
+                src_items.remove(it)
+            dst_items.extend(cell_items)
+            over -= cell_est
+            headroom -= cell_est
+            moved += len(cell_items)
+        if moved:
+            log.warning(
+                "slurm-generate: GPU spillover moved %d point(s) %s -> %s to "
+                "balance the queues (disable with TABPFN_GPU_SPREAD=0).",
+                moved, src, dst,
+            )
 
 
 def _format_walltime(seconds: int) -> str:
