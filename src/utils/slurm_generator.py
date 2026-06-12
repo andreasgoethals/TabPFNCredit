@@ -543,10 +543,17 @@ def generate_scripts_for_experiment(
         key = partition_for_method(item["method"], prefer_h100=prefer_h100)
         by_partition.setdefault(key, []).append(item)
 
+    # 1a-bis) Optional AGGRESSIVE replication: COPY small-data GPU work to
+    # every partition listed in TABPFN_REPLICATE_PARTITIONS (incl. "cpu").
+    # Runtime skip-if-done dedupes; first replica to finish a point wins.
+    # Takes precedence over the Genius offload (which MOVES instead).
+    replicated = _replicate_small_data(by_partition, log=_log)
+
     # 1a) Optional Genius offload: route SMALL-DATA GPU work (Experiment 2's
     # row-capped sweeps, Experiment 3's subsampled sweeps) to the old-but-idle
     # Genius V100/P100 fleet. Opt-in via TABPFN_GENIUS_GPUS -- see the helper.
-    _genius_offload(by_partition, log=_log)
+    if not replicated:
+        _genius_offload(by_partition, log=_log)
 
     # 1b) GPU spillover: when one GPU partition's work exceeds what its slot
     # cap can finish inside the wall while the other GPU partition has spare
@@ -676,6 +683,90 @@ def generate_scripts_for_experiment(
     return generated
 
 
+def _small_data_eligible(it: dict, row_cap: int) -> bool:
+    """Small-data = an explicit row cap at/under ``row_cap`` (Experiment 2's
+    capped sweeps) or a sampling target (Experiment 3's subsampled sweeps)."""
+    rl, sp = it.get("row_limit"), it.get("sampling")
+    return (rl is not None and rl <= row_cap) or (sp is not None)
+
+
+def _replicate_small_data(by_partition: dict, *, log) -> bool:
+    """AGGRESSIVE mode: duplicate small-data GPU cells onto EVERY partition in
+    ``TABPFN_REPLICATE_PARTITIONS`` (comma-separated keys; may include "cpu").
+
+    Every replica array runs the same points; each point is skipped at RUN
+    time when its result already exists, so whichever queue starts first does
+    the work and the others skip through. To minimise duplicate compute the
+    replicas traverse the work in different orders (rotation + reversal), so
+    queues eat the list from different ends and meet in the middle. Races on
+    the same point are harmless: result writes are atomic, a lost packed
+    update is re-detected as missing by the next ``tabpfncredit resubmit``.
+
+    CPU replicas additionally require an explicit row cap at/under
+    ``TABPFN_CPU_FOUNDATION_ROW_CAP`` (default 10000) -- in-context inference
+    on CPU is viable for small fits only -- and their cost estimates are
+    scaled by ``TABPFN_CPU_FOUNDATION_SLOWDOWN`` (default 10x) for packing.
+
+    Returns True when replication ran (the Genius MOVE offload is then skipped).
+    """
+    targets = [p.strip() for p in os.environ.get("TABPFN_REPLICATE_PARTITIONS", "").split(",")
+               if p.strip()]
+    if not targets:
+        return False
+    if "gpu_p100" in targets:
+        log.warning("slurm-generate: gpu_p100 cannot run the installed torch 2.8 "
+                    "wheels (sm_70+ only); dropping it from the replica set.")
+    targets = [p for p in targets if p in PARTITIONS and p != "gpu_p100"]
+    if not targets:
+        return False
+
+    row_cap = int(os.environ.get("TABPFN_GENIUS_ROW_CAP", 60_000))
+    cpu_row_cap = int(os.environ.get("TABPFN_CPU_FOUNDATION_ROW_CAP", 10_000))
+    cpu_slowdown = float(os.environ.get("TABPFN_CPU_FOUNDATION_SLOWDOWN", 10.0))
+
+    # Source points: small-data work currently homed on the wICE GPU queues.
+    source: List[dict] = []
+    for src in ("gpu_h100", "gpu_a100"):
+        source.extend(it for it in by_partition.get(src, [])
+                      if _small_data_eligible(it, row_cap))
+    if not source:
+        return False
+
+    n_added = {}
+    replica_idx = 0
+    for dst in targets:
+        if dst in ("gpu_h100", "gpu_a100"):
+            continue  # already the home of these points
+        if dst == "cpu" or PARTITIONS[dst].gpus_per_node == 0:
+            rep = [dict(it) for it in source
+                   if it.get("row_limit") is not None
+                   and it["row_limit"] <= cpu_row_cap]
+            for it in rep:
+                it["est_seconds"] = int(it.get("est_seconds", 0) * cpu_slowdown)
+        else:
+            rep = [dict(it) for it in source]
+        if not rep:
+            continue
+        # Distinct traversal per replica: rotate by a different fraction and
+        # reverse every other replica, so queues start at different regions.
+        replica_idx += 1
+        k = (replica_idx * len(rep)) // (len(targets) + 1)
+        rep = rep[k:] + rep[:k]
+        if replica_idx % 2 == 1:
+            rep.reverse()
+        by_partition.setdefault(dst, []).extend(rep)
+        n_added[dst] = len(rep)
+
+    if n_added:
+        log.warning(
+            "slurm-generate: AGGRESSIVE replication copied small-data points to "
+            "%s (runtime skip-if-done dedupes; run `tabpfncredit resubmit` once "
+            "more after completion to mop up any raced packed points).",
+            ", ".join(f"{p}:+{n}" for p, n in n_added.items()),
+        )
+    return bool(n_added)
+
+
 def _genius_offload(by_partition: dict, *, log) -> None:
     """Opt-in: move SMALL-DATA GPU cells to the Genius V100/P100 fleet.
 
@@ -710,8 +801,7 @@ def _genius_offload(by_partition: dict, *, log) -> None:
     weights = {p: fleet.get(p, 1.0) for p in targets}
 
     def _eligible(it: dict) -> bool:
-        rl, sp = it.get("row_limit"), it.get("sampling")
-        return (rl is not None and rl <= row_cap) or (sp is not None)
+        return _small_data_eligible(it, row_cap)
 
     loads = {p: 0.0 for p in targets}
     moved = 0
