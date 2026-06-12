@@ -154,6 +154,7 @@ harmless.
 | `TABPFN_MAX_CONCURRENT` | unset | Re-adds a `%N` throttle on how many array elements run at once (none by default — SLURM fairshare governs). |
 | `TABPFN_CPU_CORES_PER_TASK` | 18 | Cores per CPU array task (half a node → two tasks pack per node). Set 36 for a whole node. |
 | `TABPFN_GPU_SPREAD` | 1 | Spill whole cells between `gpu_a100` ↔ `gpu_h100` when one queue is overloaded. Set 0 to pin work to its home partition (H100 costs ~4× the credits of A100). |
+| `TABPFN_GENIUS_GPUS` | unset | Offload **small-data** GPU work (Experiment 2's row-capped and Experiment 3's subsampled sweeps) to the idle Genius fleet: set to `gpu_v100`. Only points with a row cap ≤ `TABPFN_GENIUS_ROW_CAP` (default 60000) or a sampling target move; full-dataset foundation fits never do. **P100 is not usable** — the project's torch 2.8 CUDA wheels ship `sm_70+` kernels only, and Pascal is `sm_60` (a `gpu_p100` request is ignored with a warning). The summarize job cannot wait on cross-cluster arrays — re-run `tabpfncredit summarize` after they finish. |
 
 ---
 

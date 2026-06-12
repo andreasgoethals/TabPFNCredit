@@ -159,6 +159,14 @@ PARTITIONS: dict[str, PartitionSpec] = {
         max_walltime_hours=72,
         cost_weight=41.67,
     ),
+    "gpu_v100": PartitionSpec(
+        cluster="genius", partition="gpu_v100",
+        cpus_per_gpu=4,          # 2 nodes x 8 V100 32GB; ~36 cores/node
+        mem_per_gpu_mb=20_000,   # small-row offload work needs little host RAM
+        gpus_per_node=1,
+        max_walltime_hours=72,
+        cost_weight=59.58,
+    ),
     "gpu_a100": PartitionSpec(
         cluster="wice", partition="gpu_a100",
         cpus_per_gpu=18,
@@ -535,6 +543,11 @@ def generate_scripts_for_experiment(
         key = partition_for_method(item["method"], prefer_h100=prefer_h100)
         by_partition.setdefault(key, []).append(item)
 
+    # 1a) Optional Genius offload: route SMALL-DATA GPU work (Experiment 2's
+    # row-capped sweeps, Experiment 3's subsampled sweeps) to the old-but-idle
+    # Genius V100/P100 fleet. Opt-in via TABPFN_GENIUS_GPUS -- see the helper.
+    _genius_offload(by_partition, log=_log)
+
     # 1b) GPU spillover: when one GPU partition's work exceeds what its slot
     # cap can finish inside the wall while the other GPU partition has spare
     # capacity, move whole CELLS across (both wICE GPU partitions run every
@@ -661,6 +674,75 @@ def generate_scripts_for_experiment(
         )
 
     return generated
+
+
+def _genius_offload(by_partition: dict, *, log) -> None:
+    """Opt-in: move SMALL-DATA GPU cells to the Genius V100/P100 fleet.
+
+    Enabled by ``TABPFN_GENIUS_GPUS`` (comma-separated partition keys, e.g.
+    ``gpu_v100`` or ``gpu_v100,gpu_p100``). Only cells whose EVERY point is
+    small-data qualify: a ``row_limit`` at or under ``TABPFN_GENIUS_ROW_CAP``
+    (default 60000 -- covers Experiment 2's capped sweeps) or a ``sampling``
+    value (Experiment 3's minority sweeps, whose datasets are small by
+    construction). Big-data work (Experiment 0/1 full-dataset foundation
+    fits) NEVER moves: P100 has 16 GB and V100 32 GB.
+
+    Moved cells are balanced across the enabled Genius partitions by fleet
+    throughput (16 V100s vs 52 ~half-speed P100s). NOTE: SLURM ``afterok``
+    cannot cross clusters, so the caller excludes Genius arrays from the
+    summarize dependency (the CLI prints a reminder).
+    """
+    targets = [p.strip() for p in os.environ.get("TABPFN_GENIUS_GPUS", "").split(",")
+               if p.strip()]
+    if "gpu_p100" in targets:
+        # Verified 2026-06-12: the venv's torch 2.8 CUDA wheels ship sm_70+
+        # kernels only ("no kernel image" on Pascal). P100 = sm_60 -> unusable.
+        log.warning("slurm-generate: gpu_p100 requested but Pascal (sm_60) is "
+                    "NOT supported by the installed torch 2.8 wheels (sm_70+). "
+                    "Ignoring gpu_p100; use gpu_v100.")
+        targets = [p for p in targets if p != "gpu_p100"]
+    targets = [p for p in targets if p in PARTITIONS and PARTITIONS[p].cluster == "genius"]
+    if not targets:
+        return
+    row_cap = int(os.environ.get("TABPFN_GENIUS_ROW_CAP", 60_000))
+    # Relative throughput per partition: #GPUs x speed vs V100.
+    fleet = {"gpu_v100": 16 * 1.0, "gpu_p100": 52 * 0.5}
+    weights = {p: fleet.get(p, 1.0) for p in targets}
+
+    def _eligible(it: dict) -> bool:
+        rl, sp = it.get("row_limit"), it.get("sampling")
+        return (rl is not None and rl <= row_cap) or (sp is not None)
+
+    loads = {p: 0.0 for p in targets}
+    moved = 0
+    for src in ("gpu_h100", "gpu_a100"):
+        src_items = by_partition.get(src)
+        if not src_items:
+            continue
+        cells: dict = {}
+        for it in src_items:
+            cells.setdefault((it.get("task"), it.get("dataset"), it.get("method")), []).append(it)
+        for _key, cell_items in sorted(
+                cells.items(),
+                key=lambda kv: -sum(int(i.get("est_seconds", 0)) for i in kv[1])):
+            if not all(_eligible(it) for it in cell_items):
+                continue
+            cell_est = sum(int(i.get("est_seconds", 0)) for i in cell_items)
+            # least-loaded weighted bin
+            dst = min(targets, key=lambda p: loads[p] / weights[p])
+            loads[dst] += cell_est
+            for it in cell_items:
+                src_items.remove(it)
+            by_partition.setdefault(dst, []).extend(cell_items)
+            moved += len(cell_items)
+    if moved:
+        log.warning(
+            "slurm-generate: Genius offload moved %d small-data point(s) to %s "
+            "(row cap %d; disable by unsetting TABPFN_GENIUS_GPUS). Reminder: "
+            "summarize cannot depend on cross-cluster arrays -- re-run "
+            "`tabpfncredit summarize` after the Genius jobs finish.",
+            moved, "+".join(targets), row_cap,
+        )
 
 
 def _spillover_gpu(by_partition: dict, *, max_slots: int, log) -> None:

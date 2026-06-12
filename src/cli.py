@@ -68,6 +68,7 @@ from src.methods.method_config import (  # noqa: E402
 from src.methods.method_runner import run_talent_method  # noqa: E402
 from src.methods.runtime_profile import get_profile, estimate_point_seconds  # noqa: E402
 from src.utils.slurm_generator import (  # noqa: E402
+    PARTITIONS,
     generate_scripts_for_experiment,
     generate_summarize_script,
     load_plan,
@@ -571,20 +572,32 @@ def _run_experiment_vsc(
         return None
 
     # 4) Submit. Per-partition arrays go first (optionally chained to a
-    # caller-supplied job via --after for cross-experiment dependencies);
-    # the summarize job depends on ALL of them.
+    # caller-supplied job via --after); the summarize job depends on them.
+    # SLURM ``afterok`` CANNOT cross clusters, so arrays on a different
+    # cluster than the summarize job (e.g. Genius V100/P100 offload) are
+    # excluded from the dependency -- and cannot themselves wait on --after.
+    summarize_cluster = PARTITIONS["cpu"].cluster
     array_dep: Optional[str] = f"afterok:{after_job_id}" if after_job_id else None
-    array_ids: List[str] = []
+    dep_ids: List[str] = []
+    cross_ids: List[str] = []
     for j in jobs:
+        cluster = PARTITIONS[j.partition_key].cluster
         try:
-            jid = _sbatch(j.path, dependency=array_dep)
+            jid = _sbatch(j.path,
+                          dependency=array_dep if cluster == summarize_cluster else None)
             console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
-            array_ids.append(jid)
+            (dep_ids if cluster == summarize_cluster else cross_ids).append(jid)
         except subprocess.CalledProcessError as exc:
             console.print(f"[red]sbatch failed for {j.path}:[/red] {exc.stderr}")
             raise
 
-    summarize_dep = "afterok:" + ":".join(array_ids)
+    if cross_ids:
+        console.print(
+            f"  [yellow]note:[/yellow] job(s) {', '.join(cross_ids)} run on another "
+            f"cluster; the summarize job cannot wait for them (afterok is "
+            f"per-cluster). Re-run [bold]tabpfncredit summarize[/bold] once they finish."
+        )
+    summarize_dep = ("afterok:" + ":".join(dep_ids)) if dep_ids else None
     summarize_id = _sbatch(summarize_script, dependency=summarize_dep)
     console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}")
     console.print(f"\n[bold]Final job id (summarize):[/bold] {summarize_id}")
@@ -790,13 +803,22 @@ def cmd_resubmit(
             console.print("")
             continue
 
-        array_ids: List[str] = []
+        summarize_cluster = PARTITIONS["cpu"].cluster
+        dep_ids: List[str] = []
+        cross_ids: List[str] = []
         for j in jobs:
             jid = _sbatch(j.path)
             console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
-            array_ids.append(jid)
+            (dep_ids if PARTITIONS[j.partition_key].cluster == summarize_cluster
+             else cross_ids).append(jid)
+        if cross_ids:
+            console.print(
+                f"  [yellow]note:[/yellow] {', '.join(cross_ids)} run on another cluster; "
+                f"re-run [bold]tabpfncredit summarize[/bold] after they finish."
+            )
         summarize_id = _sbatch(
-            summarize_script, dependency="afterok:" + ":".join(array_ids)
+            summarize_script,
+            dependency=("afterok:" + ":".join(dep_ids)) if dep_ids else None,
         )
         console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}\n")
 
