@@ -359,10 +359,12 @@ def wlt_summary(matrix: pd.DataFrame, *, higher_is_better: bool = True) -> pd.Da
             .sort_values("wins", ascending=False))
 
 
-def pama(matrix: pd.DataFrame, *, higher_is_better: bool = True,
-         p_threshold: float = 0.95) -> pd.DataFrame:
-    """PAMA: per dataset, the % of the best method's metric a method achieves,
-    averaged over datasets. Also the share of datasets where the method reaches
+def percent_of_max(matrix: pd.DataFrame, *, higher_is_better: bool = True,
+                   p_threshold: float = 0.95) -> pd.DataFrame:
+    """Percentage of maximum performance (NOT PAMA -- see :func:`pama_fold_level`).
+
+    Per dataset, the % of the best method's metric a method achieves, averaged
+    over datasets; plus the share of datasets where the method reaches
     ``p_threshold`` (e.g. 95%) of the best ("P95").
     """
     if higher_is_better:
@@ -373,9 +375,87 @@ def pama(matrix: pd.DataFrame, *, higher_is_better: bool = True,
             index=matrix.index, columns=matrix.columns,
         )
     return (pd.DataFrame({
-        "PAMA_%": 100 * frac.mean(axis=0),
+        "PctOfMax_%": 100 * frac.mean(axis=0),
         f"P{int(p_threshold*100)}_%": 100 * (frac >= p_threshold).mean(axis=0),
-    }).sort_values("PAMA_%", ascending=False))
+    }).sort_values("PctOfMax_%", ascending=False))
+
+
+def pama_fold_level(
+    per_fold_df: pd.DataFrame,
+    metric: str,
+    *,
+    higher_is_better: bool = True,
+) -> pd.DataFrame:
+    """PAMA -- Probability of Achieving MAximal accuracy (Fernandez-Delgado
+    et al., 2014): the relative frequency with which a learner achieves the
+    TOP score across all fold-level observations (every (dataset, fold) pair).
+
+    ``per_fold_df`` is the per-fold summary CSV (columns ``dataset``,
+    ``method``, ``fold_id``, ``metric.<metric>``). Only (dataset, fold) cells
+    where EVERY method has a value are counted, so no method is advantaged by
+    missing competitors. Ties at the top credit each tied method.
+
+    Returns a DataFrame with ``wins``, ``n_folds`` and ``PAMA_%`` per method.
+    """
+    col = next((c for c in (f"metric.{metric}", metric) if c in per_fold_df.columns), None)
+    if col is None:
+        raise KeyError(f"No fold-level column for {metric!r}")
+    piv = per_fold_df.pivot_table(index=["dataset", "fold_id"], columns="method",
+                                  values=col, aggfunc="mean")
+    piv = piv.dropna(axis=0, how="any")  # complete fold observations only
+    if piv.empty:
+        raise ValueError("No complete (dataset, fold) observations across all methods")
+    best = piv.max(axis=1) if higher_is_better else piv.min(axis=1)
+    is_top = piv.eq(best, axis=0)
+    wins = is_top.sum(axis=0)
+    out = pd.DataFrame({
+        "wins": wins.astype(int),
+        "n_folds": len(piv),
+        "PAMA_%": 100.0 * wins / len(piv),
+    }).sort_values("PAMA_%", ascending=False)
+    return out
+
+
+# ============================================================================
+#  Pairwise Wilcoxon signed-rank tests with Holm correction (benchmark-paper
+#  methodology: Wilcoxon over datasets per pair, Holm step-down over ALL pairs,
+#  reported as a Win/Loss matrix with significance asterisks)
+# ============================================================================
+
+def wilcoxon_holm_pairwise(
+    matrix: pd.DataFrame,
+    *,
+    higher_is_better: bool = True,
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """All-pairs Wilcoxon signed-rank tests + Holm step-down adjustment.
+
+    For every method pair the null is a zero median performance difference
+    across datasets (Wilcoxon, zsplit zero handling per Demsar). Holm's
+    correction is applied over ALL k(k-1)/2 pairs. Returns one row per pair:
+    wins/losses/ties (from ``higher_is_better`` direction), ``p_unadjusted``,
+    ``p_holm`` and ``significant`` (p_holm <= alpha).
+    """
+    sign = 1.0 if higher_is_better else -1.0
+    rows = []
+    for m1, m2 in itertools.combinations(matrix.columns, 2):
+        a, b = matrix[m1].to_numpy(float), matrix[m2].to_numpy(float)
+        d = sign * (a - b)
+        if np.allclose(d, 0):
+            p = 1.0
+        else:
+            p = float(ss.wilcoxon(a, b, zero_method="zsplit",
+                                  alternative="two-sided").pvalue)
+        rows.append({"method_1": m1, "method_2": m2,
+                     "wins": int((d > 0).sum()), "losses": int((d < 0).sum()),
+                     "ties": int((d == 0).sum()), "p_unadjusted": p})
+    tab = pd.DataFrame(rows).sort_values("p_unadjusted").reset_index(drop=True)
+    p = tab["p_unadjusted"].to_numpy()
+    m = len(p)
+    idx = np.arange(1, m + 1)
+    tab["p_holm"] = np.minimum(np.maximum.accumulate((m - idx + 1) * p), 1.0)
+    tab["significant"] = tab["p_holm"] <= alpha
+    return tab
 
 
 # ============================================================================
@@ -389,41 +469,21 @@ def plot_cd_diagram(
     title: str = "Critical difference diagram",
     out_path: Optional[Path] = None,
 ):
-    """Classic Demšar CD diagram: methods on a rank axis, bold bars join
-    groups whose rank difference is below ``cd``."""
+    """Demšar-style critical difference diagram.
+
+    Layout (top to bottom): CD ruler, the rank axis (rank 1 = best, on the
+    LEFT), a dedicated band with one row per clique bar (methods whose rank
+    difference is below ``cd``), then the method labels -- best half on the
+    left margin, worst half on the right, each label on its OWN row so the
+    connector lines never overlap.
+    """
     ranks = ranks.sort_values()
     k = len(ranks)
-    lo, hi = math.floor(ranks.min()), math.ceil(ranks.max())
-    fig, ax = plt.subplots(figsize=(max(8, k * 1.1), 0.55 * k + 2.4))
-    ax.set_xlim(lo - 0.3, hi + 0.3)
-    ax.set_ylim(0, k / 2 + 2.6)
-    ax.invert_xaxis()  # rank 1 (best) on the right, like the paper
-    ax.spines[["left", "right", "bottom"]].set_visible(False)
-    ax.get_yaxis().set_visible(False)
-    ax.xaxis.set_ticks_position("top")
-    ax.set_xticks(range(lo, hi + 1))
-    axis_y = k / 2 + 2.0
-
-    # CD ruler
-    ax.plot([hi, hi - cd], [axis_y + 0.45, axis_y + 0.45], lw=2.5, c="black")
-    ax.text(hi - cd / 2, axis_y + 0.55, f"CD = {cd:.3f}", ha="center", fontsize=10)
-    ax.axhline(axis_y, c="black", lw=1)
-
-    # method stems: left half labels on the left, right half on the right
-    half = math.ceil(k / 2)
-    for i, (name, r) in enumerate(ranks.items()):
-        side_left = i >= half          # worse half -> labels left
-        row = (i - half) if side_left else (half - 1 - i)
-        y_label = axis_y - 0.9 - 0.5 * row
-        x_label = lo - 0.25 if side_left else hi + 0.25
-        ha = "right" if not side_left else "left"
-        ax.plot([r, r], [axis_y, y_label], c="black", lw=0.9)
-        ax.plot([r, x_label], [y_label, y_label], c="black", lw=0.9)
-        ax.text(x_label, y_label + 0.05, f"{name} ({r:.2f})",
-                ha=ha, va="bottom", fontsize=10)
-
-    # cliques: maximal groups of methods within CD of each other
     vals = ranks.to_numpy()
+    lo, hi = math.floor(vals.min()), math.ceil(vals.max())
+    span = max(hi - lo, 1)
+
+    # ---- cliques: maximal intervals of methods within CD of each other ----
     cliques = []
     for i in range(k):
         j = i
@@ -433,12 +493,60 @@ def plot_cd_diagram(
             cliques.append((i, j))
     cliques = [c for c in cliques
                if not any(o[0] <= c[0] and c[1] <= o[1] and o != c for o in cliques)]
-    for h, (i, j) in enumerate(cliques):
-        y = axis_y - 0.22 - 0.18 * h
-        ax.plot([vals[i] - 0.04, vals[j] + 0.04], [y, y], c="black", lw=3.5,
-                solid_capstyle="round")
+    n_cl = len(cliques)
 
-    ax.set_title(title, pad=28, fontweight="bold")
+    # ---- geometry ----
+    half = math.ceil(k / 2)                  # labels per side
+    row_h = 0.55                             # vertical gap between label rows
+    cl_h = 0.30                              # vertical gap between clique bars
+    axis_y = 0.0
+    clique_top = axis_y - 0.35
+    label_top = clique_top - n_cl * cl_h - 0.45
+    y_bottom = label_top - half * row_h
+    margin = 0.34 * span                     # x room for the labels
+
+    fig_w = max(11.0, 1.6 * span + 7)
+    fig_h = max(3.2, 0.95 + n_cl * 0.26 + half * 0.42)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    ax.set_xlim(lo - margin, hi + margin)
+    ax.set_ylim(y_bottom - 0.3, axis_y + 1.25)
+    ax.axis("off")
+
+    # ---- rank axis + ticks ----
+    ax.plot([lo, hi], [axis_y, axis_y], c="black", lw=1.4)
+    for t in range(lo, hi + 1):
+        ax.plot([t, t], [axis_y, axis_y + 0.12], c="black", lw=1.2)
+        ax.text(t, axis_y + 0.18, str(t), ha="center", va="bottom", fontsize=10)
+        if t < hi:  # minor half-ticks
+            ax.plot([t + 0.5, t + 0.5], [axis_y, axis_y + 0.06], c="black", lw=0.8)
+
+    # ---- CD ruler (above the axis, anchored at the left end) ----
+    ruler_y = axis_y + 0.78
+    ax.plot([lo, lo + cd], [ruler_y, ruler_y], lw=2.0, c="black")
+    for xx in (lo, lo + cd):
+        ax.plot([xx, xx], [ruler_y - 0.06, ruler_y + 0.06], lw=2.0, c="black")
+    ax.text(lo + cd / 2, ruler_y + 0.10, f"CD = {cd:.3f}",
+            ha="center", va="bottom", fontsize=10)
+
+    # ---- clique bars: one row each, just below the axis ----
+    for h, (i, j) in enumerate(cliques):
+        y = clique_top - h * cl_h
+        ax.plot([vals[i] - 0.03 * span, vals[j] + 0.03 * span], [y, y],
+                c="black", lw=3.2, solid_capstyle="round")
+
+    # ---- labels: best half left, worst half right; one row per label ----
+    for i, (name, r) in enumerate(ranks.items()):
+        left_side = i < half
+        row = i if left_side else (k - 1 - i)        # best/worst closest to top
+        y = label_top - row * row_h
+        x_text = lo - margin * 0.97 if left_side else hi + margin * 0.97
+        x_elbow = lo - margin * 0.92 if left_side else hi + margin * 0.92
+        ax.plot([r, r], [axis_y, y], c="0.25", lw=0.8)                 # stem
+        ax.plot([r, x_elbow], [y, y], c="0.25", lw=0.8)                # connector
+        ax.text(x_text, y, f"{name}  ({r:.2f})" if left_side else f"({r:.2f})  {name}",
+                ha="left" if left_side else "right", va="center", fontsize=9)
+
+    ax.set_title(title, fontweight="bold", pad=14)
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -489,21 +597,99 @@ def plot_win_loss_matrix(
     return _finish(fig, out_path)
 
 
-def plot_pama_bars(
+def plot_percent_of_max_bars(
     matrix: pd.DataFrame,
     *,
     higher_is_better: bool = True,
     metric_name: str = "",
     out_path: Optional[Path] = None,
 ):
-    t = pama(matrix, higher_is_better=higher_is_better)
+    """Bars of the percentage-of-maximum-performance summary (NOT PAMA)."""
+    t = percent_of_max(matrix, higher_is_better=higher_is_better)
     fig, ax = plt.subplots(figsize=(max(8, 0.55 * len(t) + 4), 6))
-    ax.barh(t.index[::-1], t["PAMA_%"][::-1], color="#4878CF")
-    ax.set_xlabel(f"PAMA: mean % of best-per-dataset {metric_name}".strip())
-    ax.set_xlim(max(0.0, t["PAMA_%"].min() - 5), 100.5)
-    ax.set_title(f"PAMA ({metric_name})" if metric_name else "PAMA", fontweight="bold")
-    for y, v in enumerate(t["PAMA_%"][::-1]):
+    ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color="#4878CF")
+    ax.set_xlabel(f"Mean % of best-per-dataset {metric_name}".strip())
+    ax.set_xlim(max(0.0, t["PctOfMax_%"].min() - 5), 100.5)
+    ax.set_title(f"Percentage of maximum performance ({metric_name})"
+                 if metric_name else "Percentage of maximum performance",
+                 fontweight="bold")
+    for y, v in enumerate(t["PctOfMax_%"][::-1]):
         ax.text(v + 0.15, y, f"{v:.1f}", va="center", fontsize=9)
+    fig.tight_layout()
+    return _finish(fig, out_path)
+
+
+def plot_pama_bars(
+    per_fold_df: pd.DataFrame,
+    metric: str,
+    *,
+    higher_is_better: bool = True,
+    metric_name: str = "",
+    foundation_methods: Optional[Sequence[str]] = None,
+    out_path: Optional[Path] = None,
+):
+    """PAMA bars (Fernandez-Delgado et al., 2014): share of fold-level
+    observations where each method achieves the top score. Optionally
+    highlights foundation models and prints their collective share."""
+    t = pama_fold_level(per_fold_df, metric, higher_is_better=higher_is_better)
+    t = t[t["PAMA_%"] > 0]
+    fm = set(foundation_methods or [])
+    colors = ["#d62728" if mth in fm else "#4878CF" for mth in t.index]
+    fig, ax = plt.subplots(figsize=(max(8, 0.45 * len(t) + 4), max(4, 0.35 * len(t) + 2)))
+    ax.barh(t.index[::-1], t["PAMA_%"][::-1], color=colors[::-1])
+    nm = metric_name or metric
+    ax.set_xlabel(f"PAMA: % of fold-level observations with the top {nm}")
+    ax.set_title(f"Probability of Achieving MAximal accuracy ({nm}, "
+                 f"n = {int(t['n_folds'].iloc[0])} folds)", fontweight="bold")
+    for y, (v, w) in enumerate(zip(t["PAMA_%"][::-1], t["wins"][::-1])):
+        ax.text(v + 0.2, y, f"{v:.1f}%  ({w})", va="center", fontsize=9)
+    if fm:
+        share = t.loc[t.index.isin(fm), "PAMA_%"].sum()
+        ax.text(0.98, 0.02, f"foundation models collectively: {share:.1f}%",
+                transform=ax.transAxes, ha="right", fontsize=10,
+                bbox=dict(boxstyle="round", fc="#ffe9e9", ec="#d62728"))
+    fig.tight_layout()
+    return _finish(fig, out_path)
+
+
+def plot_wilcoxon_wl_matrix(
+    matrix: pd.DataFrame,
+    *,
+    higher_is_better: bool = True,
+    alpha: float = 0.05,
+    metric_name: str = "",
+    out_path: Optional[Path] = None,
+):
+    """k x k matrix of pairwise Wilcoxon results: cell text = "W/L" of the ROW
+    method vs the COLUMN method, with a trailing ``*`` when the Holm-corrected
+    p-value is <= alpha. Cell colour = win-loss margin. Methods ordered by
+    average rank (best first)."""
+    import seaborn as sns
+    tab = wilcoxon_holm_pairwise(matrix, higher_is_better=higher_is_better, alpha=alpha)
+    order = list(average_ranks(matrix, higher_is_better=higher_is_better).index)
+    k = len(order)
+    margin = pd.DataFrame(np.nan, index=order, columns=order, dtype=float)
+    annot = pd.DataFrame("", index=order, columns=order, dtype=object)
+    n_sig = 0
+    for r in tab.itertuples():
+        star = "*" if r.significant else ""
+        n_sig += int(r.significant)
+        annot.loc[r.method_1, r.method_2] = f"{r.wins}/{r.losses}{star}"
+        annot.loc[r.method_2, r.method_1] = f"{r.losses}/{r.wins}{star}"
+        margin.loc[r.method_1, r.method_2] = r.wins - r.losses
+        margin.loc[r.method_2, r.method_1] = r.losses - r.wins
+    vmax = float(np.nanmax(np.abs(margin.values))) or 1.0
+    fig, ax = plt.subplots(figsize=(0.62 * k + 4, 0.5 * k + 3))
+    sns.heatmap(margin, annot=annot, fmt="", cmap="RdBu_r", center=0,
+                vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white",
+                cbar_kws={"label": "win - loss margin (row vs column)"},
+                annot_kws={"fontsize": 7}, ax=ax)
+    ax.set_title(
+        f"Pairwise Wilcoxon signed-rank ({metric_name}): W/L of row vs column; "
+        f"* = significant at alpha={alpha} after Holm "
+        f"({n_sig}/{len(tab)} pairs significant)",
+        fontweight="bold", fontsize=11)
+    ax.set_xlabel(""); ax.set_ylabel("")
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -529,7 +715,10 @@ __all__ = [
     "friedman_test", "nemenyi_cd", "bonferroni_dunn_cd",
     "wilcoxon_signed_rank", "sign_test",
     "control_apv_table", "pairwise_apv_table",
-    "win_loss_tie", "wlt_summary", "pama",
+    "wilcoxon_holm_pairwise",
+    "win_loss_tie", "wlt_summary",
+    "percent_of_max", "pama_fold_level",
     "plot_cd_diagram", "plot_significance_matrix",
     "plot_win_loss_matrix", "plot_pama_bars",
+    "plot_percent_of_max_bars", "plot_wilcoxon_wl_matrix",
 ]

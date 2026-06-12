@@ -139,34 +139,40 @@ def performance_heatmap(
     metric: str,
     *,
     task_name: str = "PD",
-    cmap: str = "RdYlGn",
+    higher_is_better: bool = True,
+    cmap: Optional[str] = None,
+    fmt: str = ".3f",
     figsize: Tuple[int, int] = (24, 8),
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Datasets x methods heatmap of ``metric`` (mean across folds).
 
-    The ``df`` must expose either ``{metric}_mean`` (polars summary) or
-    ``metric.{metric}_mean`` (legacy summary). For R2 (regression) the
-    colormap is diverging and centred on zero.
+    Columns are ALWAYS sorted best -> worst from left to right, where "best"
+    follows ``higher_is_better`` (e.g. highest AUC left; lowest Brier left).
+    The colormap likewise maps green to good: pass ``higher_is_better=False``
+    for lower-is-better metrics and the default cmap flips to ``RdYlGn_r``.
     """
     mean_col = _resolve_mean_column(df, metric)
-    pivot = df.pivot(index="dataset", columns="method", values=mean_col).sort_index()
-    # Sort methods by descending mean across datasets
-    method_order = pivot.mean(axis=0).sort_values(ascending=False).index
+    pivot = df.pivot_table(index="dataset", columns="method",
+                           values=mean_col, aggfunc="mean").sort_index()
+    # Best performance on the LEFT, worst on the RIGHT.
+    method_order = pivot.mean(axis=0).sort_values(ascending=not higher_is_better).index
     pivot = pivot[method_order]
+    if cmap is None:
+        cmap = "RdYlGn" if higher_is_better else "RdYlGn_r"
 
     fig, ax = plt.subplots(figsize=figsize)
     is_diverging = metric.upper() in {"R2"}
     if is_diverging:
         abs_max = float(np.nanmax(np.abs(pivot.values)))
         sns.heatmap(
-            pivot, annot=True, fmt=".3f", cmap=cmap, center=0,
+            pivot, annot=True, fmt=fmt, cmap=cmap, center=0,
             vmin=-abs_max, vmax=abs_max,
             cbar_kws={"label": metric}, linewidths=0.5, ax=ax,
         )
     else:
         sns.heatmap(
-            pivot, annot=True, fmt=".3f", cmap=cmap,
+            pivot, annot=True, fmt=fmt, cmap=cmap,
             vmin=float(np.nanmin(pivot.values)), vmax=float(np.nanmax(pivot.values)),
             cbar_kws={"label": metric}, linewidths=0.5, ax=ax,
         )
@@ -249,36 +255,43 @@ def _sweep_curve(
     figsize: Tuple[int, int],
     out_dir: Optional[Path],
     plot_name: str,
-    logx: bool = False,
+    relative: bool = False,
 ) -> Optional[Path]:
     """ONE line per METHOD: the metric averaged over all datasets at each
-    sweep value, with a +-1 std band across datasets. The summary CSV encodes
-    the sweep in the ``sweep_axis`` / ``sweep_value`` columns."""
+    sweep value. With ``relative=True`` each method's curve is divided by its
+    OWN maximum, showing performance relative to that method's top (1.0 =
+    the method's best point). Linear x axis with dense ticks; small markers."""
+    from matplotlib.ticker import MaxNLocator
+
     mean_col = _resolve_mean_column(df, metric)
     sub = df[df["sweep_axis"] == sweep_axis].dropna(subset=["sweep_value"])
     if sub.empty:
         logger.warning("No rows with sweep_axis=%s -- is this the right experiment?",
                        sweep_axis)
         return None
-    grp = sub.groupby(["method", "sweep_value"])[mean_col].agg(["mean", "std"]).reset_index()
+    grp = sub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
 
     fig, ax = plt.subplots(figsize=figsize)
     palette = sns.color_palette("tab10", n_colors=grp["method"].nunique())
     for color, (method, g) in zip(palette, grp.groupby("method")):
         g = g.sort_values("sweep_value")
-        ax.plot(g["sweep_value"], g["mean"], marker="o", ms=4, lw=2,
+        y = g[mean_col]
+        if relative:
+            top = y.max()
+            y = y / top if top else y
+        ax.plot(g["sweep_value"], y, marker="o", ms=2.5, lw=1.7,
                 label=method, color=color)
-        ax.fill_between(g["sweep_value"], g["mean"] - g["std"], g["mean"] + g["std"],
-                        alpha=0.12, color=color)
-    if logx:
-        ax.set_xscale("log")
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
+    if relative:
+        ax.axhline(1.0, color="0.6", lw=0.8, ls="--")
     ax.set_xlabel(xlabel, fontsize=12, fontweight="bold")
-    ax.set_ylabel(metric, fontsize=12, fontweight="bold")
-    ax.set_title(f"{title}\n(mean over datasets; band = +-1 std across datasets)",
-                 fontsize=14, fontweight="bold")
+    ax.set_ylabel(f"{metric} / own max" if relative else metric,
+                  fontsize=12, fontweight="bold")
+    ax.set_title(f"{title} (mean over datasets)", fontsize=14, fontweight="bold")
     ax.legend(loc="best", fontsize=10)
     plt.tight_layout()
-    return _save(fig, out_dir, plot_name)
+    suffix = "_relative" if relative else ""
+    return _save(fig, out_dir, plot_name + suffix)
 
 
 def learning_curve(
@@ -287,15 +300,17 @@ def learning_curve(
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = (14, 8),
-    logx: bool = True,
+    relative: bool = False,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 2: ``metric`` vs training rows -- one line per method,
-    averaged over every included dataset."""
+    averaged over every included dataset. ``relative=True`` divides each
+    method's curve by its own best value."""
     return _sweep_curve(
         df, sweep_axis="row_limit", metric=metric,
         title=f"{task_name} learning curve: {metric}",
-        xlabel="Training rows", figsize=figsize, out_dir=out_dir, logx=logx,
+        xlabel="Training rows", figsize=figsize, out_dir=out_dir,
+        relative=relative,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
@@ -306,14 +321,17 @@ def imbalance_curve(
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = (14, 8),
+    relative: bool = False,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 3: ``metric`` vs minority proportion -- one line per method,
-    averaged over every included dataset."""
+    averaged over every included dataset. ``relative=True`` divides each
+    method's curve by its own best value."""
     return _sweep_curve(
         df, sweep_axis="minority_proportion", metric=metric,
         title=f"{task_name} imbalance robustness: {metric}",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
+        relative=relative,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
 
@@ -348,6 +366,120 @@ def metric_boxplots(
                  fontsize=14, fontweight="bold")
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_box_{metric.lower()}")
+
+
+def metric_bars(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    task_name: str = "PD",
+    higher_is_better: bool = True,
+    agg: str = "mean",
+    figsize: Tuple[int, int] = (16, 6),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Bar chart of the ``agg`` (mean/median) of ``metric`` per method across
+    datasets, sorted best -> worst from left to right."""
+    mean_col = _resolve_mean_column(df, metric)
+    vals = getattr(df.groupby("method")[mean_col], agg)()
+    vals = vals.sort_values(ascending=not higher_is_better)
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.bar(vals.index, vals.values, color="#4878CF")
+    ax.tick_params(axis="x", rotation=45)
+    for lbl in ax.get_xticklabels():
+        lbl.set_horizontalalignment("right")
+    ax.set_ylabel(f"{agg} {metric}", fontsize=12, fontweight="bold")
+    ax.set_title(f"{task_name}: {agg} {metric} per method (best left)",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_bar_{agg}_{metric.lower()}")
+
+
+def median_time_bars(
+    df: pd.DataFrame,
+    *,
+    task_name: str = "PD",
+    figsize: Tuple[int, int] = (16, 6),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Median training time per fold per method (log y; fastest left)."""
+    if "train_time_mean" not in df.columns:
+        logger.warning("median_time_bars: no train_time_mean column")
+        return None
+    vals = df.groupby("method")["train_time_mean"].median().sort_values()
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.bar(vals.index, vals.values, color="#E1812C")
+    ax.set_yscale("log")
+    ax.tick_params(axis="x", rotation=45)
+    for lbl in ax.get_xticklabels():
+        lbl.set_horizontalalignment("right")
+    ax.set_ylabel("median train time per fold (s, log)", fontsize=12, fontweight="bold")
+    ax.set_title(f"{task_name}: median training time per method (fastest left)",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_bar_median_time")
+
+
+def _rank_pivot(df: pd.DataFrame, metric: str, higher_is_better: bool) -> pd.DataFrame:
+    mean_col = _resolve_mean_column(df, metric)
+    pivot = df.pivot_table(index="dataset", columns="method",
+                           values=mean_col, aggfunc="mean")
+    ranks = pivot.rank(axis=1, ascending=not higher_is_better)
+    return ranks[ranks.mean(axis=0).sort_values().index]  # best (lowest rank) left
+
+
+def rank_heatmap(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    task_name: str = "PD",
+    higher_is_better: bool = True,
+    figsize: Tuple[int, int] = (24, 8),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Datasets x methods matrix of the method's RANK on that dataset by
+    ``metric`` (1 = best; ties share average ranks). Best mean rank left."""
+    ranks = _rank_pivot(df, metric, higher_is_better)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(ranks, annot=True, fmt=".0f", cmap="RdYlGn_r",
+                vmin=1, vmax=ranks.shape[1],
+                cbar_kws={"label": f"rank by {metric} (1 = best)"},
+                linewidths=0.5, ax=ax)
+    ax.set_title(f"{task_name} rank matrix by {metric} (1 = best; best mean rank left)",
+                 fontsize=16, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_rank_matrix_{metric.lower()}")
+
+
+def rank_boxplots(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    task_name: str = "PD",
+    higher_is_better: bool = True,
+    figsize: Tuple[int, int] = (16, 7),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Box + strip of each method's per-dataset ranks by ``metric``."""
+    ranks = _rank_pivot(df, metric, higher_is_better)
+    long = ranks.melt(var_name="method", value_name="rank")
+    order = list(ranks.columns)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.boxplot(data=long, x="method", y="rank", order=order, color="#ffe2b8", ax=ax)
+    sns.stripplot(data=long, x="method", y="rank", order=order,
+                  color="#a05a00", size=4, alpha=0.6, ax=ax)
+    ax.invert_yaxis()  # rank 1 (best) on top
+    ax.tick_params(axis="x", rotation=45)
+    for lbl in ax.get_xticklabels():
+        lbl.set_horizontalalignment("right")
+    ax.set_ylabel(f"rank by {metric} (1 = best)", fontsize=12, fontweight="bold")
+    ax.set_xlabel("")
+    ax.set_title(f"{task_name} rank distribution across datasets ({metric})",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task_name.lower()}_rank_box_{metric.lower()}")
 
 
 def hpo_improvement_bars(
@@ -398,13 +530,30 @@ def runtime_performance_scatter(
     if "train_time_mean" not in df.columns:
         logger.warning("runtime_performance_scatter: no train_time_mean column")
         return None
-    agg = df.groupby("method").agg(
-        perf=(mean_col, "mean"), time=("train_time_mean", "mean")).reset_index()
+    agg = (df.groupby("method")
+           .agg(perf=(mean_col, "mean"), time=("train_time_mean", "mean"))
+           .reset_index().sort_values("time"))
     fig, ax = plt.subplots(figsize=figsize)
-    ax.scatter(agg["time"], agg["perf"], s=70, c=sns.color_palette("tab10", len(agg)))
-    for _i, r in agg.iterrows():
-        ax.annotate(r["method"], (r["time"], r["perf"]),
-                    xytext=(5, 4), textcoords="offset points", fontsize=9)
+    ax.scatter(agg["time"], agg["perf"], s=55, color="#1f77b4",
+               edgecolor="white", linewidth=0.6, zorder=3)
+    # Collision-aware labels: alternate above/below along the x-order, and
+    # push successive near-identical x positions further out.
+    last_x = None
+    bump = 0
+    for i, r in enumerate(agg.itertuples()):
+        if last_x is not None and r.time > 0 and last_x > 0 \
+                and abs(np.log10(r.time) - np.log10(last_x)) < 0.06:
+            bump += 1
+        else:
+            bump = 0
+        last_x = r.time
+        above = (i % 2 == 0)
+        dy = (8 + 9 * bump) * (1 if above else -1)
+        ax.annotate(r.method, (r.time, r.perf), xytext=(0, dy),
+                    textcoords="offset points", fontsize=8.5,
+                    ha="center", va="bottom" if above else "top",
+                    arrowprops=dict(arrowstyle="-", color="0.6", lw=0.6)
+                    if abs(dy) > 10 else None)
     ax.set_xscale("log")
     ax.set_xlabel("Mean train time per fold (s, log scale)", fontsize=12, fontweight="bold")
     ax.set_ylabel(f"Mean {metric}", fontsize=12, fontweight="bold")
@@ -466,6 +615,10 @@ __all__ = [
     "learning_curve",
     "imbalance_curve",
     "metric_boxplots",
+    "metric_bars",
+    "median_time_bars",
+    "rank_heatmap",
+    "rank_boxplots",
     "hpo_improvement_bars",
     "runtime_performance_scatter",
 ]
