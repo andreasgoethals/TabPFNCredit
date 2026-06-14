@@ -1,4 +1,4 @@
-"""Cost-sensitive credit-risk metrics (B9).
+"""Cost-sensitive credit-risk metrics.
 
 Statistical metrics like F1 / AUC do not tell you whether a model would
 make money. Credit decisions are inherently asymmetric: missing a default

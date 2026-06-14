@@ -1,13 +1,7 @@
 """TabPFNCredit method configuration -- thin layer over TALENT's registry.
 
-History
--------
-Previously this module carried a 1000-line *duplicate* `MethodSpec` registry
-with 14 derived sets. TALENT now exposes its own `MethodSpec` registry plus
-a typed `RunResult` / `build_args` API; everything that lived here was
-redundant.
-
-This module is now ~150 lines and does only what is **wrapper-specific**:
+A thin layer over TALENT's own `MethodSpec` registry and `build_args` API,
+holding only what is **wrapper-specific**:
 
 * :class:`PreprocessingConfig`: TabPFNCredit policy defaults that differ from
   TALENT's stock defaults (e.g. ``cat_policy='ohe'`` for methods that

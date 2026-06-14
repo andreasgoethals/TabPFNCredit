@@ -1,4 +1,4 @@
-"""Reliability diagrams + ECE bin views (B7).
+"""Reliability diagrams + ECE bin views.
 
 These plots consume TALENT's calibration outputs. ``RunResult.predict_proba``
 provides the probabilities and TALENT's ``ECE`` metric uses the same bins
@@ -12,17 +12,19 @@ Two entry points:
 
 Saving
 ------
-Both write to ``figures/<experiment>/<task>/<dataset>/`` by default. The
-saved file is always a PDF -- any extension passed via ``out_path`` is
-normalised to ``.pdf``. The figure is additionally rendered inline via
-``IPython.display.display(fig)`` (no-op outside Jupyter) and then closed
+The caller supplies the output path (the notebooks pass
+``figures/<experiment>/...``); nothing is saved when ``out_path`` is omitted.
+The saved file is always a PDF -- any extension passed via ``out_path`` is
+normalised to ``.pdf``. The figure is additionally rendered inline (a PNG
+pushed through ``IPython.display.Image`` via
+``data_exploration._display_inline``; no-op outside Jupyter) and then closed
 to free memory across long notebook loops.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Mapping, Optional
 
 import matplotlib
 # Pin the non-interactive Agg backend so this module is safe to import

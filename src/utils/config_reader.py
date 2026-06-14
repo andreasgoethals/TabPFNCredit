@@ -9,10 +9,9 @@ Each experiment under ``scripts/ExperimentN/config/`` ships three YAML files:
 * ``CONFIG_EXPERIMENT.yaml`` -- training / HPO parameters.
 
 Experiment 2 (learning curve) and Experiment 3 (class imbalance) additionally
-define their own extra-section schema inside ``CONFIG_EXPERIMENT.yaml``.
-Previously each experiment had a near-duplicate ``_load_exp*_config`` helper;
-this module collapses them into a single factory driven by an ``ExperimentSpec``
-dataclass so that adding Experiment 4 is a two-line change.
+define their own extra-section schema inside ``CONFIG_EXPERIMENT.yaml``. A
+single factory driven by an ``ExperimentSpec`` dataclass loads all of them, so
+adding Experiment 4 is a two-line change.
 """
 
 from __future__ import annotations

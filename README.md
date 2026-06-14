@@ -28,6 +28,8 @@ table.
 - [6. Repository layout](#6-repository-layout)
 - [7. Result storage and logging](#7-result-storage-and-logging)
 - [8. Tests](#8-tests)
+- [9. Citation](#9-citation)
+- [10. License](#10-license)
 
 ---
 
@@ -422,3 +424,18 @@ pytest tests/ -m "not gpu"    # CI invocation -- auto-skips GPU-only tests
 Coverage includes the registry-derived method sets, the PD / LGD metric
 helpers, file locking, calibration plots, sweep-suffix round-trips, and
 the JSON+npz `save_method` round-trip.
+
+## 9. Citation
+
+If you use this benchmark, please cite it. GitHub's "Cite this repository"
+button reads [`CITATION.cff`](CITATION.cff); a BibTeX entry for the
+accompanying paper will be added here on publication.
+
+## 10. License
+
+Released under the MIT License — see [`LICENSE.txt`](LICENSE.txt).
+
+This repository builds on the [TALENT](https://github.com/LAMDA-Tabular/TALENT)
+tabular-learning toolkit and the foundation-model packages it wraps
+(`tabpfn`, `tabicl`, `tabdpt`, …); each retains its own license and should be
+cited separately when used.

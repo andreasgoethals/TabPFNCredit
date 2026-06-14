@@ -1,14 +1,7 @@
 """TALENT method runner for TabPFNCredit -- now powered by ``TALENT.run()``.
 
-History
--------
-Previously this module carried ~1700 lines of glue code (``sys.argv``
-mutation, manual softmax / sigmoid conversion, tuple-unpacking
-heuristics, classical-param sanitization, CLI artifact cleanup,
-monkey-patches against TALENT's pprint, ...). TALENT now exposes a
-typed :class:`~TALENT.api.RunResult` and a :func:`~TALENT.api.run`
-function that subsume all of that, so this module is now ~500 lines and
-does only what is **wrapper-specific**:
+Built on TALENT's typed :class:`~TALENT.api.RunResult` and
+:func:`~TALENT.api.run`, this module does only what is **wrapper-specific**:
 
 * Cross-validation fold assembly via :class:`~src.data.data_feeder.DataFeeder`.
 * Foundation-model val/test downsampling (TALENT's row-limit caps train only).

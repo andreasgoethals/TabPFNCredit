@@ -1,32 +1,20 @@
-"""Plot functions for the Experiment notebooks (extracted from notebooks/).
+"""Shared plotting helpers for the Experiment notebooks.
 
-History
--------
-Each ``notebooks/Experiment*.ipynb`` used to carry near-duplicate
-``create_performance_heatmap`` / ``plot_method_ranking`` /
-``plot_per_dataset_bars`` functions inline (~700 LOC repeated across
-6 notebooks). They are now consolidated here, with the notebooks reduced
-to ``df = load_summary(...)``-then-``plot_xxx(df, ...)`` calls.
+Each ``notebooks/Experiment*.ipynb`` reduces to ``df = load_summary(...)``
+followed by ``plot_xxx(df, ...)`` calls -- all the figure logic lives here.
+:func:`load_summary` reads the per-fold / per-method CSVs produced by
+:func:`src.utils.result_summary.summarize_to_csv`; the plot helpers cover
+metric heatmaps, rankings, box plots, rank matrices, learning / imbalance
+curves, the HPO-effect bars and the cost/quality scatter (see ``__all__``).
 
-All functions return the saved PDF path (or ``None`` when no output
-directory is supplied). The figure is also rendered inline via
-``IPython.display.display(fig)`` so notebook cells show it right at
-the call site, and then closed to keep memory in check across loops.
-Saving defaults to ``figures/<task>/<plot_name>.pdf`` so the figure
-tree mirrors the result tree.
-
-Public surface
---------------
-* :func:`performance_heatmap` -- methods x datasets heatmap of one metric.
-* :func:`method_ranking_bars` -- mean-rank bar chart, one bar per method.
-* :func:`per_dataset_bars` -- grouped bars: dataset on x, methods stacked.
-* :func:`learning_curve` -- Experiment2 metric-vs-rows curve.
-* :func:`imbalance_curve` -- Experiment3 metric-vs-minority-rate curve.
-* :func:`load_summary` -- read the per-fold / per-method CSVs produced by
-  :func:`src.utils.result_summary.summarize_to_csv`.
-
-All functions are dependency-light (numpy / pandas / seaborn / matplotlib)
-so notebooks remain runnable offline once the CSV summaries are saved.
+A plot helper saves a PDF only when the caller passes ``out_dir`` (the
+notebooks pass ``figures/<experiment>/...``), returning the saved path or
+``None``. Any extension is normalised to ``.pdf``. The figure is also
+rendered inline -- a PNG pushed through ``IPython.display.Image`` via
+``data_exploration._display_inline`` (no-op outside Jupyter) -- then closed
+to keep memory in check across long notebook loops. Dependencies are kept
+light (numpy / pandas / seaborn / matplotlib) so the notebooks run offline
+once the CSV summaries exist.
 """
 
 from __future__ import annotations

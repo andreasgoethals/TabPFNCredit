@@ -27,14 +27,16 @@ What `experiment` does
 
 Helper commands
 ---------------
+* ``resubmit`` -- scan results and submit ONLY the not-yet-done points
+* ``summarize`` -- aggregate fold results into per-fold / per-method CSVs
+  (user-facing; also invoked by the generated SLURM summarize job)
 * ``list``   -- enumerate registered methods + their runtime profile
 * ``doctor`` -- environment / VSC sanity check
 
-Internal commands (you should rarely type these by hand; they are called
-by the generated SLURM scripts):
+Internal command (you should rarely type this by hand; it is called by the
+generated SLURM scripts):
 
 * ``slurm-task`` -- workhorse for one array slot
-* ``summarize`` -- aggregate fold results into CSV
 """
 
 from __future__ import annotations
@@ -163,20 +165,6 @@ def _build_task_list(
     return cells
 
 
-def _methods_for_partition(partition: str) -> set[str]:
-    """Method set for a SLURM partition key (used by ``slurm-task`` only)."""
-    partition = partition.lower()
-    if partition in ("cpu", "cpu_genius"):
-        return CPU_METHODS | {m for m in DEEP_METHODS if not get_profile(m).prefers_gpu}
-    if partition == "gpu_p100":
-        return {m for m in GPU_METHODS if not get_profile(m).needs_foundation_gpu}
-    if partition in ("gpu_a100", "gpu_h100"):
-        return {m for m in GPU_METHODS if get_profile(m).needs_foundation_gpu}
-    raise typer.BadParameter(
-        f"Unknown partition {partition!r}; choose cpu / gpu_p100 / gpu_a100 / gpu_h100."
-    )
-
-
 # ============================================================================
 #  Preprocessing (auto-trigger if data/processed is missing)
 # ============================================================================
@@ -222,14 +210,12 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
             logger.warning("Skipping %s/%s: raw data file missing.", task, dataset)
             unavailable.add((task, dataset))
         except Exception as exc:  # pragma: no cover -- defensive
-            # The raw file EXISTS but preprocessing failed HERE -- typically
-            # the login node runs out of memory on a large dataset (e.g.
-            # 0014.algorithmwatch's parquet). Do NOT drop the cell: a compute
-            # node (256 GB on wICE) will preprocess it inside DataFeeder when
-            # the job runs. Dropping it here is exactly why that dataset went
-            # missing from a previous run. preprocess_dataset writes atomically
-            # and is idempotent, so concurrent compute-node preprocessing is
-            # safe. Run with --verbose for the full traceback.
+            # The raw file EXISTS but preprocessing failed HERE -- typically a
+            # login node running out of memory on a large dataset. Keep the
+            # cell: a compute node (much more RAM) preprocesses it inside
+            # DataFeeder at run time. preprocess_dataset writes atomically and
+            # is idempotent, so concurrent compute-node preprocessing is safe.
+            # Run with --verbose for the full traceback.
             console.print(
                 f"  [yellow]defer[/yellow] {task}/{dataset} -- could not preprocess "
                 f"here ({type(exc).__name__}); the compute node will do it at run time"
@@ -512,10 +498,10 @@ def _run_experiment_vsc(
     for cell in cells:
         for point in _sweep_points(experiment, config, cell):
             # An HPO point for a non-tunable method is a pure file COPY of its
-            # NO_HPO result (see _run_one_point). It must carry copy_from into
-            # the SLURM plan -- dropping it here made the cluster re-RUN the
-            # model for the __HPO point (≠ copy due to GPU nondeterminism, and
-            # double GPU cost) -- and costs seconds, not a full model run.
+            # NO_HPO result (see _run_one_point), so copy_from must travel into
+            # the SLURM plan: the cluster then copies the result (seconds)
+            # instead of re-running the model, which would double the GPU cost
+            # and yield a non-identical result under GPU nondeterminism.
             copy_from = point.get("copy_from")
             work_items.append({
                 "dataset": cell["dataset"],
@@ -602,28 +588,6 @@ def _run_experiment_vsc(
     console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}")
     console.print(f"\n[bold]Final job id (summarize):[/bold] {summarize_id}")
     return summarize_id
-
-
-def _estimate_sweep_points(experiment: str, config: dict) -> int:
-    """Number of sweep points per (dataset, method) cell -- used for walltime."""
-    lc = config.get("learning_curve")
-    if lc:
-        # PD's points usually dominate; use the larger of the two task blocks.
-        points = 0
-        for task in ("pd", "lgd"):
-            block = lc.get(task) or {}
-            row_max = block.get("row_max"); row_min = block.get("row_min"); row_step = block.get("row_step")
-            if row_max and row_min and row_step:
-                points = max(points, ((row_max - row_min) // row_step) + 1)
-        return max(points, 1)
-    imb = config.get("imbalance")
-    if imb:
-        p_max = imb.get("minority_proportion_max", 0)
-        p_min = imb.get("minority_proportion_min", 0)
-        p_step = imb.get("minority_proportion_step", 1)
-        if p_step > 0:
-            return max(int(round((p_max - p_min) / p_step)) + 1, 1)
-    return 1
 
 
 # ============================================================================
@@ -865,7 +829,7 @@ def cmd_summarize(
 @app.command("slurm-task", hidden=True)
 def cmd_slurm_task(
     experiment: str = typer.Option(...),
-    partition: str = typer.Option(..., help="Partition key (cpu / gpu_p100 / gpu_a100 / gpu_h100)."),
+    partition: str = typer.Option(..., help="Partition key, e.g. cpu / cpu_genius / gpu_v100 / gpu_a100 / gpu_h100 (any key in slurm_generator.PARTITIONS)."),
     array_id: int = typer.Option(..., help="SLURM_ARRAY_TASK_ID."),
     plan_path: Optional[Path] = typer.Option(
         None,

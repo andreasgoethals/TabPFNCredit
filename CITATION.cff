@@ -1,0 +1,22 @@
+# Citation File Format -- https://citation-file-format.github.io/
+# GitHub renders a "Cite this repository" button from this file.
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "TabPFNCredit: a tabular foundation-model benchmark for credit-risk modelling"
+type: software
+authors:
+  - family-names: Goethals
+    given-names: Andreas
+    email: andreas.goethals@kuleuven.be
+    affiliation: "KU Leuven"
+    orcid: "https://orcid.org/0009-0001-5203-1306"   
+repository-code: "https://github.com/andreasgoethals/TabPFNCredit"
+license: MIT
+keywords:
+  - credit-risk
+  - tabular-foundation-models
+  - TabPFN
+  - benchmark
+  - machine-learning
+
+

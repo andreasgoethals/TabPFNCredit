@@ -65,7 +65,7 @@ from src.methods.runtime_profile import (
 
 # Absolute path to the repo root, resolved at generation time (the generator
 # runs on the login node, where this is the real on-cluster path, e.g.
-# /vsc-hard-mounts/leuven-data/383/vsc38338/TabPFNCredit). We bake this
+# /vsc-hard-mounts/leuven-data/<group>/<vsc-id>/TabPFNCredit). We bake this
 # ABSOLUTE path into the generated scripts instead of ``$VSC_DATA/...``.
 # Reason: SLURM does NOT expand environment variables in ``#SBATCH --output``
 # / ``--error`` directives, so ``${VSC_DATA}`` there is taken LITERALLY and
