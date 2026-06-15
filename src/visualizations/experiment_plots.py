@@ -42,15 +42,21 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_RC = {
     "figure.figsize": (16, 9),
-    "font.size": 11,
-    "axes.titlesize": 14,
-    "axes.labelsize": 12,
-    "xtick.labelsize": 10,
-    "ytick.labelsize": 10,
-    "legend.fontsize": 10,
+    "font.size": 12,
+    "axes.titlesize": 15,
+    "axes.labelsize": 13,
+    "xtick.labelsize": 12,
+    "ytick.labelsize": 12,
+    "legend.fontsize": 11,
     "axes.grid": True,
     "grid.alpha": 0.3,
 }
+
+# Shared sizing so every figure in this module reads the same way.
+TICK_FS = 12     # method / dataset tick labels -- must stay legible
+LABEL_FS = 13    # axis labels
+TITLE_FS = 15    # panel titles
+ANNOT_FS = 8     # heatmap cell numbers -- small enough to fit a "0.xxx" cell
 
 
 def apply_style(rc: Optional[dict] = None, sns_style: str = "whitegrid") -> None:
@@ -61,23 +67,94 @@ def apply_style(rc: Optional[dict] = None, sns_style: str = "whitegrid") -> None
     sns.set_style(sns_style)
 
 
-def reset_figure_dir(figures_dir: Path) -> Path:
-    """Delete all PNG / PDF / SVG files under ``figures_dir`` and recreate it.
+# ---------------------------------------------------------------------------
+#  Shared styling helpers -- one colour code + one bar style everywhere
+# ---------------------------------------------------------------------------
 
-    Used at the top of every Experiment notebook so re-running the
-    notebook gives a clean output set rather than mixing old + new
-    figures. Subdirectories are recursively cleared too.
+def _best_to_worst_colors(n: int):
+    """Green (best) -> red (worst) gradient. The caller passes data ALREADY
+    sorted best-first, so position 0 is greenest and the last bar is reddest."""
+    return plt.get_cmap("RdYlGn")(np.linspace(0.92, 0.08, max(n, 1)))
+
+
+def _heatmap_figsize(n_rows: int, n_cols: int) -> Tuple[float, float]:
+    """Figure size that keeps each matrix cell large enough for a 0.xxx
+    annotation and a legible tick label."""
+    return (max(14.0, 0.62 * n_cols + 4), max(6.0, 0.55 * n_rows + 3))
+
+
+def _style_method_axis(ax) -> None:
+    """Uniform per-method x axis: 45-deg right-aligned labels at TICK_FS."""
+    ax.tick_params(axis="x", labelsize=TICK_FS)
+    ax.tick_params(axis="y", labelsize=TICK_FS)
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+
+
+def _method_bar(
+    series: pd.Series,
+    *,
+    title: str,
+    ylabel: str,
+    stem: str,
+    out_dir: Optional[Path],
+    errs: Optional[pd.Series] = None,
+    logy: bool = False,
+    figsize: Optional[Tuple[float, float]] = None,
+) -> Optional[Path]:
+    """Consistent vertical per-method bar chart used by every bar plot here:
+    a green(best)->red(worst) gradient, a black contour per bar, optional
+    ``± std`` error bars, and the shared label styling. ``series`` must be
+    sorted best-first so the gradient lines up with performance."""
+    names = list(series.index)
+    n = len(names)
+    fig, ax = plt.subplots(figsize=figsize or (max(12.0, 0.5 * n + 4), 6))
+    ax.bar(
+        range(n), series.to_numpy(),
+        color=_best_to_worst_colors(n), edgecolor="black", linewidth=0.8,
+        yerr=(errs.reindex(series.index).to_numpy() if errs is not None else None),
+        capsize=3 if errs is not None else 0,
+        error_kw={"ecolor": "0.35", "lw": 1.1},
+    )
+    if logy:
+        ax.set_yscale("log")
+    ax.set_xticks(range(n))
+    ax.set_xticklabels(names)
+    _style_method_axis(ax)
+    ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
+    ax.set_title(title, fontsize=TITLE_FS, fontweight="bold")
+    plt.tight_layout()
+    return _save(fig, out_dir, stem)
+
+
+def reset_figure_dir(figures_dir: Path) -> Path:
+    """Delete all image files under ``figures_dir`` and (re)create it.
+
+    Called at the top of every Experiment notebook so a rerun produces a
+    clean figure set instead of mixing old and new outputs.
+
+    Deletion is BEST-EFFORT: a file or directory that is momentarily locked
+    (e.g. a PDF still open in a viewer, or a Windows handle not yet released
+    after the files inside were removed) is skipped rather than raising. A
+    stale figure left behind is harmless; a crashed setup cell is not.
     """
-    import shutil
     figures_dir = Path(figures_dir)
     if figures_dir.exists():
         for path in figures_dir.rglob("*"):
             if path.is_file() and path.suffix.lower() in {".png", ".pdf", ".svg", ".jpg", ".jpeg"}:
-                path.unlink()
-        # Remove now-empty subdirectories
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    logger.warning("Could not delete stale figure %s (%s); leaving it.", path, exc)
+        # Remove now-empty subdirectories (best-effort -- Windows may hold a
+        # transient lock on a directory right after its files are deleted).
         for sub in sorted(figures_dir.rglob("*"), reverse=True):
             if sub.is_dir() and not any(sub.iterdir()):
-                sub.rmdir()
+                try:
+                    sub.rmdir()
+                except OSError:
+                    pass
     figures_dir.mkdir(parents=True, exist_ok=True)
     return figures_dir
 
@@ -93,6 +170,7 @@ def load_summary(
     task: str,
     aggregated: bool = True,
     hpo_mode: Optional[str] = "NO_HPO",
+    auto_summarize: bool = True,
 ) -> pd.DataFrame:
     """Load ONE experiment's summary CSV produced by ``summarize_to_csv``.
 
@@ -102,12 +180,26 @@ def load_summary(
     silently plotting Experiment 0's numbers. ``task`` is "pd" or "lgd".
     ``hpo_mode`` filters to "NO_HPO" (default) or "HPO"; pass ``None`` to
     keep both (e.g. for HPO-vs-NO_HPO comparisons).
+
+    If the summary CSV is absent and ``auto_summarize`` is set (the default),
+    the per-fold + per-method CSVs are built on the fly from the result files
+    under ``summary_dir.parent`` (the results root) -- so a freshly downloaded
+    results folder works in the notebooks with no separate
+    ``tabpfncredit summarize`` step.
     """
     summary_dir = Path(summary_dir)
     suffix = "per_method.csv" if aggregated else "per_fold.csv"
     path = summary_dir / f"{experiment.lower()}_{suffix}"
+    if not path.exists() and auto_summarize:
+        from src.utils.result_summary import summarize_to_csv
+        results_root = summary_dir.parent
+        logger.info("Summary %s missing -- building it from %s ...", path.name, results_root)
+        summarize_to_csv(base=results_root, experiment=experiment.lower(), out_dir=summary_dir)
     if not path.exists():
-        raise FileNotFoundError(f"{path} not found -- run `tabpfncredit summarize` first")
+        raise FileNotFoundError(
+            f"{path} not found and could not be built -- are there result files "
+            f"under {summary_dir.parent / experiment.lower()}/ ?"
+        )
     df = pd.read_csv(path)
     if "task" in df.columns:
         df = df[df["task"] == task]
@@ -130,7 +222,7 @@ def performance_heatmap(
     higher_is_better: bool = True,
     cmap: Optional[str] = None,
     fmt: str = ".3f",
-    figsize: Tuple[int, int] = (24, 8),
+    figsize: Optional[Tuple[float, float]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Datasets x methods heatmap of ``metric`` (mean across folds).
@@ -139,6 +231,8 @@ def performance_heatmap(
     follows ``higher_is_better`` (e.g. highest AUC left; lowest Brier left).
     The colormap likewise maps green to good: pass ``higher_is_better=False``
     for lower-is-better metrics and the default cmap flips to ``RdYlGn_r``.
+    The figure auto-sizes to the matrix shape so each ``0.xxx`` annotation
+    fits its cell and the method / dataset labels stay legible.
     """
     mean_col = _resolve_mean_column(df, metric)
     pivot = df.pivot_table(index="dataset", columns="method",
@@ -149,25 +243,22 @@ def performance_heatmap(
     if cmap is None:
         cmap = "RdYlGn" if higher_is_better else "RdYlGn_r"
 
-    fig, ax = plt.subplots(figsize=figsize)
-    is_diverging = metric.upper() in {"R2"}
-    if is_diverging:
+    n_rows, n_cols = pivot.shape
+    fig, ax = plt.subplots(figsize=figsize or _heatmap_figsize(n_rows, n_cols))
+    common = dict(annot=True, fmt=fmt, cmap=cmap, linewidths=0.5, ax=ax,
+                  annot_kws={"size": ANNOT_FS}, cbar_kws={"label": metric})
+    if metric.upper() in {"R2"}:  # diverging, centred on zero
         abs_max = float(np.nanmax(np.abs(pivot.values)))
-        sns.heatmap(
-            pivot, annot=True, fmt=fmt, cmap=cmap, center=0,
-            vmin=-abs_max, vmax=abs_max,
-            cbar_kws={"label": metric}, linewidths=0.5, ax=ax,
-        )
+        sns.heatmap(pivot, center=0, vmin=-abs_max, vmax=abs_max, **common)
     else:
-        sns.heatmap(
-            pivot, annot=True, fmt=fmt, cmap=cmap,
-            vmin=float(np.nanmin(pivot.values)), vmax=float(np.nanmax(pivot.values)),
-            cbar_kws={"label": metric}, linewidths=0.5, ax=ax,
-        )
+        sns.heatmap(pivot, vmin=float(np.nanmin(pivot.values)),
+                    vmax=float(np.nanmax(pivot.values)), **common)
     ax.set_title(f"{task_name} performance: {metric} (datasets x methods)",
-                 fontsize=16, fontweight="bold", pad=20)
-    ax.set_xlabel("Method", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=12, fontweight="bold")
+                 fontsize=TITLE_FS + 1, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
+    _style_method_axis(ax)
+    ax.tick_params(axis="y", rotation=0)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_heatmap_{metric.lower()}")
 
@@ -185,20 +276,21 @@ def method_ranking_bars(
     figsize: Tuple[int, int] = (14, 8),
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Bar chart: each method's mean rank across datasets for ``metric``."""
+    """Bar chart of each method's mean rank across datasets for ``metric``
+    (1 = best), with ± std error bars. Same vertical, gradient-coloured style
+    as the other bar charts."""
     mean_col = _resolve_mean_column(df, metric)
     pivot = df.pivot(index="dataset", columns="method", values=mean_col)
-    rank = pivot.rank(axis=1, ascending=not higher_is_better)
-    method_rank = rank.mean(axis=0).sort_values(ascending=higher_is_better)
-
-    fig, ax = plt.subplots(figsize=figsize)
-    colors = sns.color_palette("viridis", n_colors=len(method_rank))
-    ax.barh(method_rank.index, method_rank.values, color=colors)
-    ax.invert_yaxis()
-    ax.set_xlabel(f"Mean rank ({metric}; lower is better)", fontsize=12, fontweight="bold")
-    ax.set_title(f"{task_name} method ranking by {metric}", fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    return _save(fig, out_dir, f"{task_name.lower()}_ranking_{metric.lower()}")
+    rank = pivot.rank(axis=1, ascending=not higher_is_better)   # 1 = best
+    mean_rank = rank.mean(axis=0).sort_values()                 # lowest (best) first
+    return _method_bar(
+        mean_rank,
+        errs=rank.std(axis=0),
+        title=f"{task_name} method ranking by {metric} (mean rank ± std; lower = better)",
+        ylabel=f"mean rank ({metric}; lower is better)",
+        stem=f"{task_name.lower()}_ranking_{metric.lower()}",
+        out_dir=out_dir, figsize=figsize,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -345,13 +437,11 @@ def metric_boxplots(
     sns.boxplot(data=df, x="method", y=mean_col, order=order, color="#cfe8ff", ax=ax)
     sns.stripplot(data=df, x="method", y=mean_col, order=order,
                   color="#1f4e79", size=4, alpha=0.6, ax=ax)
-    ax.tick_params(axis="x", rotation=45)
-    for lbl in ax.get_xticklabels():
-        lbl.set_horizontalalignment("right")
-    ax.set_ylabel(metric, fontsize=12, fontweight="bold")
+    _style_method_axis(ax)
+    ax.set_ylabel(metric, fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlabel("")
     ax.set_title(f"{task_name} {metric} distribution across datasets",
-                 fontsize=14, fontweight="bold")
+                 fontsize=TITLE_FS, fontweight="bold")
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_box_{metric.lower()}")
 
@@ -367,20 +457,20 @@ def metric_bars(
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Bar chart of the ``agg`` (mean/median) of ``metric`` per method across
-    datasets, sorted best -> worst from left to right."""
+    datasets, sorted best -> worst left to right. The ``mean`` variant adds
+    ± std error bars (std across datasets)."""
     mean_col = _resolve_mean_column(df, metric)
-    vals = getattr(df.groupby("method")[mean_col], agg)()
-    vals = vals.sort_values(ascending=not higher_is_better)
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.bar(vals.index, vals.values, color="#4878CF")
-    ax.tick_params(axis="x", rotation=45)
-    for lbl in ax.get_xticklabels():
-        lbl.set_horizontalalignment("right")
-    ax.set_ylabel(f"{agg} {metric}", fontsize=12, fontweight="bold")
-    ax.set_title(f"{task_name}: {agg} {metric} per method (best left)",
-                 fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    return _save(fig, out_dir, f"{task_name.lower()}_bar_{agg}_{metric.lower()}")
+    grp = df.groupby("method")[mean_col]
+    vals = grp.agg(agg).sort_values(ascending=not higher_is_better)
+    errs = grp.std() if agg == "mean" else None
+    suffix = " ± std across datasets" if errs is not None else ""
+    return _method_bar(
+        vals, errs=errs,
+        title=f"{task_name}: {agg} {metric} per method (best left){suffix}",
+        ylabel=f"{agg} {metric}",
+        stem=f"{task_name.lower()}_bar_{agg}_{metric.lower()}",
+        out_dir=out_dir, figsize=figsize,
+    )
 
 
 def median_time_bars(
@@ -390,22 +480,18 @@ def median_time_bars(
     figsize: Tuple[int, int] = (16, 6),
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Median training time per fold per method (log y; fastest left)."""
+    """Median training time per fold per method (log y; fastest=greenest, left)."""
     if "train_time_mean" not in df.columns:
         logger.warning("median_time_bars: no train_time_mean column")
         return None
-    vals = df.groupby("method")["train_time_mean"].median().sort_values()
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.bar(vals.index, vals.values, color="#E1812C")
-    ax.set_yscale("log")
-    ax.tick_params(axis="x", rotation=45)
-    for lbl in ax.get_xticklabels():
-        lbl.set_horizontalalignment("right")
-    ax.set_ylabel("median train time per fold (s, log)", fontsize=12, fontweight="bold")
-    ax.set_title(f"{task_name}: median training time per method (fastest left)",
-                 fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    return _save(fig, out_dir, f"{task_name.lower()}_bar_median_time")
+    vals = df.groupby("method")["train_time_mean"].median().sort_values()  # fastest first
+    return _method_bar(
+        vals, logy=True,
+        title=f"{task_name}: median training time per method (fastest left)",
+        ylabel="median train time per fold (s, log)",
+        stem=f"{task_name.lower()}_bar_median_time",
+        out_dir=out_dir, figsize=figsize,
+    )
 
 
 def _rank_pivot(df: pd.DataFrame, metric: str, higher_is_better: bool) -> pd.DataFrame:
@@ -422,21 +508,25 @@ def rank_heatmap(
     *,
     task_name: str = "PD",
     higher_is_better: bool = True,
-    figsize: Tuple[int, int] = (24, 8),
+    figsize: Optional[Tuple[float, float]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Datasets x methods matrix of the method's RANK on that dataset by
-    ``metric`` (1 = best; ties share average ranks). Best mean rank left."""
+    ``metric`` (1 = best; ties share average ranks). Best mean rank left.
+    Auto-sizes to the matrix shape for legible cells and labels."""
     ranks = _rank_pivot(df, metric, higher_is_better)
-    fig, ax = plt.subplots(figsize=figsize)
+    n_rows, n_cols = ranks.shape
+    fig, ax = plt.subplots(figsize=figsize or _heatmap_figsize(n_rows, n_cols))
     sns.heatmap(ranks, annot=True, fmt=".0f", cmap="RdYlGn_r",
-                vmin=1, vmax=ranks.shape[1],
+                vmin=1, vmax=n_cols, annot_kws={"size": ANNOT_FS + 1},
                 cbar_kws={"label": f"rank by {metric} (1 = best)"},
                 linewidths=0.5, ax=ax)
     ax.set_title(f"{task_name} rank matrix by {metric} (1 = best; best mean rank left)",
-                 fontsize=16, fontweight="bold", pad=20)
-    ax.set_xlabel("Method", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=12, fontweight="bold")
+                 fontsize=TITLE_FS + 1, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
+    _style_method_axis(ax)
+    ax.tick_params(axis="y", rotation=0)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_rank_matrix_{metric.lower()}")
 
@@ -459,13 +549,11 @@ def rank_boxplots(
     sns.stripplot(data=long, x="method", y="rank", order=order,
                   color="#a05a00", size=4, alpha=0.6, ax=ax)
     ax.invert_yaxis()  # rank 1 (best) on top
-    ax.tick_params(axis="x", rotation=45)
-    for lbl in ax.get_xticklabels():
-        lbl.set_horizontalalignment("right")
-    ax.set_ylabel(f"rank by {metric} (1 = best)", fontsize=12, fontweight="bold")
+    _style_method_axis(ax)
+    ax.set_ylabel(f"rank by {metric} (1 = best)", fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlabel("")
     ax.set_title(f"{task_name} rank distribution across datasets ({metric})",
-                 fontsize=14, fontweight="bold")
+                 fontsize=TITLE_FS, fontweight="bold")
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_rank_box_{metric.lower()}")
 

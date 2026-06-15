@@ -348,14 +348,27 @@ def plot_target_balance(
 def plot_lgd_target_hists(
     *,
     out_path: Optional[Path] = None,
-    ncols: int = 3,
-    figsize_per_panel: Tuple[float, float] = (5, 3.5),
+    ncols: int = 2,
+    figsize_per_panel: Tuple[float, float] = (7.5, 4.0),
+    bins: int = 40,
 ) -> Optional[Path]:
-    """Grid of LGD target histograms (one panel per dataset).
+    """Grid of LGD target distributions, **two panels per row**.
 
-    Datasets that fail to load are silently skipped (logged at WARNING
-    level) so a single misconfigured dataset can't blow up the whole grid.
+    Each panel shows the target histogram (as a density), a red kernel-density
+    trend line over it, and vertical lines for the **mean** (solid orange) and
+    **median** (dashed green) -- distinct colour AND line style so the two are
+    still distinguishable in greyscale. The panel title carries the dataset
+    name (bold, enlarged), its row count, and the numeric mean and median. The
+    colour key is a SINGLE figure-level legend at the top, so it can never sit
+    in front of a panel's mean/median lines. Datasets that fail to load are
+    skipped (logged at WARNING) so one bad dataset can't blow up the grid.
     """
+    from matplotlib.lines import Line2D
+    from scipy.stats import gaussian_kde
+
+    # Okabe-Ito colour-blind-safe hues; line style also distinguishes them.
+    C_DENSITY, C_MEAN, C_MEDIAN = "red", "#E69F00", "#009E73"  # red / orange / green
+
     candidates = [p.name for p in list_processed_datasets("lgd")]
     if not candidates:
         return None
@@ -365,7 +378,7 @@ def plot_lgd_target_hists(
     for dataset in candidates:
         try:
             _, _, y, _ = load_processed_dataset("lgd", dataset)
-            pairs.append((dataset, np.asarray(y).ravel()))
+            pairs.append((dataset, np.asarray(y, dtype=float).ravel()))
         except Exception as exc:
             logger.warning("LGD histogram: skipping %s (%s)", dataset, exc)
     if not pairs:
@@ -377,13 +390,39 @@ def plot_lgd_target_hists(
         squeeze=False,
     )
     for ax, (dataset, y) in zip(axes.ravel(), pairs):
-        ax.hist(y, bins=40, color="steelblue", edgecolor="white")
-        ax.set_title(dataset, fontsize=10)
+        y = y[np.isfinite(y)]
+        mean, median = float(np.mean(y)), float(np.median(y))
+        ax.hist(y, bins=bins, density=True, color="steelblue",
+                edgecolor="white", alpha=0.85)
+        # Red density (KDE) trend line. Skip gracefully when the target is
+        # degenerate (single value) -- gaussian_kde needs non-zero variance.
+        if y.size > 1 and np.ptp(y) > 0:
+            try:
+                kde = gaussian_kde(y)
+                xs = np.linspace(float(y.min()), float(y.max()), 200)
+                ax.plot(xs, kde(xs), color=C_DENSITY, lw=2)
+            except Exception:  # pragma: no cover -- numerical edge case
+                pass
+        ax.axvline(mean, color=C_MEAN, lw=2.0)              # orange, solid
+        ax.axvline(median, color=C_MEDIAN, lw=2.0, ls="--")  # green, dashed
+        # Two-line title: name + n, then the numeric mean / median.
+        ax.set_title(
+            f"{dataset}   (n = {len(y):,})\nmean = {mean:.3f}   median = {median:.3f}",
+            fontsize=14, fontweight="bold",
+        )
         ax.set_xlabel("LGD target")
-        ax.set_ylabel("count")
+        ax.set_ylabel("density")
     for ax in axes.ravel()[len(pairs):]:
         ax.set_visible(False)
-    plt.tight_layout()
+    # ONE shared colour key above all panels -- never overlaps the lines.
+    handles = [
+        Line2D([0], [0], color=C_DENSITY, lw=2, label="density (KDE)"),
+        Line2D([0], [0], color=C_MEAN, lw=2, label="mean"),
+        Line2D([0], [0], color=C_MEDIAN, lw=2, ls="--", label="median"),
+    ]
+    fig.legend(handles=handles, loc="upper center", ncol=3, frameon=True,
+               fontsize=11, bbox_to_anchor=(0.5, 1.0))
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
     return save_or_show(fig, out_path)
 
 
