@@ -42,6 +42,13 @@ import matplotlib
 matplotlib.use("Agg", force=False)
 import matplotlib.pyplot as plt
 
+# Shared styling so the stats figures match the experiment notebooks exactly
+# (same fonts, the crimson foundation-model highlight, R2 -> R²).
+from src.visualizations.experiment_plots import (  # noqa: E402
+    TICK_FS, LABEL_FS, TITLE_FS,
+    _pretty_metric, _color_foundation_ticks, _foundation_methods,
+)
+
 
 # ============================================================================
 #  Matrix construction + ranks
@@ -114,6 +121,59 @@ def friedman_test(matrix: pd.DataFrame, *, higher_is_better: bool = True) -> Dic
     }
 
 
+def friedman_aligned_ranks_test(matrix: pd.DataFrame, *, higher_is_better: bool = True) -> Dict[str, float]:
+    """Friedman Aligned Ranks test (Hodges & Lehmann 1962; García, Fernández,
+    Luengo & Herrera 2010, *Information Sciences*).
+
+    A more powerful omnibus alternative to Friedman when the number of methods
+    ``k`` is small-to-moderate: instead of ranking within each dataset only,
+    each observation is *aligned* by subtracting its dataset's mean across
+    methods, then ALL ``N*k`` aligned values are ranked together. ~chi² with
+    ``k-1`` df.
+    """
+    N, k = matrix.shape
+    vals = matrix.to_numpy(dtype=float)
+    aligned = vals - vals.mean(axis=1, keepdims=True)          # subtract per-dataset mean
+    flat = aligned.ravel()
+    # rank descending for higher-is-better so rank 1 = best (direction does not
+    # affect the (squared) statistic, but keeps semantics consistent).
+    ranks = pd.Series(flat).rank(ascending=not higher_is_better).to_numpy().reshape(N, k)
+    Rj = ranks.sum(axis=0)                                     # per-method rank sums
+    Ri = ranks.sum(axis=1)                                     # per-dataset rank sums
+    kN = k * N
+    # numerator: (k-1) [ Σ R_j² − (k N² / 4)(kN+1)² ]
+    num = (k - 1) * (float((Rj ** 2).sum()) - (k * N ** 2 / 4.0) * (kN + 1) ** 2)
+    den = (kN * (kN + 1) * (2 * kN + 1)) / 6.0 - (1.0 / k) * float((Ri ** 2).sum())
+    T = num / den if den != 0 else float("inf")
+    return {"N": N, "k": k, "aligned_ranks_chi2": float(T),
+            "p": float(ss.chi2.sf(T, k - 1))}
+
+
+def quade_test(matrix: pd.DataFrame, *, higher_is_better: bool = True) -> Dict[str, float]:
+    """Quade test (Quade 1979; Conover 1999; Demšar 2006).
+
+    Weights each dataset by its performance *range* (datasets that discriminate
+    more between methods count more), then tests for a treatment effect. Often
+    more powerful than Friedman for a small number of datasets. ~F with
+    ``(k-1, (N-1)(k-1))`` df.
+    """
+    N, k = matrix.shape
+    vals = matrix.to_numpy(dtype=float)
+    # within-dataset ranks (1 = best), dataset weights from the range rank
+    within = pd.DataFrame(vals).rank(axis=1, ascending=not higher_is_better).to_numpy()
+    ranges = vals.max(axis=1) - vals.min(axis=1)
+    Q = pd.Series(ranges).rank().to_numpy()                    # rank of the ranges, 1..N
+    S = Q[:, None] * (within - (k + 1) / 2.0)
+    Sj = S.sum(axis=0)
+    A = float((S ** 2).sum())
+    B = float((Sj ** 2).sum()) / N
+    if A == B:                                                 # degenerate (all blocks identical)
+        return {"N": N, "k": k, "quade_F": float("inf"), "p": 0.0}
+    F = (N - 1) * B / (A - B)
+    return {"N": N, "k": k, "quade_F": float(F),
+            "p": float(ss.f.sf(F, k - 1, (N - 1) * (k - 1)))}
+
+
 def nemenyi_cd(k: int, N: int, alpha: float = 0.05) -> float:
     """Critical difference CD = q_alpha * sqrt(k(k+1)/(6N)) (Demšar Eq. after Tab.5).
 
@@ -143,6 +203,56 @@ def wilcoxon_signed_rank(a: Sequence[float], b: Sequence[float]) -> Dict[str, fl
     res = ss.wilcoxon(np.asarray(a, float), np.asarray(b, float),
                       zero_method="zsplit", alternative="two-sided")
     return {"statistic": float(res.statistic), "p": float(res.pvalue)}
+
+
+def bayesian_sign_test(
+    a: Sequence[float],
+    b: Sequence[float],
+    *,
+    rope: float = 0.01,
+    prior_strength: float = 1.0,
+    n_samples: int = 50_000,
+    seed: int = 0,
+) -> Dict[str, float]:
+    """Bayesian sign test with a region of practical equivalence (ROPE)
+    (Benavoli, Corani, Demšar & Zaffalon 2017, *JMLR* 18 — "Time for a change").
+
+    A modern complement to null-hypothesis testing that sidesteps the
+    multiple-comparison / family-wise-error explosion entirely: instead of a
+    p-value it returns the posterior probability that method ``a`` is
+    practically better (``P_right``), that the two are practically equivalent
+    (``P_rope``, both within ``rope`` of each other), or that ``b`` is better
+    (``P_left``). Per-dataset differences ``a-b`` are classified into the three
+    regions and a symmetric Dirichlet prior (total mass ``prior_strength``) is
+    updated to a Dirichlet posterior, summarised in closed form and by
+    Monte-Carlo (which region is most probable).
+    """
+    d = np.asarray(a, float) - np.asarray(b, float)
+    n_left = int((d < -rope).sum())          # b practically better
+    n_rope = int((np.abs(d) <= rope).sum())  # practically equivalent
+    n_right = int((d > rope).sum())          # a practically better
+    alpha = np.array([prior_strength / 3.0] * 3) + np.array([n_left, n_rope, n_right])
+    total = float(alpha.sum())
+    samp = np.random.default_rng(seed).dirichlet(alpha, size=n_samples)
+    region = np.argmax(samp, axis=1)
+    return {
+        "rope": rope, "n_left": n_left, "n_rope": n_rope, "n_right": n_right,
+        "P_left": float(alpha[0] / total),    # posterior mean P(b better)
+        "P_rope": float(alpha[1] / total),    # posterior mean P(equivalent)
+        "P_right": float(alpha[2] / total),   # posterior mean P(a better)
+        "P_left_is_max": float((region == 0).mean()),
+        "P_rope_is_max": float((region == 1).mean()),
+        "P_right_is_max": float((region == 2).mean()),
+    }
+
+
+def format_apv_table(tab: pd.DataFrame, decimals: int = 4) -> pd.DataFrame:
+    """Round every numeric column of an APV / p-value table for compact,
+    readable display (the raw tables carry ~15 digits)."""
+    out = tab.copy()
+    num = out.select_dtypes("number").columns
+    out[num] = out[num].round(decimals)
+    return out
 
 
 def sign_test(a: Sequence[float], b: Sequence[float]) -> Dict[str, float]:
@@ -497,16 +607,16 @@ def plot_cd_diagram(
 
     # ---- geometry ----
     half = math.ceil(k / 2)                  # labels per side
-    row_h = 0.55                             # vertical gap between label rows
+    row_h = 0.58                             # vertical gap between label rows
     cl_h = 0.30                              # vertical gap between clique bars
     axis_y = 0.0
     clique_top = axis_y - 0.35
     label_top = clique_top - n_cl * cl_h - 0.45
     y_bottom = label_top - half * row_h
-    margin = 0.34 * span                     # x room for the labels
+    margin = max(0.34 * span, 3.5)           # x room for the labels
 
-    fig_w = max(11.0, 1.6 * span + 7)
-    fig_h = max(3.2, 0.95 + n_cl * 0.26 + half * 0.42)
+    fig_w = max(12.0, 1.7 * span + 8)
+    fig_h = max(3.4, 1.0 + n_cl * 0.26 + half * 0.45)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     ax.set_xlim(lo - margin, hi + margin)
     ax.set_ylim(y_bottom - 0.3, axis_y + 1.25)
@@ -535,18 +645,27 @@ def plot_cd_diagram(
                 c="black", lw=3.2, solid_capstyle="round")
 
     # ---- labels: best half left, worst half right; one row per label ----
+    # The connector ends exactly at the text anchor and the text grows AWAY
+    # from the plot (left labels right-aligned, right labels left-aligned), so
+    # a name can never cross its own connector line. bbox_inches="tight" on the
+    # save captures any name that extends past the axes.
+    fnd = _foundation_methods()
+    x_left = lo - margin * 0.50
+    x_right = hi + margin * 0.50
     for i, (name, r) in enumerate(ranks.items()):
         left_side = i < half
         row = i if left_side else (k - 1 - i)        # best/worst closest to top
         y = label_top - row * row_h
-        x_text = lo - margin * 0.97 if left_side else hi + margin * 0.97
-        x_elbow = lo - margin * 0.92 if left_side else hi + margin * 0.92
+        anchor = x_left if left_side else x_right
         ax.plot([r, r], [axis_y, y], c="0.25", lw=0.8)                 # stem
-        ax.plot([r, x_elbow], [y, y], c="0.25", lw=0.8)                # connector
-        ax.text(x_text, y, f"{name}  ({r:.2f})" if left_side else f"({r:.2f})  {name}",
-                ha="left" if left_side else "right", va="center", fontsize=9)
+        ax.plot([r, anchor], [y, y], c="0.25", lw=0.8)                 # connector to anchor
+        ax.text(anchor + (-0.05 * span if left_side else 0.05 * span), y,
+                f"{name} ({r:.2f})",
+                ha="right" if left_side else "left", va="center",
+                fontsize=12, color="crimson" if name in fnd else "black",
+                fontweight="bold" if name in fnd else "normal")
 
-    ax.set_title(title, fontweight="bold", pad=14)
+    ax.set_title(title, fontweight="bold", fontsize=TITLE_FS, pad=14)
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -557,23 +676,37 @@ def plot_significance_matrix(
     *,
     procedure: str = "shaffer",
     alpha: float = 0.05,
+    order: Optional[Sequence[str]] = None,
     title: Optional[str] = None,
     out_path: Optional[Path] = None,
 ):
-    """k x k heatmap of adjusted p-values; cells < alpha are highlighted."""
+    """k x k heatmap of adjusted p-values: **green = the pair differs
+    significantly** (APV < alpha), red = not. Methods are shown in ``order``
+    (pass the rank order so the best sit top-left, like every other figure);
+    foundation-model names are crimson."""
     import seaborn as sns
-    mat = pd.DataFrame(np.nan, index=list(methods), columns=list(methods), dtype=float)
+    methods = list(order) if order is not None else list(methods)
+    mat = pd.DataFrame(np.nan, index=methods, columns=methods, dtype=float)
     for r in apv_table.itertuples():
-        v = getattr(r, procedure)
-        mat.loc[r.method_1, r.method_2] = v
-        mat.loc[r.method_2, r.method_1] = v
-    fig, ax = plt.subplots(figsize=(1.0 * len(methods) + 3, 0.8 * len(methods) + 2))
+        if r.method_1 in mat.index and r.method_2 in mat.columns:
+            v = getattr(r, procedure)
+            mat.loc[r.method_1, r.method_2] = v
+            mat.loc[r.method_2, r.method_1] = v
+    k = len(methods)
+    fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
     annot = mat.map(lambda v: "" if pd.isna(v) else f"{v:.3f}")
-    sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn", vmin=0, vmax=2 * alpha,
-                center=alpha, linewidths=0.5, cbar_kws={"label": f"APV ({procedure})"},
-                ax=ax)
-    ax.set_title(title or f"Pairwise APVs ({procedure}); green < {alpha}",
-                 fontweight="bold")
+    # RdYlGn_r so small APV (significant) is GREEN, large is red.
+    sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn_r", vmin=0, vmax=2 * alpha,
+                center=alpha, linewidths=0.5, annot_kws={"fontsize": 9},
+                cbar_kws={"label": f"adjusted p-value ({procedure})"}, ax=ax)
+    ax.set_title(title or f"Pairwise adjusted p-values ({procedure}); "
+                 f"green = significantly different (< {alpha})",
+                 fontweight="bold", fontsize=TITLE_FS)
+    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS)
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45); lbl.set_horizontalalignment("right")
+    _color_foundation_ticks(ax, axis="x")
+    _color_foundation_ticks(ax, axis="y")
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -589,10 +722,16 @@ def plot_win_loss_matrix(
     W = win_loss_tie(matrix, higher_is_better=higher_is_better)
     order = wlt_summary(matrix, higher_is_better=higher_is_better).index
     W = W.loc[order, order]
-    fig, ax = plt.subplots(figsize=(1.0 * len(order) + 3, 0.8 * len(order) + 2))
+    k = len(order)
+    fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
     sns.heatmap(W, annot=True, fmt="d", cmap="Blues", linewidths=0.5,
-                cbar_kws={"label": "# datasets won"}, ax=ax)
-    ax.set_title(title, fontweight="bold")
+                annot_kws={"fontsize": 11}, cbar_kws={"label": "# datasets won"}, ax=ax)
+    ax.set_title(title, fontweight="bold", fontsize=TITLE_FS)
+    ax.tick_params(labelsize=TICK_FS + 1)
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45); lbl.set_horizontalalignment("right")
+    _color_foundation_ticks(ax, axis="x")
+    _color_foundation_ticks(ax, axis="y")
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -606,13 +745,15 @@ def plot_percent_of_max_bars(
 ):
     """Bars of the percentage-of-maximum-performance summary (NOT PAMA)."""
     t = percent_of_max(matrix, higher_is_better=higher_is_better)
+    nm = _pretty_metric(metric_name)
     fig, ax = plt.subplots(figsize=(max(8, 0.55 * len(t) + 4), 6))
-    ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color="#4878CF")
-    ax.set_xlabel(f"Mean % of best-per-dataset {metric_name}".strip())
+    ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color="#4878CF", edgecolor="black", linewidth=0.6)
+    ax.set_xlabel(f"Mean % of best-per-dataset {nm}".strip())
     ax.set_xlim(max(0.0, t["PctOfMax_%"].min() - 5), 100.5)
-    ax.set_title(f"Percentage of maximum performance ({metric_name})"
-                 if metric_name else "Percentage of maximum performance",
-                 fontweight="bold")
+    ax.set_title(f"Percentage of maximum performance ({nm})"
+                 if nm else "Percentage of maximum performance", fontweight="bold")
+    ax.tick_params(labelsize=TICK_FS)
+    _color_foundation_ticks(ax, axis="y")
     for y, v in enumerate(t["PctOfMax_%"][::-1]):
         ax.text(v + 0.15, y, f"{v:.1f}", va="center", fontsize=9)
     fig.tight_layout()
@@ -637,17 +778,22 @@ def plot_pama_bars(
     colors = ["#d62728" if mth in fm else "#4878CF" for mth in t.index]
     fig, ax = plt.subplots(figsize=(max(8, 0.45 * len(t) + 4), max(4, 0.35 * len(t) + 2)))
     ax.barh(t.index[::-1], t["PAMA_%"][::-1], color=colors[::-1])
-    nm = metric_name or metric
+    nm = _pretty_metric(metric_name or metric)
     ax.set_xlabel(f"PAMA: % of fold-level observations with the top {nm}")
     ax.set_title(f"Probability of Achieving MAximal accuracy ({nm}, "
-                 f"n = {int(t['n_folds'].iloc[0])} folds)", fontweight="bold")
+                 f"n = {int(t['n_folds'].iloc[0])} folds)", fontweight="bold", fontsize=TITLE_FS)
+    # Headroom so the "(wins)" annotation stays INSIDE the axes.
+    ax.set_xlim(0, t["PAMA_%"].max() * 1.18 + 1)
     for y, (v, w) in enumerate(zip(t["PAMA_%"][::-1], t["wins"][::-1])):
         ax.text(v + 0.2, y, f"{v:.1f}%  ({w})", va="center", fontsize=9)
+    ax.tick_params(labelsize=TICK_FS)
+    # Foundation-model names in the shared crimson, like every other figure.
+    _color_foundation_ticks(ax, axis="y")
     if fm:
         share = t.loc[t.index.isin(fm), "PAMA_%"].sum()
         ax.text(0.98, 0.02, f"foundation models collectively: {share:.1f}%",
                 transform=ax.transAxes, ha="right", fontsize=10,
-                bbox=dict(boxstyle="round", fc="#ffe9e9", ec="#d62728"))
+                bbox=dict(boxstyle="round", fc="#ffe9e9", ec="crimson"))
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -670,28 +816,58 @@ def plot_wilcoxon_wl_matrix(
     k = len(order)
     margin = pd.DataFrame(np.nan, index=order, columns=order, dtype=float)
     annot = pd.DataFrame("", index=order, columns=order, dtype=object)
-    n_sig = 0
     for r in tab.itertuples():
-        star = "*" if r.significant else ""
-        n_sig += int(r.significant)
-        annot.loc[r.method_1, r.method_2] = f"{r.wins}/{r.losses}{star}"
-        annot.loc[r.method_2, r.method_1] = f"{r.losses}/{r.wins}{star}"
+        # Just the Win/Loss ratio -- significance is reported separately as
+        # text (see significant_pairs_text), per the cleaner two-part layout.
+        annot.loc[r.method_1, r.method_2] = f"{r.wins}/{r.losses}"
+        annot.loc[r.method_2, r.method_1] = f"{r.losses}/{r.wins}"
         margin.loc[r.method_1, r.method_2] = r.wins - r.losses
         margin.loc[r.method_2, r.method_1] = r.losses - r.wins
     vmax = float(np.nanmax(np.abs(margin.values))) or 1.0
-    fig, ax = plt.subplots(figsize=(0.62 * k + 4, 0.5 * k + 3))
+    fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
     sns.heatmap(margin, annot=annot, fmt="", cmap="RdBu_r", center=0,
                 vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white",
                 cbar_kws={"label": "win - loss margin (row vs column)"},
-                annot_kws={"fontsize": 7}, ax=ax)
-    ax.set_title(
-        f"Pairwise Wilcoxon signed-rank ({metric_name}): W/L of row vs column; "
-        f"* = significant at alpha={alpha} after Holm "
-        f"({n_sig}/{len(tab)} pairs significant)",
-        fontweight="bold", fontsize=11)
-    ax.set_xlabel(""); ax.set_ylabel("")
+                annot_kws={"fontsize": 11}, ax=ax)
+    ax.set_title(f"Pairwise Win/Loss of row vs column ({_pretty_metric(metric_name)})",
+                 fontweight="bold", fontsize=TITLE_FS)
+    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS + 1)
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45); lbl.set_horizontalalignment("right")
+    _color_foundation_ticks(ax, axis="x")
+    _color_foundation_ticks(ax, axis="y")
     fig.tight_layout()
     return _finish(fig, out_path)
+
+
+def significant_pairs_text(
+    matrix: pd.DataFrame,
+    *,
+    higher_is_better: bool = True,
+    alpha: float = 0.05,
+    metric_name: str = "",
+) -> str:
+    """Plain-text list of the method pairs whose performance differs
+    significantly (pairwise Wilcoxon signed-rank, Holm-corrected over all
+    pairs). Printed as its own section so the W/L matrix stays uncluttered."""
+    tab = wilcoxon_holm_pairwise(matrix, higher_is_better=higher_is_better, alpha=alpha)
+    sig = tab[tab["significant"]].copy()
+    nm = _pretty_metric(metric_name) or "metric"
+    lines = [f"Significant pairwise differences in {nm} "
+             f"(Wilcoxon signed-rank, Holm-corrected, alpha = {alpha}):",
+             f"  {int(sig.shape[0])} of {len(tab)} pairs significant.", ""]
+    if sig.empty:
+        lines.append("  (none reach significance after Holm correction)")
+    else:
+        sign = 1 if higher_is_better else -1
+        for r in sig.sort_values("p_holm").itertuples():
+            better = r.method_1 if sign * (r.wins - r.losses) > 0 else r.method_2
+            worse = r.method_2 if better == r.method_1 else r.method_1
+            lines.append(f"  {better}  >  {worse}    "
+                         f"(W/L {r.wins}/{r.losses}, p_holm = {r.p_holm:.4f})")
+    text = "\n".join(lines)
+    print(text)
+    return text
 
 
 def _finish(fig, out_path: Optional[Path]):
@@ -699,11 +875,11 @@ def _finish(fig, out_path: Optional[Path]):
     if out_path is not None:
         out_path = Path(out_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(out_path, bbox_inches="tight")
+        fig.savefig(out_path, bbox_inches="tight", dpi=200)   # crisp on disk
         saved = out_path
     try:
         from src.visualizations.data_exploration import _display_inline
-        _display_inline(fig)
+        _display_inline(fig, dpi=96)                          # small inline PNG
     except Exception:
         pass
     plt.close(fig)
@@ -712,10 +888,11 @@ def _finish(fig, out_path: Optional[Path]):
 
 __all__ = [
     "metric_matrix", "average_ranks",
-    "friedman_test", "nemenyi_cd", "bonferroni_dunn_cd",
-    "wilcoxon_signed_rank", "sign_test",
-    "control_apv_table", "pairwise_apv_table",
-    "wilcoxon_holm_pairwise",
+    "friedman_test", "friedman_aligned_ranks_test", "quade_test",
+    "nemenyi_cd", "bonferroni_dunn_cd",
+    "wilcoxon_signed_rank", "sign_test", "bayesian_sign_test",
+    "control_apv_table", "pairwise_apv_table", "format_apv_table",
+    "wilcoxon_holm_pairwise", "significant_pairs_text",
     "win_loss_tie", "wlt_summary",
     "percent_of_max", "pama_fold_level",
     "plot_cd_diagram", "plot_significance_matrix",

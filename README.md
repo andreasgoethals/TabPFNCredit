@@ -406,8 +406,8 @@ viewers:
 |---|---|
 | `Data_Exploration` | Dataset inventory, class balance, LGD target shapes, per-dataset structure. |
 | `Experiment0` | Pilot coverage + quick performance / cost overview. |
-| `Experiment1.1-PD` / `1.2-LGD` | Headline benchmark: metric heatmaps, rankings, boxplots, win/loss, PAMA, HPO effect, cost/quality frontier. |
-| `Experiment1.3-Stat` | Full statistical methodology of Demšar (2006) + García & Herrera (2008): Friedman + Iman–Davenport, Nemenyi **critical-difference diagrams**, Bonferroni–Dunn and step procedures, all-pairwise APVs (Holm, **Shaffer**, **Bergmann–Hommel**), Wilcoxon / sign tests (backed by `src/utils/statistical_testing.py`). |
+| `Experiment1.1-PD` / `Experiment1.3-LGD` | Headline benchmark (PD / LGD): metric heatmaps, rankings, boxplots, win/loss, HPO effect, cost/quality frontier. |
+| `Experiment1.2-PD-Stat` / `Experiment1.4-LGD-Stat` | Statistical analysis (PD / LGD), with narrated sections: PAMA, Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams**, Win/Loss matrix, Holm-corrected significant pairs, all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
 | `Experiment2` / `Experiment3` | Learning curves / imbalance curves — one line per method, averaged over datasets. |
 | `Results_Checking` | Completeness / sanity audit of the result files. |
 

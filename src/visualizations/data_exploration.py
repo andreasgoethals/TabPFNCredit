@@ -269,19 +269,20 @@ def save_or_show(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
     if out_path is not None:
         pdf_path = Path(out_path).with_suffix(".pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(pdf_path, bbox_inches="tight")
-    _display_inline(fig)
+        fig.savefig(pdf_path, bbox_inches="tight", dpi=200)   # crisp on disk
+    _display_inline(fig, dpi=96)                              # small inline PNG
     plt.close(fig)
     return pdf_path
 
 
-def _display_inline(fig: plt.Figure) -> None:
+def _display_inline(fig: plt.Figure, *, dpi: int = 96) -> None:
     """Encode ``fig`` as PNG bytes and push through IPython.display.Image.
 
     Works with the Agg backend (no GUI required) and is a harmless no-op
     when IPython is not installed. Kept separate so other modules (e.g.
     ``experiment_plots`` and ``calibration_plots``) can re-use the same
-    code path.
+    code path. ``dpi`` is kept modest so the PNG embedded in the committed
+    notebook stays small (the on-disk PDF is saved crisp separately).
     """
     try:
         from IPython.display import Image, display
@@ -290,7 +291,7 @@ def _display_inline(fig: plt.Figure) -> None:
     import io
     buf = io.BytesIO()
     try:
-        fig.savefig(buf, format="png", bbox_inches="tight", dpi=110)
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=dpi)
     except Exception:
         return
     buf.seek(0)

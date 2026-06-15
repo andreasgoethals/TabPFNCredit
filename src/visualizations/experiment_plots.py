@@ -58,6 +58,16 @@ LABEL_FS = 13    # axis labels
 TITLE_FS = 15    # panel titles
 ANNOT_FS = 8     # heatmap cell numbers -- small enough to fit a "0.xxx" cell
 
+# Well-known baselines worth labelling in an otherwise-crowded scatter (the
+# foundation models are always added on top of this at call time). Listed in a
+# few likely spellings so the match is robust to registry naming.
+NOTABLE_METHODS = {
+    "LogReg", "logreg", "LinearRegression", "xgboost", "XGBoost",
+    "catboost", "CatBoost", "lightgbm", "LightGBM", "randomforest",
+    "RandomForest", "mlp", "MLP", "knn", "KNN", "svm", "SVM",
+    "NaiveBayes", "ftt", "FTTransformer", "resnet", "tabnet", "node",
+}
+
 
 def apply_style(rc: Optional[dict] = None, sns_style: str = "whitegrid") -> None:
     """Apply project-default rcParams + seaborn style. Idempotent."""
@@ -98,27 +108,34 @@ def _foundation_methods() -> set:
         return set()
 
 
-def _color_foundation_ticks(ax) -> None:
-    """Render tabular-foundation-model names in red+bold on the x axis, so
-    they stand out in every chart."""
+def _color_foundation_ticks(ax, axis: str = "x") -> None:
+    """Render tabular-foundation-model names in crimson + bold on the given
+    tick ``axis`` ("x" or "y"), so they stand out consistently in every chart
+    (including the stats module, which reuses this)."""
     fnd = _foundation_methods()
     if not fnd:
         return
-    for lbl in ax.get_xticklabels():
+    labels = ax.get_xticklabels() if axis == "x" else ax.get_yticklabels()
+    for lbl in labels:
         if lbl.get_text() in fnd:
             lbl.set_color("crimson")
             lbl.set_fontweight("bold")
 
 
-def _style_method_axis(ax) -> None:
+def _style_method_axis(ax, *, connect: bool = False) -> None:
     """Uniform per-method x axis: 45-deg right-aligned labels at TICK_FS, with
-    foundation-model names highlighted in red."""
+    foundation-model names highlighted in red. ``connect=True`` draws a thin
+    dotted vertical line at each tick (from the x-axis up to the box/point),
+    so it is unambiguous which method a box belongs to."""
     ax.tick_params(axis="x", labelsize=TICK_FS)
     ax.tick_params(axis="y", labelsize=TICK_FS)
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45)
         lbl.set_horizontalalignment("right")
     _color_foundation_ticks(ax)
+    if connect:
+        for x in ax.get_xticks():
+            ax.axvline(x, color="0.6", lw=0.6, ls=":", alpha=0.7, zorder=0)
 
 
 def _method_bar(
@@ -328,19 +345,20 @@ def method_ranking_bars(
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Bar chart of each method's mean rank for ``metric`` (1 = best), with ±
-    std error bars. The rank is taken WITHIN each (dataset, fold), so the std
-    is fold-level; the lower whisker is clipped so it can never dip below the
-    best-possible rank of 1 (no impossible below-zero bars)."""
-    rk = _fold_ranks(df, metric, higher_is_better)
-    mean_rank = rk["mean"].sort_values()                        # lowest (best) first
-    std = rk["std"].reindex(mean_rank.index).fillna(0.0).to_numpy()
+    std error bars. Uses the SAME per-dataset ranks as :func:`rank_heatmap`
+    (one rank per dataset, via ``_rank_pivot``), so the matrix and this bar are
+    ordered identically. The lower whisker is clipped so it can never dip below
+    the best-possible rank of 1 (no impossible below-zero bars)."""
+    ranks = _rank_pivot(df, metric, higher_is_better)           # per-dataset; matches the matrix
+    mean_rank = ranks.mean(axis=0).sort_values()               # lowest (best) first
+    std = ranks.std(axis=0).reindex(mean_rank.index).fillna(0.0).to_numpy()
     mean = mean_rank.to_numpy()
     lower = np.minimum(std, np.maximum(mean - 1.0, 0.0))        # never cross rank 1
     yerr = np.vstack([lower, std])
     pm = _pretty_metric(metric)
     return _method_bar(
         mean_rank, errs=yerr, value_fmt="{:.2f}",
-        title=f"{task_name} method ranking by {pm} (mean rank ± fold std; lower = better)",
+        title=f"{task_name} method ranking by {pm} (mean rank ± std across datasets; lower = better)",
         ylabel=f"mean rank ({pm}; lower is better)",
         stem=f"{task_name.lower()}_ranking_{metric.lower()}",
         out_dir=out_dir, figsize=figsize,
@@ -509,13 +527,15 @@ def metric_boxplots(
     # One value per (dataset, method) so the box shows the cross-DATASET spread
     # regardless of whether ``df`` is per-fold or per-method.
     per_ds = df.groupby(["dataset", "method"], as_index=False)[col].mean()
-    order = (per_ds.groupby("method")[col].median()
+    # Order by MEAN (not median) so this box plot is sorted identically to the
+    # matrix and bar of the same metric -- one consistent ordering everywhere.
+    order = (per_ds.groupby("method")[col].mean()
              .sort_values(ascending=not higher_is_better).index)
     fig, ax = plt.subplots(figsize=figsize)
     sns.boxplot(data=per_ds, x="method", y=col, order=order, color="#cfe8ff", ax=ax)
     sns.stripplot(data=per_ds, x="method", y=col, order=order,
                   color="#1f4e79", size=4, alpha=0.6, ax=ax)
-    _style_method_axis(ax)
+    _style_method_axis(ax, connect=True)
     pm = _pretty_metric(metric)
     ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlabel("")
@@ -608,7 +628,7 @@ def compute_time_boxplot(
     sns.stripplot(data=work, x="method", y="t", order=order,
                   color="#1f4e79", size=4, alpha=0.6, ax=ax)
     ax.set_yscale("log")
-    _style_method_axis(ax)
+    _style_method_axis(ax, connect=True)
     ax.set_ylabel("compute time per fold (s, log)", fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlabel("")
     ax.set_title(f"{task_name} compute-time distribution (fit + predict, fastest left)",
@@ -674,7 +694,7 @@ def rank_boxplots(
     sns.stripplot(data=long, x="method", y="rank", order=order,
                   color="#1f4e79", size=4, alpha=0.6, ax=ax)
     ax.invert_yaxis()  # rank 1 (best) on top
-    _style_method_axis(ax)
+    _style_method_axis(ax, connect=True)
     pm = _pretty_metric(metric)
     ax.set_ylabel(f"rank by {pm} (1 = best)", fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlabel("")
@@ -709,8 +729,10 @@ def hpo_improvement_bars(
     fig, ax = plt.subplots(figsize=figsize)
     colors = ["#2ca02c" if v >= 0 else "#d62728" for v in per_method["mean"]]
     ax.barh(per_method.index, per_method["mean"], xerr=per_method["std"].fillna(0),
-            color=colors, error_kw={"alpha": 0.4})
+            color=colors, edgecolor="black", linewidth=0.6, error_kw={"alpha": 0.4})
     ax.axvline(0, color="black", lw=1)
+    ax.tick_params(labelsize=TICK_FS)
+    _color_foundation_ticks(ax, axis="y")     # foundation names in crimson, like everywhere
     pm = _pretty_metric(metric)
     ax.set_xlabel(f"HPO improvement in {pm} (positive = tuning helps)",
                   fontsize=LABEL_FS, fontweight="bold")
@@ -730,10 +752,10 @@ def runtime_performance_scatter(
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Compute cost (fit + predict, log x) vs mean metric -- the cost/quality
-    frontier. Foundation models are drawn as red stars, everything else as
-    blue circles; every point gets a leader line to its label so the mapping
-    is unambiguous, and the Pareto-best methods (top-left: cheap + accurate)
-    sit toward the upper left."""
+    frontier. Foundation models are red stars, everything else blue circles.
+    To keep the figure legible, only the **notable** methods (all foundation
+    models + the well-known baselines in ``NOTABLE_METHODS``) are labelled, and
+    their names sit right next to their dot; the rest stay as unlabelled dots."""
     from matplotlib.lines import Line2D
 
     mean_col = _resolve_mean_column(df, metric)
@@ -746,36 +768,39 @@ def runtime_performance_scatter(
            .reset_index().rename(columns={"index": "method"}))
     agg = agg.sort_values("perf", ascending=not higher_is_better).reset_index(drop=True)
     fnd = _foundation_methods()
+    notable = fnd | NOTABLE_METHODS
 
     fig, ax = plt.subplots(figsize=figsize or (12, 8))
     ax.set_xscale("log")
     for r in agg.itertuples():
         is_f = r.method in fnd
-        ax.scatter(r.time, r.perf, s=150 if is_f else 90,
+        ax.scatter(r.time, r.perf, s=150 if is_f else 80,
                    marker="*" if is_f else "o",
                    color="crimson" if is_f else "#1f77b4",
                    edgecolor="black", linewidth=0.7, zorder=3)
-    # Labels in a RESERVED RIGHT BAND, evenly spaced in y (so no two labels can
-    # overlap and none sits on a dot), each joined to its dot by a leader line.
-    # Both dots and labels are ordered by performance, so the lines stay
-    # roughly parallel and rarely cross. The x-limits are widened on the log
-    # axis to free ~40% of the width on the right for the label column.
-    xlo, xhi = agg["time"].min(), agg["time"].max()
-    ratio = (xhi / xlo) if xlo > 0 else 10.0
-    ax.set_xlim(xlo / ratio ** 0.06, xlo * ratio ** (1.0 / 0.60))
-    ax.margins(y=0.08)
-    order = agg.sort_values("perf", ascending=False).reset_index(drop=True)
-    n = len(order)
-    y_fracs = np.linspace(0.975, 0.025, n) if n > 1 else [0.5]
-    for yf, r in zip(y_fracs, order.itertuples()):
+    ax.margins(x=0.16, y=0.12)
+    # Label ONLY the notable methods, each right next to its dot. Among the few
+    # labelled points, alternate above/below and nudge consecutive near-equal-x
+    # points further out so the handful of names don't collide.
+    lab = agg[agg["method"].isin(notable)].reset_index(drop=True)
+    last_x, bump = None, 0
+    for i, r in enumerate(lab.itertuples()):
+        if last_x is not None and r.time > 0 and last_x > 0 \
+                and abs(np.log10(r.time) - np.log10(last_x)) < 0.08:
+            bump += 1
+        else:
+            bump = 0
+        last_x = r.time
+        above = (i % 2 == 0)
+        dy = (9 + 11 * bump) * (1 if above else -1)
         is_f = r.method in fnd
         ax.annotate(
-            r.method, xy=(r.time, r.perf), xycoords="data",
-            xytext=(0.66, yf), textcoords=ax.transAxes,
-            ha="left", va="center", fontsize=9,
+            r.method, xy=(r.time, r.perf), xytext=(0, dy),
+            textcoords="offset points", ha="center",
+            va="bottom" if above else "top", fontsize=9,
             color="crimson" if is_f else "black",
             fontweight="bold" if is_f else "normal",
-            arrowprops=dict(arrowstyle="-", color="0.6", lw=0.6, shrinkA=0, shrinkB=4),
+            arrowprops=dict(arrowstyle="-", color="0.55", lw=0.6),
         )
     ax.grid(True, which="both", alpha=0.25)
     pm = _pretty_metric(metric)
@@ -898,21 +923,6 @@ def _total_time(df: pd.DataFrame, agg: str = "median") -> Optional[pd.Series]:
     return total.groupby(df["method"]).agg(agg).sort_values()
 
 
-def _fold_ranks(df: pd.DataFrame, metric: str, higher_is_better: bool) -> pd.DataFrame:
-    """Per-method mean & std of the method's rank, ranked WITHIN each
-    (dataset, fold) when fold ids are present (so the spread is fold-level),
-    else within each dataset. Returns columns ``mean`` / ``std``."""
-    col = _resolve_mean_column(df, metric)
-    if "fold_id" in df.columns:
-        sub = df[["dataset", "fold_id", "method", col]].copy()
-        sub["rank"] = sub.groupby(["dataset", "fold_id"])[col].rank(
-            ascending=not higher_is_better)
-        g = sub.groupby("method")["rank"]
-        return pd.DataFrame({"mean": g.mean(), "std": g.std()})
-    ranks = _rank_pivot(df, metric, higher_is_better)
-    return pd.DataFrame({"mean": ranks.mean(axis=0), "std": ranks.std(axis=0)})
-
-
 def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> Optional[Path]:
     """Save ``fig`` to ``{out_dir}/{stem}.pdf`` AND display inline in Jupyter.
 
@@ -933,10 +943,12 @@ def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> Optional[Path]
         out_dir = Path(out_dir)
         out_dir.mkdir(parents=True, exist_ok=True)
         saved = out_dir / f"{stem}.pdf"
-        fig.savefig(saved, bbox_inches="tight")
-    # Inline display inside Jupyter; no-op elsewhere.
+        # Crisp on disk (vector PDF + high-dpi raster elements like heatmaps).
+        fig.savefig(saved, bbox_inches="tight", dpi=200)
+    # Inline display: a LOW-dpi PNG keeps the committed notebook small enough
+    # for GitHub (the on-disk PDF stays crisp).
     from src.visualizations.data_exploration import _display_inline
-    _display_inline(fig)
+    _display_inline(fig, dpi=96)
     plt.close(fig)
     return saved
 
