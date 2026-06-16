@@ -107,7 +107,7 @@ methods:
     tabicl_v2: true        # TabICL v2 (regression support added in ICML 2026)
     tabdpt: true           # TabDPT (supports regression)
     tabptm: false          # TabPTM
-    mitra: false           # MITRA
+    mitra: true           # MITRA
 
     # 2. Transformer-based Architectures
     ftt: true             # Feature Tokenizer Transformer
