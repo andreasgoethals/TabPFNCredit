@@ -442,7 +442,7 @@ def _run_one_fold(
         val_y_prob = None
         n_below = n_above = 0
 
-        # Cost-sensitive metrics (Expected_Loss_Normalized + profit) -- B9
+        # Cost-sensitive metrics (Expected_Loss_Normalized + profit).
         try:
             cost_metrics = cost_sensitive_summary(y_test, y_prob) if y_prob is not None else {}
         except Exception:
