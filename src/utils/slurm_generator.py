@@ -809,18 +809,26 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
     cpu_slowdown = float(os.environ.get("TABPFN_CPU_FOUNDATION_SLOWDOWN", 10.0))
 
     # Source points: small-data work currently homed on the wICE GPU queues.
+    # Track WHICH wICE GPU partition each point is homed on, so we only skip
+    # *that* partition as a replica target -- the other wICE GPU (e.g. A100 when
+    # foundation work homes on H100) is free capacity and should also get a
+    # replica rather than sit idle.
     source: List[dict] = []
+    source_homes: set = set()
     for src in ("gpu_h100", "gpu_a100"):
-        source.extend(it for it in by_partition.get(src, [])
-                      if _small_data_eligible(it, row_cap))
+        src_pts = [it for it in by_partition.get(src, [])
+                   if _small_data_eligible(it, row_cap)]
+        if src_pts:
+            source_homes.add(src)
+        source.extend(src_pts)
     if not source:
         return False
 
     n_added = {}
     replica_idx = 0
     for dst in targets:
-        if dst in ("gpu_h100", "gpu_a100"):
-            continue  # already the home of these points
+        if dst in source_homes:
+            continue  # don't duplicate points onto the partition they're homed on
         if dst == "cpu" or PARTITIONS[dst].gpus_per_node == 0:
             rep = [dict(it) for it in source
                    if it.get("row_limit") is not None

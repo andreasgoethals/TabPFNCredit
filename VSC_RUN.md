@@ -234,18 +234,28 @@ experiment for missing points and fans them out across wICE + Genius + Mindwell:
 # 1. Cancel everything still queued/running (all clusters).
 scancel -M all -u "$USER"
 
-# 2. Pull your latest TALENT fork + the benchmark, and refresh the install.
-cd "$VSC_DATA/TabPFNCredit" && git pull
-cd "$VSC_DATA/TALENT"       && git pull          # your personal TALENT fork
+# 2. Activate the environment on the login node.
 cd "$VSC_DATA/TabPFNCredit"
+module purge
+module load Python/3.12.3-GCCcore-13.3.0          # 'module spider Python/3.12' for the exact name
 source tabpfncreditvenv/bin/activate
-pip install -e "$VSC_DATA/TALENT"                # editable -> future fork pulls are live, no reinstall
-pip install -e ".[hpc]"                          # refresh the benchmark CLI
 
-# 3. Resubmit ONLY the missing points of ALL experiments, across every cluster.
+# 3. Pull the latest benchmark code (editable install -> the pull is live).
+git pull
+
+# 4. Re-fetch your TALENT fork from GitHub into the venv. TALENT is a git
+#    dependency (see pyproject: `TALENT @ git+https://github.com/andreasgoethals/TALENT@main`),
+#    so pip thinks it's "already satisfied" and skips a new commit unless forced.
+#    --no-cache-dir forces a fresh clone of @main; --no-deps leaves torch/etc. alone.
+pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/andreasgoethals/TALENT@main"
+
+# 5. Sanity-check that the new HPO feature is in the freshly fetched TALENT.
+python -c "from TALENT.model.lib.tuning_metric import supported_tune_metrics; print(supported_tune_metrics())"
+
+# 6. Resubmit ONLY the missing points of ALL experiments, across every cluster.
 TABPFN_ALL_CLUSTERS=1 tabpfncredit resubmit --all
 
-# 4. After the cross-cluster (Genius/Mindwell) arrays finish, refresh the CSVs
+# 7. After the cross-cluster (Genius/Mindwell) arrays finish, refresh the CSVs
 #    (the wICE-gated summarize ran automatically; this folds in cross-cluster results).
 for E in Experiment0 Experiment1 Experiment2 Experiment3; do
     tabpfncredit summarize --experiment "$E"
@@ -256,8 +266,7 @@ done
 experiment, then submits only the gaps; `TABPFN_ALL_CLUSTERS=1` replicates the
 small-data Exp 2/3 GPU sweeps onto every GPU partition (wICE A100/H100, Genius
 V100, Mindwell B200) so a slow dataset like HackerEarth is chewed through by all
-clusters at once. Adjust the `git pull` paths to wherever your TALENT fork and
-the repo are checked out on the VSC.
+clusters at once.
 
 **Already have results from an earlier run?** Copy them into the new results
 root once and they're skipped automatically. Results now live on project
