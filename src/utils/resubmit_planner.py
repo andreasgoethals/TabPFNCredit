@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from src.methods.runtime_profile import estimate_point_seconds
 from src.utils.config_reader import load_config
 from src.utils.paths import results_root as _default_results_root
-from src.utils.result_io import has_complete_packed_point, has_complete_result
+from src.utils.result_io import complete_packed_points, has_complete_result
 
 # Experiments whose sweep points are PACKED into one <method>.json per cell.
 _PACKED_EXPERIMENTS = ("experiment2", "experiment3")
@@ -58,21 +58,15 @@ def find_missing_work_items(
 
     # For PACKED experiments the per-point checker would re-read and re-parse
     # the cell's whole packed JSON for EVERY point (thousands of parses per
-    # cell -- this froze `resubmit` on Experiment 2). Instead, parse each
-    # cell's packed file ONCE into the set of complete point names.
+    # cell -- this froze `resubmit` on Experiment 2). Instead, parse each cell's
+    # packed file(s) ONCE into the set of complete point names. The cell may be
+    # spread over MANY per-task shard files (intra-cell parallelism), so this
+    # unions across ``<method>.json`` + every ``<method>__shard_*.json``.
     def _complete_points_of_cell(task: str, dataset: str, method: str) -> set:
-        import json
-        path = root / exp / task.lower() / dataset / f"{method}.json"
-        if not path.exists():
-            return set()
-        try:
-            payload = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            return set()
-        return {
-            pname for pname, entry in (payload.get("points") or {}).items()
-            if len(entry.get("folds") or {}) >= cv
-        }
+        return complete_packed_points(
+            base=root, experiment=exp, task=task, dataset=dataset,
+            method_base=method, expected_folds=cv,
+        )
 
     for cell in _build_task_list(config):
         if packed:

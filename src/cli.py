@@ -70,6 +70,7 @@ from src.methods.method_config import (  # noqa: E402
 from src.methods.method_runner import run_talent_method  # noqa: E402
 from src.methods.runtime_profile import get_profile, estimate_point_seconds  # noqa: E402
 from src.utils.slurm_generator import (  # noqa: E402
+    MAX_ARRAY_SLOTS,
     PARTITIONS,
     generate_scripts_for_experiment,
     generate_summarize_script,
@@ -308,9 +309,14 @@ def _sweep_points(experiment: str, config: dict, cell: dict) -> List[dict]:
 
 def _run_one_point(
     experiment: str, config: dict, cell: dict, point: dict, results_root: Path,
-    *, verbose: bool = False,
+    *, verbose: bool = False, shard: Optional[str] = None,
 ) -> str:
-    """Run + save ONE sweep point. Returns 'skip' / 'done' / 'fail'."""
+    """Run + save ONE sweep point. Returns 'skip' / 'done' / 'fail'.
+
+    ``shard`` (the running array task's unique id) routes Experiment 2/3 packed
+    writes to a per-task shard file so a cell's sweep points can be split across
+    many parallel tasks. ``None`` (local runs) writes the legacy single file.
+    """
     task, dataset, method = cell["task"], cell["dataset"], cell["method"]
     name = point["name"]
     cv = config["split"]["cv_splits"]
@@ -387,6 +393,7 @@ def _run_one_point(
             save_packed_point(
                 fold_results, base=results_root, experiment=experiment.lower(),
                 task=task, dataset=dataset, method_base=method, point_name=name,
+                shard=shard,
             )
         else:
             # One file per (dataset, method) point (Experiment 0/1).
@@ -728,6 +735,23 @@ def cmd_resubmit(
         "check [bold]squeue -u $USER[/bold] and scancel leftovers first.\n"
     )
 
+    # AGGRESSIVE parallelism, submit-safe. Each array element counts toward the
+    # ~500 per-user submit cap (`normal` QoS). Split a ~450 budget across the
+    # experiments being resubmitted and the up-to-3 partitions each can use, so
+    # a SINGLE-experiment resubmit gets ~150 slots/partition (vs the default 40)
+    # -- e.g. Experiment 3's slow cells fan out across many tasks. An explicit
+    # $TABPFN_MAX_ARRAY_SLOTS always wins. Query your real limit with:
+    #   sacctmgr show qos normal format=Name,MaxSubmitJobsPerUser
+    _n_targets = max(1, len(targets))
+    if os.environ.get("TABPFN_MAX_ARRAY_SLOTS"):
+        resubmit_max_slots = int(os.environ["TABPFN_MAX_ARRAY_SLOTS"])
+    else:
+        resubmit_max_slots = max(MAX_ARRAY_SLOTS, 450 // (_n_targets * 3))
+    console.print(
+        f"[dim]Per-partition array cap this run: {resubmit_max_slots} "
+        f"(targets={_n_targets}; override with TABPFN_MAX_ARRAY_SLOTS).[/dim]\n"
+    )
+
     for exp in targets:
         console.print(f"[bold]== {exp} ==[/bold]")
         try:
@@ -752,6 +776,7 @@ def cmd_resubmit(
         cv = load_config(exp)["split"]["cv_splits"]
         jobs = generate_scripts_for_experiment(
             experiment=exp, work_items=items, out_dir=out_dir, n_folds=cv,
+            max_slots=resubmit_max_slots,
         )
         summarize_script = generate_summarize_script(experiment=exp, out_dir=out_dir)
         for j in jobs:
@@ -770,21 +795,47 @@ def cmd_resubmit(
         summarize_cluster = PARTITIONS["cpu"].cluster
         dep_ids: List[str] = []
         cross_ids: List[str] = []
-        for j in jobs:
-            jid = _sbatch(j.path)
+        # Submit the wICE primary arrays FIRST so they always get in under the
+        # submit limit; cross-cluster replica arrays (Genius/Mindwell) go after
+        # and merely accelerate -- if the limit is hit they drop harmlessly.
+        jobs_ordered = sorted(
+            jobs, key=lambda jj: PARTITIONS[jj.partition_key].cluster != summarize_cluster
+        )
+        for j in jobs_ordered:
+            # Tolerant submit: a cross-cluster array (e.g. Mindwell gpu_b200)
+            # the account can't reach must NOT abort the whole resubmit -- those
+            # are replica accelerators; the wICE primary still completes the run.
+            try:
+                jid = _sbatch(j.path)
+            except Exception as exc:
+                console.print(
+                    f"  [yellow]skip[/yellow] {j.path.name} ({j.partition_key}): "
+                    f"submit failed ({exc}). Continuing -- other clusters carry it."
+                )
+                continue
             console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
             (dep_ids if PARTITIONS[j.partition_key].cluster == summarize_cluster
              else cross_ids).append(jid)
         if cross_ids:
             console.print(
-                f"  [yellow]note:[/yellow] {', '.join(cross_ids)} run on another cluster; "
-                f"re-run [bold]tabpfncredit summarize[/bold] after they finish."
+                f"  [yellow]note:[/yellow] {', '.join(cross_ids)} run on another cluster "
+                f"(cross-cluster afterok is not possible); re-run "
+                f"[bold]tabpfncredit summarize --experiment {exp}[/bold] after they finish."
             )
-        summarize_id = _sbatch(
-            summarize_script,
-            dependency=("afterok:" + ":".join(dep_ids)) if dep_ids else None,
-        )
-        console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}\n")
+        if dep_ids:
+            summarize_id = _sbatch(
+                summarize_script, dependency="afterok:" + ":".join(dep_ids),
+            )
+            console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}\n")
+        else:
+            # No same-cluster (wICE) primary array to depend on -- submitting
+            # summarize now would run it before any results exist. Tell the user
+            # to run it once the cross-cluster arrays finish.
+            console.print(
+                f"  [yellow]no wICE primary array[/yellow] to gate summarize on; "
+                f"run [bold]tabpfncredit summarize --experiment {exp}[/bold] when "
+                f"the arrays above finish.\n"
+            )
 
 
 # ============================================================================
@@ -867,6 +918,14 @@ def cmd_slurm_task(
     config = load_config(experiment)
     results_root = _results_root()
 
+    # Unique-per-array-task shard id so Experiment 2/3 cells split across many
+    # tasks each write their OWN packed shard file (sole writer, no lock). The
+    # array job id namespaces it across partitions/resubmissions so replicated
+    # or re-submitted tasks never collide on a file; skip / summarise read the
+    # union across all shards.
+    _job = (os.environ.get("SLURM_ARRAY_JOB_ID") or os.environ.get("SLURM_JOB_ID") or "").strip()
+    shard = f"{_job}_{array_id}" if _job else str(array_id)
+
     # The plan already holds the exact sweep POINTS assigned to this slot
     # (the generator sharded each cell's points across slots so no slot blows
     # the 72 h wall). Run each point directly -- no re-expansion -- so a cell's
@@ -882,7 +941,7 @@ def cmd_slurm_task(
             "sampling": item.get("sampling"),
             "copy_from": item.get("copy_from"),
         }
-        _run_one_point(experiment, config, cell, point, results_root, verbose=verbose)
+        _run_one_point(experiment, config, cell, point, results_root, verbose=verbose, shard=shard)
 
 
 # ============================================================================

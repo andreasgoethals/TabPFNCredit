@@ -151,6 +151,21 @@ def collect_fold_results(base: Path, experiment: str):
     rows: List[Dict[str, Any]] = []
     for path in _iter_method_files(base, experiment):
         rows.extend(_rows_from_method_file(path, base))
+    # A sweep point normally lives in exactly one packed shard, but replicated
+    # runs (TABPFN_REPLICATE_PARTITIONS) or overlapping resubmissions can write
+    # it to more than one shard file. Dedupe on (task, dataset, method_full,
+    # fold) -- last writer wins -- so a duplicated point doesn't inflate fold
+    # counts or skew the per-method aggregates.
+    if rows:
+        seen: set = set()
+        deduped: List[Dict[str, Any]] = []
+        for r in rows:
+            key = (r.get("task"), r.get("dataset"), r.get("method_full"), r.get("fold_id"))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(r)
+        rows = deduped
     if not rows:
         logger.warning("No fold results found under %s", base / experiment)
     if _HAS_POLARS:

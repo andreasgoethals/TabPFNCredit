@@ -183,7 +183,30 @@ PARTITIONS: dict[str, PartitionSpec] = {
         max_walltime_hours=72,
         cost_weight=569.44,
     ),
+    # Tier-2 Mindwell (production since 2026-06): 3 nodes x 8 NVIDIA B200 SXM6
+    # (192 GiB, Blackwell sm_100), 2x 96-core AMD EPYC 9655, 1536 GiB RAM ->
+    # 24 cores & ~192 GB per GPU. Brand-new GPUs: the venv's torch build must
+    # ship Blackwell (sm_100) kernels and a 2025a+ Python module, and the
+    # project account must have Mindwell credits/storage. Used ONLY as a
+    # cross-cluster REPLICA target (never the afterok primary), so if any of
+    # those prerequisites are missing the replica simply fails harmlessly and
+    # wICE still completes the work. Opt in via TABPFN_ALL_CLUSTERS / the
+    # replicate set.
+    "gpu_b200": PartitionSpec(
+        cluster="mindwell", partition="gpu_b200",
+        cpus_per_gpu=16,
+        mem_per_gpu_mb=180_000,
+        gpus_per_node=1,
+        max_walltime_hours=72,
+        cost_weight=600.0,
+    ),
 }
+
+# GPU partitions across ALL clusters, used by the "all clusters at once" mode
+# (TABPFN_ALL_CLUSTERS). wICE A100/H100 stay the afterok primary; Genius V100
+# and Mindwell B200 are added as replicas. P100 is excluded (torch 2.8 ships
+# sm_70+ only; Pascal sm_60 is unusable).
+ALL_GPU_PARTITIONS = ("gpu_h100", "gpu_a100", "gpu_v100", "gpu_b200")
 
 
 def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
@@ -243,20 +266,47 @@ def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
 MAX_ARRAY_SLOTS = 40
 
 
+def _split_group_by_cap(group: List[dict], cap_seconds: int) -> List[List[dict]]:
+    """Split one cell's points into contiguous sub-groups each ``<= cap_seconds``.
+
+    Preserves sweep order within a sub-group (so a shard holds a contiguous
+    slice of the curve). A single point costing more than the cap becomes its
+    own sub-group. Used only for packed, splittable experiments (2/3).
+    """
+    subs: List[List[dict]] = []
+    cur: List[dict] = []
+    cur_est = 0
+    for it in group:
+        e = int(it.get("est_seconds", 0))
+        if cur and cur_est + e > cap_seconds:
+            subs.append(cur)
+            cur, cur_est = [], 0
+        cur.append(it)
+        cur_est += e
+    if cur:
+        subs.append(cur)
+    return subs or [group]
+
+
 def pack_work_items(
     items: List[dict],
     *,
     cap_seconds: int,
     max_slots: int = MAX_ARRAY_SLOTS,
+    split_cells: bool = False,
 ) -> tuple[List[List[dict]], int]:
     """Greedy LPT bin-pack work items into ``<= max_slots`` slots.
 
-    Points are first grouped by their ``(task, dataset, method)`` **cell**, and
-    each whole cell is packed as a unit — so every sweep point of a cell lands
-    in the SAME slot (one array task). Experiment 2/3 depend on this: their
-    points are packed into a single per-cell ``<method>.json``, which is only
-    race-free when one task owns the whole cell. For non-sweep experiments a
-    cell is just 1-2 points, so the grouping is a no-op.
+    Points are grouped by their ``(task, dataset, method)`` **cell**. By default
+    each whole cell is packed as a unit (Experiment 0/1: a cell is 1-2 points,
+    and Experiment 1's HPO-copy point must share its NO_HPO point's slot).
+
+    When ``split_cells`` is True (Experiment 2/3), a cell whose estimate exceeds
+    ``cap_seconds`` is split into contiguous sub-groups so its sweep points fan
+    out across MULTIPLE array tasks and run in parallel — each task writes its
+    own per-task packed shard file, so there is still a single writer per file.
+    Cheap cells (estimate within one slot) stay whole, i.e. one shard, keeping
+    the file/inode count low.
 
     ``items`` are dicts each carrying an ``est_seconds`` cost plus the point
     payload (``dataset``, ``method``, ``task``, ``name``, ``tune``,
@@ -274,11 +324,23 @@ def pack_work_items(
     if not items:
         return [], 0
 
-    # Group points by cell so a cell is never split across array tasks.
+    # Group points by cell. By default a cell stays whole; with split_cells the
+    # cell's points may fan out across tasks (each task -> its own shard file).
     groups: dict = {}
     for it in items:
         groups.setdefault((it.get("task"), it.get("dataset"), it.get("method")), []).append(it)
     group_list = list(groups.values())
+
+    if split_cells:
+        split_list: List[List[dict]] = []
+        for g in group_list:
+            g_est = sum(int(it.get("est_seconds", 0)) for it in g)
+            if len(g) <= 1 or g_est <= cap_seconds:
+                split_list.append(g)            # cheap cell -> one shard
+            else:
+                split_list.extend(_split_group_by_cap(g, cap_seconds))
+        group_list = split_list
+
     group_est = [sum(int(it.get("est_seconds", 0)) for it in g) for g in group_list]
 
     total = sum(group_est)
@@ -534,6 +596,12 @@ def generate_scripts_for_experiment(
     if max_slots is None:
         max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", MAX_ARRAY_SLOTS))
 
+    # Experiment 2/3 pack a cell's sweep points into per-task shard files, so a
+    # big cell's points may be split across array tasks (intra-cell parallelism).
+    # Experiment 0/1 keep cells whole (1-2 points; Exp1's HPO-copy needs its
+    # NO_HPO sibling in the same task).
+    split_cells = experiment.lower() in ("experiment2", "experiment3")
+
     import logging
     _log = logging.getLogger(__name__)
 
@@ -576,6 +644,7 @@ def generate_scripts_for_experiment(
         cap_seconds = int(0.95 * spec.max_walltime_hours * 3600)
         slots, max_slot_seconds = pack_work_items(
             items, cap_seconds=cap_seconds, max_slots=max_slots,
+            split_cells=split_cells,
         )
         if not slots:
             continue
@@ -711,12 +780,27 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
     """
     targets = [p.strip() for p in os.environ.get("TABPFN_REPLICATE_PARTITIONS", "").split(",")
                if p.strip()]
+    all_clusters = os.environ.get("TABPFN_ALL_CLUSTERS", "").strip().lower() in (
+        "1", "true", "yes", "on",
+    )
+    if not targets and all_clusters:
+        # "Use every cluster at once": replicate small-data GPU work onto every
+        # GPU partition across wICE + Genius + Mindwell. wICE A100/H100 remain
+        # the afterok primary; Genius V100 / Mindwell B200 are pure accelerators.
+        targets = list(ALL_GPU_PARTITIONS)
     if not targets:
         return False
     if "gpu_p100" in targets:
         log.warning("slurm-generate: gpu_p100 cannot run the installed torch 2.8 "
                     "wheels (sm_70+ only); dropping it from the replica set.")
     targets = [p for p in targets if p in PARTITIONS and p != "gpu_p100"]
+    if "gpu_b200" in targets:
+        log.warning("slurm-generate: replicating to Mindwell gpu_b200 (B200, "
+                    "Blackwell sm_100). Ensure the venv torch ships sm_100 kernels "
+                    "+ a 2025a Python module (export TABPFN_PYTHON_MODULE) and the "
+                    "account has Mindwell credits. These are REPLICA tasks -- if a "
+                    "prerequisite is missing they fail harmlessly and wICE still "
+                    "completes the work.")
     if not targets:
         return False
 

@@ -17,6 +17,25 @@ split across SLURM array jobs, and how to resume or migrate a partial run.
 - A VSC account with access to the Genius / wICE partitions.
 - The project checked out under `$VSC_DATA/TabPFNCredit`.
 
+### Cluster status & compute accounts (June 2026)
+
+- **Submit with a regular project account.** Jobs use
+  `#SBATCH --account=lp_verbekelab` (set in `slurm_generator.py`). Tier-2
+  **Mindwell** is now in production, so the old pilot project is no longer
+  valid — all jobs (Genius / wICE / Mindwell) must use a regular project
+  account; `lp_verbekelab` already is one. Credit rates are in the VSC docs.
+- **Default routing is wICE** (`batch_sapphirerapids`, `gpu_a100`, `gpu_h100`),
+  which is fully released. **Genius GPU (V100)** and the new **Mindwell GPU**
+  (`gpu_b200`, NVIDIA B200) are wired as cross-cluster **replica** targets:
+  set `TABPFN_ALL_CLUSTERS=1` to fan the small-data Exp 2/3 sweeps across all of
+  them at once (see the env table). Replicas never gate the summarize job, so a
+  still-reserved Genius GPU or an unconfigured Mindwell environment simply drops
+  harmlessly — wICE always completes the run.
+- **7-day CPU walltime:** wICE/Mindwell `*_long` CPU partitions allow up to
+  168 h (vs 72 h on the regular `batch_*`). The generator targets the 72 h
+  partitions; long CPU baselines (rare) can be sent to `batch_sapphirerapids_long`
+  manually if ever needed.
+
 ---
 
 ## Storage layout
@@ -125,20 +144,33 @@ sacct -j <jobid>
 
 ## 4. How large sweeps are split across jobs
 
-- The scheduling unit is a **single sweep point** (one result file), not a
-  whole `(dataset, method)` cell. The big sweeps — Experiment 2 (training-set
-  size) and Experiment 3 (minority proportion) — are sharded across array
-  tasks, so no single job runs a whole sweep serially.
+- The scheduling unit is a **single sweep point** (one curve point). For the
+  big sweeps — Experiment 2 (training-set size) and Experiment 3 (minority
+  proportion) — a `(dataset, method)` cell whose estimated cost exceeds one
+  slot's wall-time budget is **split across multiple array tasks that run in
+  parallel** ("multiple runs per dataset"), so no single job runs a whole sweep
+  (e.g. a slow dataset like HackerEarth) serially. Each task writes its own
+  packed shard file (`<method>__shard_<jobid>_<task>.json`); the skip-check,
+  the `resubmit` gap-scan and the summariser all read the **union** across a
+  cell's shards, so a point computed by any task — in this submission or a
+  previous one — counts as done. Cheap cells stay in a single shard, keeping
+  the file/inode count low.
 - Each array task is packed to fit under the partition **wall-time limit**
-  and capped at **`TABPFN_MAX_ARRAY_SLOTS` (default 40) per partition**,
-  because every array element counts toward the per-user submission limit
-  (~500 on the `normal` QOS) and the chained `run_all_experiments.sh`
-  pre-submits all experiments at once.
-- To parallelise a big sweep harder, raise the cap for a standalone run —
-  keep the **total** submitted array tasks under 500:
+  and capped at **`TABPFN_MAX_ARRAY_SLOTS` per partition**, because every array
+  element counts toward the per-user submission limit (~500 on the `normal`
+  QoS — query yours with
+  `sacctmgr show qos normal format=Name,MaxSubmitJobsPerUser`). The default is
+  **40** for `tabpfncredit experiment` (so the chained `run_all_experiments.sh`,
+  which pre-submits all experiments at once, stays under the cap), and
+  **auto-scaled** for `tabpfncredit resubmit` (a ~450 budget split across the
+  experiments it submits → ≈150/partition for a single experiment).
+- To parallelise a big sweep even harder, raise the cap for a standalone run —
+  keep the **total** submitted array tasks under your QoS limit:
 
   ```bash
-  TABPFN_MAX_ARRAY_SLOTS=150 tabpfncredit experiment Experiment2
+  TABPFN_MAX_ARRAY_SLOTS=150 tabpfncredit experiment Experiment3
+  # both wICE GPU queues at once on the small-data Exp 2/3 sweeps:
+  TABPFN_REPLICATE_PARTITIONS=gpu_h100,gpu_a100 tabpfncredit resubmit Experiment3
   ```
 
 The per-point time estimates are deliberately conservative (they double as
@@ -150,7 +182,8 @@ harmless.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `TABPFN_MAX_ARRAY_SLOTS` | 40 | Array tasks per partition. Every element counts toward the ~500-job submit limit. |
+| `TABPFN_MAX_ARRAY_SLOTS` | 40 (`experiment`) / auto (`resubmit`) | Array tasks per partition. Every element counts toward the per-user submit limit (~500 on `normal` QoS). `resubmit` auto-raises this to split a ~450 budget across the experiments it submits (≈150/partition for a single experiment), so a standalone resubmit parallelises hard out of the box; an explicit value always wins. |
+| `TABPFN_ALL_CLUSTERS` | unset | **Use every cluster at once.** Replicates the small-data GPU sweeps (Exp 2/3) onto **all** GPU partitions across wICE (`gpu_a100`, `gpu_h100`) + Genius (`gpu_v100`) + Mindwell (`gpu_b200`) in one submission. wICE stays the afterok primary; the others are pure accelerators raced via skip-if-done, so a cluster you can't reach — or where torch lacks that GPU's kernels — drops **harmlessly** (the submit is caught and skipped; wICE still completes the run). Equivalent to `TABPFN_REPLICATE_PARTITIONS=gpu_h100,gpu_a100,gpu_v100,gpu_b200`. Mindwell B200 needs a torch with Blackwell `sm_100` kernels + a 2025a Python module (export `TABPFN_PYTHON_MODULE`) and Mindwell credits on the account; if any are missing, those replicas just fail and wICE/Genius carry the work. |
 | `TABPFN_MAX_CONCURRENT` | unset | Re-adds a `%N` throttle on how many array elements run at once (none by default — SLURM fairshare governs). |
 | `TABPFN_CPU_CORES_PER_TASK` | 18 | Cores per CPU array task (half a node → two tasks pack per node). Set 36 for a whole node. |
 | `TABPFN_GPU_SPREAD` | 1 | Spill whole cells between `gpu_a100` ↔ `gpu_h100` when one queue is overloaded. Set 0 to pin work to its home partition (H100 costs ~4× the credits of A100). |
@@ -161,12 +194,15 @@ harmless.
 
 ## 5. Resume — and reuse results you already have
 
-Every result is a single file
-(`<results>/<experiment>/<task>/<dataset>/<method>.json`), and the runner
-**skips any point whose result already exists** with the full fold count
-("skip-if-done"). To resume after a time-out or cancellation, just run the
-same command again — finished points are read from disk and skipped, so
-nothing is lost between submissions:
+Every Experiment 0/1 result is a single file
+(`<results>/<experiment>/<task>/<dataset>/<method>.json`); Experiment 2/3 pack a
+cell's sweep points into one packed file per array task — `<method>.json`, or
+`<method>__shard_<jobid>_<task>.json` when a slow cell is split across several
+tasks. The runner **skips any point whose result already exists** with the full
+fold count ("skip-if-done"), reading the **union** across a cell's shards. To
+resume after a time-out or cancellation, just run the same command again —
+finished points are read from disk and skipped, so nothing is lost between
+submissions:
 
 ```bash
 scancel -M all -u $USER                # (optional) clear anything still queued
@@ -176,7 +212,10 @@ tabpfncredit experiment Experiment0    # re-runs only the missing points
 When most of an experiment is already done, prefer **`resubmit`** — it scans
 the results, prints an `expected / done / missing` report, and packs ONLY the
 missing points into dense fresh arrays (instead of re-sharding everything and
-queueing slots with nothing left to do):
+queueing slots with nothing left to do). It also **auto-scales the per-partition
+array cap** to spend the submit budget aggressively (≈150 slots/partition for a
+single experiment), so the missing points fan out across as many parallel tasks
+as the QoS limit allows:
 
 ```bash
 tabpfncredit resubmit Experiment1      # one experiment
@@ -185,6 +224,40 @@ tabpfncredit resubmit --all            # all four at once
 
 It wipes `scripts/<Exp>/_generated/` before writing new scripts, so cancel
 any still-pending arrays first (`squeue -u $USER`).
+
+### Cancel everything, update TALENT, and resubmit across all clusters
+
+The full "start clean and go maximally aggressive" recipe — scans **every**
+experiment for missing points and fans them out across wICE + Genius + Mindwell:
+
+```bash
+# 1. Cancel everything still queued/running (all clusters).
+scancel -M all -u "$USER"
+
+# 2. Pull your latest TALENT fork + the benchmark, and refresh the install.
+cd "$VSC_DATA/TabPFNCredit" && git pull
+cd "$VSC_DATA/TALENT"       && git pull          # your personal TALENT fork
+cd "$VSC_DATA/TabPFNCredit"
+source tabpfncreditvenv/bin/activate
+pip install -e "$VSC_DATA/TALENT"                # editable -> future fork pulls are live, no reinstall
+pip install -e ".[hpc]"                          # refresh the benchmark CLI
+
+# 3. Resubmit ONLY the missing points of ALL experiments, across every cluster.
+TABPFN_ALL_CLUSTERS=1 tabpfncredit resubmit --all
+
+# 4. After the cross-cluster (Genius/Mindwell) arrays finish, refresh the CSVs
+#    (the wICE-gated summarize ran automatically; this folds in cross-cluster results).
+for E in Experiment0 Experiment1 Experiment2 Experiment3; do
+    tabpfncredit summarize --experiment "$E"
+done
+```
+
+`resubmit --all` first prints an `expected / done / missing` report per
+experiment, then submits only the gaps; `TABPFN_ALL_CLUSTERS=1` replicates the
+small-data Exp 2/3 GPU sweeps onto every GPU partition (wICE A100/H100, Genius
+V100, Mindwell B200) so a slow dataset like HackerEarth is chewed through by all
+clusters at once. Adjust the `git pull` paths to wherever your TALENT fork and
+the repo are checked out on the VSC.
 
 **Already have results from an earlier run?** Copy them into the new results
 root once and they're skipped automatically. Results now live on project

@@ -316,6 +316,28 @@ def _scalars_payload(method_results: Mapping[int, Mapping[str, Any]]) -> Dict[st
     return {"folds": folds, "aggregates": _aggregate(folds), "n_folds": len(folds)}
 
 
+def _packed_stem(method_base: str, shard: Optional[str]) -> str:
+    """Filename stem for a cell's packed file: unsharded, or a per-task shard."""
+    return method_base if shard in (None, "") else f"{method_base}__shard_{shard}"
+
+
+def _packed_shard_paths(out_dir: Path, method_base: str) -> list[Path]:
+    """Every packed JSON for a cell: the unsharded file PLUS per-task shards.
+
+    Experiment 2/3 split a single cell's sweep points across MANY array tasks
+    so they run in parallel; each task writes its OWN ``<method>__shard_<id>.json``
+    (sole writer, no lock). Skip-checks, resubmit gap-scans and the summariser
+    therefore read the UNION across these shard files plus any legacy unsharded
+    ``<method>.json`` (older runs / local single-process runs).
+    """
+    paths: list[Path] = []
+    base_path = out_dir / f"{method_base}.json"
+    if base_path.exists():
+        paths.append(base_path)
+    paths.extend(sorted(out_dir.glob(f"{method_base}__shard_*.json")))
+    return paths
+
+
 def save_packed_point(
     method_results: Mapping[int, Mapping[str, Any]],
     *,
@@ -325,18 +347,23 @@ def save_packed_point(
     dataset: str,
     method_base: str,
     point_name: str,
+    shard: Optional[str] = None,
 ) -> Path:
-    """Add/overwrite ONE sweep point inside the cell's packed ``<method_base>.json``.
+    """Add/overwrite ONE sweep point inside the cell's packed file.
 
-    Metrics only (no npz). Safe because a cell's points are all run by a single
-    array task (see the SLURM generator's cell-grouped packing), so this
-    read-modify-write never races another writer. Written atomically.
+    Metrics only (no npz). When ``shard`` is given (the running array task's
+    unique id) the point is written to a per-task ``<method_base>__shard_<id>.json``
+    so MANY tasks can each own a disjoint subset of a cell's sweep points and
+    run in parallel -- each shard file has a single writer, so this
+    read-modify-write never races another writer. ``shard=None`` writes the
+    legacy single ``<method_base>.json`` (local single-process runs). Written
+    atomically. Skip / summarise / resubmit all read the union across shards.
     """
     if not method_results:
         raise ValueError(f"save_packed_point called with empty results for {point_name}")
     out_dir = base / experiment.lower() / task.lower() / dataset
     out_dir.mkdir(parents=True, exist_ok=True)
-    json_path = out_dir / f"{method_base}.json"
+    json_path = out_dir / f"{_packed_stem(method_base, shard)}.json"
 
     payload: Optional[Dict[str, Any]] = None
     if json_path.exists():
@@ -377,18 +404,53 @@ def has_complete_packed_point(
     point_name: str,
     expected_folds: int,
 ) -> bool:
-    """True iff the packed ``<method_base>.json`` holds ``point_name`` with all folds."""
-    json_path, _ = _result_paths(base, experiment, task, dataset, method_base)
-    if not json_path.exists():
+    """True iff ANY shard of the cell holds ``point_name`` with all folds.
+
+    Unions over ``<method_base>.json`` and every ``<method_base>__shard_*.json``
+    so a point computed by any array task (this submission or a previous one)
+    counts as done -- the basis of resumable, parallel sweeps.
+    """
+    out_dir = base / experiment.lower() / task.lower() / dataset
+    if not out_dir.exists():
         return False
-    try:
-        payload = json.loads(json_path.read_text())
-    except json.JSONDecodeError:
-        return False
-    point = (payload.get("points") or {}).get(point_name)
-    if not point:
-        return False
-    return len(point.get("folds") or {}) >= int(expected_folds)
+    for json_path in _packed_shard_paths(out_dir, method_base):
+        try:
+            payload = json.loads(json_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        point = (payload.get("points") or {}).get(point_name)
+        if point and len(point.get("folds") or {}) >= int(expected_folds):
+            return True
+    return False
+
+
+def complete_packed_points(
+    *,
+    base: Path,
+    experiment: str,
+    task: str,
+    dataset: str,
+    method_base: str,
+    expected_folds: int,
+) -> set:
+    """Set of point names complete (``>= expected_folds``) across ALL the cell's shards.
+
+    Parses each shard file ONCE (cheap), so the resubmit gap-scan can check
+    thousands of sweep points per cell without re-reading per point.
+    """
+    out_dir = base / experiment.lower() / task.lower() / dataset
+    done: set = set()
+    if not out_dir.exists():
+        return done
+    for json_path in _packed_shard_paths(out_dir, method_base):
+        try:
+            payload = json.loads(json_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        for pname, entry in (payload.get("points") or {}).items():
+            if len(entry.get("folds") or {}) >= int(expected_folds):
+                done.add(pname)
+    return done
 
 
 # ============================================================================
@@ -485,6 +547,6 @@ def parse_method_name(filename_stem: str) -> Dict[str, Any]:
 
 __all__ = [
     "save_method", "load_method", "scan_results", "has_complete_result",
-    "save_packed_point", "has_complete_packed_point",
+    "save_packed_point", "has_complete_packed_point", "complete_packed_points",
     "build_method_name", "parse_method_name",
 ]
