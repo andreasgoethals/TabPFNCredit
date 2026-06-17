@@ -246,6 +246,52 @@ def bayesian_sign_test(
     }
 
 
+def bayesian_signed_rank_test(
+    a: Sequence[float],
+    b: Sequence[float],
+    *,
+    rope: float = 0.01,
+    s: float = 0.5,
+    n_samples: int = 50_000,
+    seed: int = 0,
+) -> Dict[str, float]:
+    """Bayesian signed-rank test with a ROPE (Benavoli, Mangili, Corani,
+    Zaffalon & Ruggeri 2014; Benavoli, Corani, Demšar & Zaffalon 2017).
+
+    The Bayesian analogue of the Wilcoxon *signed-rank* test, and the procedure
+    used by **Gunnarsson et al. (2021)** for credit scoring. Unlike the Bayesian
+    SIGN test (:func:`bayesian_sign_test`), it uses the *magnitudes* of the
+    per-dataset differences via their Walsh averages ``(z_i + z_j)/2``, under a
+    Dirichlet-process prior (one pseudo-observation at 0 with concentration
+    ``s``). Returns the posterior probability that method ``a`` is practically
+    better (``P_right``), that the two are within the ROPE (``P_rope``), or that
+    ``b`` is better (``P_left``) -- no multiple-comparison correction needed.
+    """
+    z = np.asarray(a, float) - np.asarray(b, float)
+    n = z.size
+    z_aug = np.concatenate(([0.0], z))                  # DP pseudo-observation at 0
+    walsh = (z_aug[:, None] + z_aug[None, :]) / 2.0     # Walsh averages (m x m)
+    left = (walsh < -rope).astype(float)
+    right = (walsh > rope).astype(float)
+    alpha = np.ones(n + 1)
+    alpha[0] = s
+    ws = np.random.default_rng(seed).dirichlet(alpha, size=n_samples)
+    # p_region = w^T M_region w  (quadratic form; the three regions partition
+    # all (i, j) pairs, so they sum to 1 for every sample).
+    pl = np.einsum("si,ij,sj->s", ws, left, ws)
+    pr = np.einsum("si,ij,sj->s", ws, right, ws)
+    prope = 1.0 - pl - pr
+    return {
+        "rope": rope,
+        "P_left": float(pl.mean()),    # posterior P(b practically better)
+        "P_rope": float(prope.mean()), # posterior P(practically equivalent)
+        "P_right": float(pr.mean()),   # posterior P(a practically better)
+        "P_left_is_max": float(np.mean((pl > pr) & (pl > prope))),
+        "P_rope_is_max": float(np.mean((prope > pl) & (prope > pr))),
+        "P_right_is_max": float(np.mean((pr > pl) & (pr > prope))),
+    }
+
+
 def format_apv_table(tab: pd.DataFrame, decimals: int = 4) -> pd.DataFrame:
     """Round every numeric column of an APV / p-value table for compact,
     readable display (the raw tables carry ~15 digits)."""
@@ -568,6 +614,46 @@ def wilcoxon_holm_pairwise(
     return tab
 
 
+def ttest_holm_pairwise(
+    matrix: pd.DataFrame,
+    *,
+    higher_is_better: bool = True,
+    alpha: float = 0.05,
+) -> pd.DataFrame:
+    """All-pairs PAIRED Student's t-test + Holm step-down adjustment.
+
+    The parametric companion to :func:`wilcoxon_holm_pairwise`: each pair's
+    per-dataset performance differences are compared with a paired t-test
+    (assumes roughly normal differences), and the p-values are Holm-corrected
+    over all k(k-1)/2 pairs to control the family-wise error. This t-test +
+    Holm procedure is the one adopted by several recent tabular-ML benchmarks
+    (e.g. Ye et al., 2024; Liu et al., 2024). Returns one row per pair with
+    wins/losses, ``mean_diff``, ``t_stat``, ``p_unadjusted``, ``p_holm`` and
+    ``significant``.
+    """
+    sign = 1.0 if higher_is_better else -1.0
+    rows = []
+    for m1, m2 in itertools.combinations(matrix.columns, 2):
+        a, b = matrix[m1].to_numpy(float), matrix[m2].to_numpy(float)
+        d = sign * (a - b)
+        if np.allclose(a, b) or np.std(a - b) == 0:
+            t_stat, p = 0.0, 1.0
+        else:
+            res = ss.ttest_rel(a, b)
+            t_stat, p = float(res.statistic), float(res.pvalue)
+        rows.append({"method_1": m1, "method_2": m2,
+                     "wins": int((d > 0).sum()), "losses": int((d < 0).sum()),
+                     "mean_diff": float(np.mean(a - b)), "t_stat": t_stat,
+                     "p_unadjusted": p})
+    tab = pd.DataFrame(rows).sort_values("p_unadjusted").reset_index(drop=True)
+    p = tab["p_unadjusted"].to_numpy()
+    m = len(p)
+    idx = np.arange(1, m + 1)
+    tab["p_holm"] = np.minimum(np.maximum.accumulate((m - idx + 1) * p), 1.0)
+    tab["significant"] = tab["p_holm"] <= alpha
+    return tab
+
+
 # ============================================================================
 #  Plots
 # ============================================================================
@@ -843,18 +929,23 @@ def plot_wilcoxon_wl_matrix(
 def significant_pairs_text(
     matrix: pd.DataFrame,
     *,
+    test: str = "wilcoxon",
     higher_is_better: bool = True,
     alpha: float = 0.05,
     metric_name: str = "",
 ) -> str:
     """Plain-text list of the method pairs whose performance differs
-    significantly (pairwise Wilcoxon signed-rank, Holm-corrected over all
-    pairs). Printed as its own section so the W/L matrix stays uncluttered."""
-    tab = wilcoxon_holm_pairwise(matrix, higher_is_better=higher_is_better, alpha=alpha)
+    significantly, Holm-corrected over all pairs. ``test`` selects the pairwise
+    test: ``"wilcoxon"`` (signed-rank, non-parametric -- default) or ``"ttest"``
+    (paired Student's t-test). Printed as its own section so the W/L matrix
+    stays uncluttered."""
+    runner = ttest_holm_pairwise if test == "ttest" else wilcoxon_holm_pairwise
+    label = "paired t-test" if test == "ttest" else "Wilcoxon signed-rank"
+    tab = runner(matrix, higher_is_better=higher_is_better, alpha=alpha)
     sig = tab[tab["significant"]].copy()
     nm = _pretty_metric(metric_name) or "metric"
     lines = [f"Significant pairwise differences in {nm} "
-             f"(Wilcoxon signed-rank, Holm-corrected, alpha = {alpha}):",
+             f"({label}, Holm-corrected, alpha = {alpha}):",
              f"  {int(sig.shape[0])} of {len(tab)} pairs significant.", ""]
     if sig.empty:
         lines.append("  (none reach significance after Holm correction)")
@@ -890,9 +981,10 @@ __all__ = [
     "metric_matrix", "average_ranks",
     "friedman_test", "friedman_aligned_ranks_test", "quade_test",
     "nemenyi_cd", "bonferroni_dunn_cd",
-    "wilcoxon_signed_rank", "sign_test", "bayesian_sign_test",
+    "wilcoxon_signed_rank", "sign_test",
+    "bayesian_sign_test", "bayesian_signed_rank_test",
     "control_apv_table", "pairwise_apv_table", "format_apv_table",
-    "wilcoxon_holm_pairwise", "significant_pairs_text",
+    "wilcoxon_holm_pairwise", "ttest_holm_pairwise", "significant_pairs_text",
     "win_loss_tie", "wlt_summary",
     "percent_of_max", "pama_fold_level",
     "plot_cd_diagram", "plot_significance_matrix",

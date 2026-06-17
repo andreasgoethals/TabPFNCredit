@@ -19,4 +19,41 @@ keywords:
   - benchmark
   - machine-learning
 
+# The accompanying paper. Citation tools prefer this over the software entry above.
+preferred-citation:
+  type: article
+  title: "Foundation Models for Credit Risk Prediction: A Game Changer?"
+  authors:
+    - family-names: Baesens
+      given-names: Bart
+    - family-names: Goethals
+      given-names: Andreas
+      orcid: "https://orcid.org/0009-0001-5203-1306"
+    - family-names: Lessmann
+      given-names: Stefan
+    - family-names: De Vos
+      given-names: Simon
+    - family-names: Bravo
+      given-names: Cristián
+    - family-names: Martens
+      given-names: David
+    - family-names: Medina-Olivares
+      given-names: Victor
+    - family-names: Mues
+      given-names: Christophe
+    - family-names: Oskarsdóttir
+      given-names: Maria
+    - family-names: vanden Broucke
+      given-names: Seppe
+    - family-names: Verdonck
+      given-names: Tim
+    - family-names: Verbeke
+      given-names: Wouter
+  year: 2026
+  url: "https://arxiv.org/abs/2605.18147"
+  identifiers:
+    - type: other
+      value: "arXiv:2605.18147"
+      description: "arXiv preprint"
+
 

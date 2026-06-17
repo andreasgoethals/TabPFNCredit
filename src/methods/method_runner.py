@@ -248,6 +248,27 @@ def _apply_val_test_caps(
 #  Args builder -- pure programmatic, no sys.argv
 # ============================================================================
 
+# ----------------------------------------------------------------------------
+#  HPO objective metric
+# ----------------------------------------------------------------------------
+# Which validation metric TALENT's hyper-parameter search optimizes. PD
+# (classification) tunes on AUC and LGD (regression) tunes on R2 -- i.e. the
+# headline metric we report for each task. A few methods optimize an internal
+# training loss and do not accept a configurable objective (TALENT raises for
+# them), so they fall back to that default via ``None``. Keep this set in sync
+# with TALENT's ``model.lib.tuning_metric.METHODS_WITHOUT_TUNE_METRIC``.
+HPO_METRIC_CLASSIFICATION = "AUC"
+HPO_METRIC_REGRESSION = "R2"
+_HPO_METRIC_UNSUPPORTED = frozenset({"tabnet", "ptarl", "tabcaps"})
+
+
+def _resolve_hpo_metric(method: str, is_regression: bool) -> Optional[str]:
+    """HPO objective metric for ``method`` (``None`` = TALENT's legacy default)."""
+    if method in _HPO_METRIC_UNSUPPORTED:
+        return None
+    return HPO_METRIC_REGRESSION if is_regression else HPO_METRIC_CLASSIFICATION
+
+
 def _build_talent_args(
     *,
     method: str,
@@ -263,7 +284,7 @@ def _build_talent_args(
     evaluate_option: str,
     user_overrides: Dict[str, Any],
 ):
-    """Replacement for the old ``sys.argv`` hack -- uses ``TALENT.build_args``."""
+    """Build the TALENT args object for a method via ``TALENT.build_args``."""
     spec = get_method_spec(method)
 
     # Honour the user's preprocessing choices if they specified them; else
@@ -273,6 +294,9 @@ def _build_talent_args(
     overrides.setdefault("tune", tune)
     overrides.setdefault("n_trials", n_trials)
     overrides.setdefault("evaluate_option", evaluate_option)
+    # Tune PD on AUC and LGD on R2 (see _resolve_hpo_metric). Forwarded to
+    # TALENT as ``args.tune_metric``; older TALENT builds simply ignore it.
+    overrides.setdefault("tune_metric", _resolve_hpo_metric(method, is_regression))
 
     # Pin the compute device to the hardware that is actually present.
     # TALENT decides CatBoost's ``task_type`` purely from ``args.gpu``
