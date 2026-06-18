@@ -438,7 +438,7 @@ def _sweep_curve(
             y_ma = pd.Series(y.to_numpy()).rolling(win, min_periods=1, center=True).mean()
             ax.plot(g["sweep_value"], y_ma.to_numpy(), lw=2.2, label=method, color=color)
         else:
-            ax.plot(g["sweep_value"], y, marker="o", ms=2.0, lw=1.6,
+            ax.plot(g["sweep_value"], y, marker="o", ms=1.1, lw=1.1,
                     label=method, color=color)
     ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
     if relative:
@@ -506,6 +506,91 @@ def imbalance_curve(
         relative=relative, smooth=smooth,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
+
+
+def per_dataset_sweep_curves(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    sweep_axis: str,
+    xlabel: str,
+    task_name: str = "PD",
+    figsize: Tuple[int, int] = (11, 6),
+    ms: float = 1.4,
+    out_dir: Optional[Path] = None,
+) -> List[Path]:
+    """One RAW-points plot PER dataset: the metric vs the sweep value, one
+    dotted line per method (NO smoothing / no cross-dataset averaging). Lets you
+    see how each individual dataset behaves, not only the pooled mean. Returns
+    the list of saved paths (one figure per dataset)."""
+    from matplotlib.ticker import MaxNLocator
+
+    mean_col = _resolve_mean_column(df, metric)
+    sub = df[df["sweep_axis"] == sweep_axis].dropna(subset=["sweep_value"])
+    if sub.empty:
+        logger.warning("per_dataset_sweep_curves: no rows with sweep_axis=%s", sweep_axis)
+        return []
+    pm = _pretty_metric(metric)
+    paths: List[Path] = []
+    for dataset in sorted(sub["dataset"].unique()):
+        dsub = sub[sub["dataset"] == dataset]
+        grp = dsub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
+        fig, ax = plt.subplots(figsize=figsize)
+        palette = sns.color_palette("tab10", n_colors=grp["method"].nunique())
+        for color, (method, g) in zip(palette, grp.groupby("method")):
+            g = g.sort_values("sweep_value")
+            ax.plot(g["sweep_value"], g[mean_col], marker="o", ms=ms, lw=0.8,
+                    label=method, color=color)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
+        ax.set_xlabel(xlabel, fontsize=LABEL_FS, fontweight="bold")
+        ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
+        ax.set_title(f"{task_name} — {dataset}: {pm} (raw points)",
+                     fontsize=TITLE_FS, fontweight="bold")
+        ax.legend(loc="best", fontsize=9)
+        plt.tight_layout()
+        stem = f"{task_name.lower()}_{sweep_axis}_{str(dataset).replace('.', '_')}_{metric.lower()}"
+        p = _save(fig, out_dir, stem)
+        if p:
+            paths.append(p)
+    return paths
+
+
+def sweep_evolution_summary(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    sweep_axis: str,
+    task_name: str = "PD",
+    n_points: int = 12,
+    higher_is_better: bool = True,
+) -> str:
+    """Print the EVOLUTION of ``metric`` per method: its mean over all included
+    datasets at a spread of ~``n_points`` sweep values across the whole swept
+    range (not just the endpoint). Rows = methods (best average first), columns
+    = sweep values. This is the meaningful end-of-notebook summary for a sweep
+    experiment -- a single endpoint hides the trajectory we actually care
+    about."""
+    mean_col = _resolve_mean_column(df, metric)
+    sub = df[df["sweep_axis"] == sweep_axis].dropna(subset=["sweep_value"])
+    if sub.empty:
+        print(f"(no {sweep_axis} sweep rows for {metric})")
+        return ""
+    grp = sub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
+    n_all = grp["sweep_value"].nunique()
+    piv = grp.pivot(index="method", columns="sweep_value", values=mean_col)
+    cols = sorted(piv.columns)
+    if len(cols) > n_points:
+        idx = np.linspace(0, len(cols) - 1, n_points).round().astype(int)
+        cols = [cols[i] for i in sorted(set(idx))]
+    piv = piv[cols]
+    piv = piv.loc[piv.mean(axis=1).sort_values(ascending=not higher_is_better).index]
+    pm = _pretty_metric(metric)
+    header = (f"{task_name} — {pm} evolution over {sweep_axis} "
+              f"(mean across {sub['dataset'].nunique()} datasets; "
+              f"{len(cols)} of {n_all} sweep points; best average first)")
+    text = header + "\n" + "=" * min(max(len(header), 64), 118) + "\n" + piv.round(4).to_string()
+    print(text)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -580,20 +665,27 @@ def compute_time_bars(
     task_name: str = "PD",
     figsize: Optional[Tuple[float, float]] = None,
     out_dir: Optional[Path] = None,
+    hpo_methods: Optional[Sequence[str]] = None,
+    n_trials: int = 1,
 ) -> Optional[Path]:
-    """MEDIAN TOTAL compute time per method = fit + predict, in seconds
-    (log y; fastest = greenest, left). Uses fit + predict because in-context
-    models (TabPFN v1/v2/Real, Mitra) report ~0 fit time -- their cost is at
-    predict -- so a fit-only bar would drop them off a log axis. No error bars
-    (a ± band reads poorly on a log scale); the median is printed above each
-    bar."""
-    vals = _total_time(df, agg="median")
+    """MEDIAN TOTAL compute time per method = train + predict, in seconds
+    (log y; fastest = greenest, left). Uses train + predict because in-context
+    models (TabPFN v1/v2/Real, Mitra) report ~0 train time -- their cost is at
+    predict -- so a train-only bar would drop them off a log axis. No error bars
+    (a ± band reads poorly on a log scale); the median is printed above each bar.
+
+    Pass ``hpo_methods`` + ``n_trials`` to fold the hyperparameter-search cost
+    into the tunable methods' bars (their train time × ``n_trials``); the title
+    then reads "train + predict + HPO"."""
+    vals = _total_time(df, agg="median", hpo_methods=hpo_methods, n_trials=n_trials)
     if vals is None:
         logger.warning("compute_time_bars: no train_time/predict_time columns")
         return None
+    with_hpo = bool(hpo_methods) and n_trials > 1
+    cost = "train + predict + HPO" if with_hpo else "train + predict"
     return _method_bar(
         vals, errs=None, logy=True, value_fmt="{:.1f}",
-        title=f"{task_name}: median compute time per method (fit + predict, seconds)",
+        title=f"{task_name}: median compute time per method ({cost}, seconds)",
         ylabel="median compute time per fold (s)",
         stem=f"{task_name.lower()}_bar_compute_time",
         out_dir=out_dir, figsize=figsize,
@@ -750,16 +842,21 @@ def runtime_performance_scatter(
     higher_is_better: bool = True,
     figsize: Optional[Tuple[float, float]] = None,
     out_dir: Optional[Path] = None,
+    hpo_methods: Optional[Sequence[str]] = None,
+    n_trials: int = 1,
 ) -> Optional[Path]:
-    """Compute cost (fit + predict, log x) vs mean metric -- the cost/quality
+    """Compute cost (train + predict, log x) vs mean metric -- the cost/quality
     frontier. Foundation models are red stars, everything else blue circles.
     To keep the figure legible, only the **notable** methods (all foundation
     models + the well-known baselines in ``NOTABLE_METHODS``) are labelled, and
-    their names sit right next to their dot; the rest stay as unlabelled dots."""
+    their names sit right next to their dot; the rest stay as unlabelled dots.
+
+    Pass ``hpo_methods`` + ``n_trials`` to put the full train + predict + HPO
+    cost on the x axis for the tunable methods (their train time × ``n_trials``)."""
     from matplotlib.lines import Line2D
 
     mean_col = _resolve_mean_column(df, metric)
-    total = _total_time(df)
+    total = _total_time(df, hpo_methods=hpo_methods, n_trials=n_trials)
     if total is None:
         logger.warning("runtime_performance_scatter: no time columns")
         return None
@@ -804,10 +901,15 @@ def runtime_performance_scatter(
         )
     ax.grid(True, which="both", alpha=0.25)
     pm = _pretty_metric(metric)
-    ax.set_xlabel("compute time per fold — fit + predict (s, log scale)",
+    _with_hpo = bool(hpo_methods) and n_trials > 1
+    _cost = "train + predict + HPO" if _with_hpo else "train + predict"
+    # x = MEDIAN compute time across folds/datasets (robust to outliers);
+    # y = MEAN of the metric. State both on the axes so it is unambiguous.
+    ax.set_xlabel(f"median compute time per fold — {_cost} (s, log scale)",
                   fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(f"mean {pm}", fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(f"{task_name}: performance vs compute cost", fontsize=TITLE_FS, fontweight="bold")
+    ax.set_title(f"{task_name}: mean {pm} vs median compute cost ({_cost})",
+                 fontsize=TITLE_FS, fontweight="bold")
     ax.legend(handles=[
         Line2D([0], [0], marker="*", color="w", markerfacecolor="crimson",
                markeredgecolor="black", markersize=14, label="foundation model"),
@@ -904,22 +1006,41 @@ def _pretty_metric(metric: str) -> str:
     return "R²" if str(metric).upper() == "R2" else str(metric)
 
 
-def _total_time(df: pd.DataFrame, agg: str = "median") -> Optional[pd.Series]:
-    """TOTAL compute time per method = fit + predict, in seconds, aggregated by
-    ``agg`` (default MEDIAN -- robust to a slow outlier fold/dataset).
+def _total_time(
+    df: pd.DataFrame,
+    agg: str = "median",
+    *,
+    hpo_methods: Optional[Sequence[str]] = None,
+    n_trials: int = 1,
+) -> Optional[pd.Series]:
+    """TOTAL compute time per method = train + predict, in seconds, aggregated
+    by ``agg`` (default MEDIAN -- robust to a slow outlier fold/dataset).
 
-    In-context models (TabPFN v1/v2/Real, Mitra) report ``fit_time = 0`` by
-    design -- their cost lives in ``predict`` -- so plotting fit-time alone
-    drops them from a log axis. Fit+predict is the fair, always-positive cost.
+    In-context models (TabPFN v1/v2/Real, Mitra) report ``train_time = 0`` by
+    design -- their cost lives in ``predict`` -- so plotting train-time alone
+    drops them from a log axis. Train+predict is the fair, always-positive cost.
+
+    When ``hpo_methods`` + ``n_trials`` are given, the train time of those
+    methods is multiplied by ``n_trials`` so the bar reflects the full
+    hyperparameter-search cost (train + predict + HPO) for the tunable methods;
+    untuned / in-context methods are unchanged. This is computed on the fly for
+    plotting only -- the stored per-fold ``train_time`` is the final refit and
+    is never modified.
     """
     if "train_time" in df.columns:                 # per-fold frame
+        train = df["train_time"].fillna(0.0)
         pt = df["predict_time"] if "predict_time" in df.columns else 0.0
-        total = df["train_time"].fillna(0.0) + (pt.fillna(0.0) if hasattr(pt, "fillna") else pt)
     elif "train_time_mean" in df.columns:           # per-method frame
+        train = df["train_time_mean"].fillna(0.0)
         pt = df["predict_time_mean"] if "predict_time_mean" in df.columns else 0.0
-        total = df["train_time_mean"].fillna(0.0) + (pt.fillna(0.0) if hasattr(pt, "fillna") else pt)
     else:
         return None
+    predict = pt.fillna(0.0) if hasattr(pt, "fillna") else pt
+    if hpo_methods and n_trials and n_trials > 1:
+        hp = set(hpo_methods)
+        factor = df["method"].map(lambda m: n_trials if m in hp else 1)
+        train = train * factor
+    total = train + predict
     return total.groupby(df["method"]).agg(agg).sort_values()
 
 

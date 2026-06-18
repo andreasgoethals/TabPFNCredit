@@ -169,7 +169,7 @@ it queues only the missing work instead of re-sharding everything.
 | Task | Type | Datasets | Headline metrics |
 |---|---|---|---|
 | **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, AP / AP_normalized, Expected_Loss_Normalized |
-| **LGD** (Loss Given Default) | Regression on `[0, 1]` | 7 | R², RMSE, MAE, Spearman_Corr |
+| **LGD** (Loss Given Default) | Regression on `[0, 1]` | 7 | R², RMSE, MAE, Pearson_Corr, Spearman_Corr |
 
 The ~55 enabled methods cover **foundation models** (TabPFN family,
 TabICL v1/v2, TabDPT, MITRA, LimiX, HyperFast, TabPTM),
@@ -406,9 +406,11 @@ viewers:
 |---|---|
 | `Data_Exploration` | Dataset inventory, class balance, LGD target shapes, per-dataset structure. |
 | `Experiment0` | Pilot coverage + quick performance / cost overview. |
-| `Experiment1.1-PD` / `Experiment1.3-LGD` | Headline benchmark (PD / LGD): metric heatmaps, rankings, boxplots, win/loss, HPO effect, cost/quality frontier. |
-| `Experiment1.2-PD-Stat` / `Experiment1.4-LGD-Stat` | Statistical analysis (PD / LGD), with narrated sections: PAMA, Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams**, Win/Loss matrix, Holm-corrected significant pairs, all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
-| `Experiment2` / `Experiment3` | Learning curves / imbalance curves — one line per method, averaged over datasets. |
+| `Experiment1.1-PD` | Headline PD benchmark: **AUC** heatmap and its **per-dataset rank** (kept together), **Brier**, **F1**, the **HPO effect** on AUC, a **time analysis** (train + predict + HPO; tunable methods' train time × `n_trials`) with the cost/quality frontier, and a summary table. |
+| `Experiment1.3-LGD` | Headline LGD benchmark: **R²** heatmap and its **per-dataset rank**, **Pearson correlation**, the **HPO effect** on R², the same **time analysis**, and a summary table. |
+| `Experiment1.2-PD-Stat` / `Experiment1.4-LGD-Stat` | Statistical analysis (PD / LGD), with narrated sections: PAMA, Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams** (compact, paper-ready), Win/Loss matrix, Holm-corrected significant pairs (Wilcoxon **and** paired t-test), all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian signed-rank ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
+| `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs training-set size, in four pooled views (raw points · moving average · relative to each method's own best · moving average of that relative), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
+| `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same four pooled views, per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files. |
 
 ---

@@ -699,9 +699,12 @@ def plot_cd_diagram(
     clique_top = axis_y - 0.35
     label_top = clique_top - n_cl * cl_h - 0.45
     y_bottom = label_top - half * row_h
-    margin = max(0.34 * span, 3.5)           # x room for the labels
+    margin = max(0.28 * span, 3.0)           # x room for the labels
 
-    fig_w = max(12.0, 1.7 * span + 8)
+    # More compact horizontally so the diagram fits a paper column/page
+    # (was 1.7*span+8). The rank axis is simply drawn on a narrower canvas;
+    # labels still grow outward onto their own rows so nothing overlaps.
+    fig_w = max(9.0, 1.1 * span + 6)
     fig_h = max(3.4, 1.0 + n_cl * 0.26 + half * 0.45)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
     ax.set_xlim(lo - margin, hi + margin)
