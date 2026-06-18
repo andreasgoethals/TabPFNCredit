@@ -21,9 +21,9 @@ What `experiment` does
    then summarize. No SLURM, no scratch directories.
 5. **On the VSC** (``$VSC_INSTITUTE_CLUSTER`` set): wipe any stale
    scripts under ``scripts/<Experiment>/_generated/``, regenerate fresh
-   SLURM scripts, and ``sbatch`` them (unless ``--no-submit``). A final
-   summarize job is submitted with ``--dependency=afterok:<arrays>``
-   so the CSVs land automatically once every array slot finishes.
+   SLURM scripts, and ``sbatch`` them (unless ``--no-submit``). Summaries
+   are NOT produced automatically: build the CSVs by opening the notebooks
+   (they refresh on run) or with ``tabpfncredit summarize --experiment <name>``.
 
 Helper commands
 ---------------
@@ -73,7 +73,6 @@ from src.utils.slurm_generator import (  # noqa: E402
     MAX_ARRAY_SLOTS,
     PARTITIONS,
     generate_scripts_for_experiment,
-    generate_summarize_script,
     load_plan,
     partition_for_method,
 )
@@ -538,38 +537,36 @@ def _run_experiment_vsc(
         console.print("[red]No SLURM scripts were generated (no cells).[/red]")
         return None
 
-    summarize_script = generate_summarize_script(
-        experiment=experiment, out_dir=out_dir,
-    )
-
-    table = Table(title=f"Generated {len(jobs)} SLURM script(s) + 1 summarize")
+    table = Table(title=f"Generated {len(jobs)} SLURM script(s)")
     table.add_column("Script")
     table.add_column("Partition")
     table.add_column("Array slots")
     table.add_column("Walltime / slot")
     for j in jobs:
         table.add_row(str(j.path.name), j.partition_key, str(j.n_array_slots), j.walltime)
-    table.add_row(str(summarize_script.name), "cpu", "1", "00:15:00")
     console.print(table)
     console.print(f"Written under: [blue]{out_dir}[/blue]")
+    console.print(
+        "[dim]Summaries are NOT auto-generated. Build the CSVs by opening the "
+        "notebooks (they refresh on run) or with "
+        "`tabpfncredit summarize --experiment <name>`.[/dim]"
+    )
 
     if not submit:
         console.print("\n[bold]--no-submit[/bold]: not submitting. To submit:")
         for j in jobs:
             console.print(f"  sbatch {j.path}")
-        console.print(f"  sbatch --dependency=afterok:<ARRAY_IDS> {summarize_script}")
         return None
 
     if not _have_sbatch():
         console.print("[red]sbatch not found on PATH -- run this on the VSC.[/red]")
         return None
 
-    # 4) Submit. Per-partition arrays go first (optionally chained to a
-    # caller-supplied job via --after); the summarize job depends on them.
-    # SLURM ``afterok`` CANNOT cross clusters, so arrays on a different
-    # cluster than the summarize job (e.g. Genius V100/P100 offload) are
-    # excluded from the dependency -- and cannot themselves wait on --after.
-    summarize_cluster = PARTITIONS["cpu"].cluster
+    # 4) Submit the per-partition arrays. wICE arrays may be chained after a
+    # caller-supplied job (--after); cross-cluster arrays cannot (afterok is
+    # per-cluster). We return the wICE array ids so the next experiment in a
+    # run_all chain can wait on them (no summarize job gates the chain anymore).
+    primary_cluster = PARTITIONS["cpu"].cluster
     array_dep: Optional[str] = f"afterok:{after_job_id}" if after_job_id else None
     dep_ids: List[str] = []
     cross_ids: List[str] = []
@@ -577,24 +574,18 @@ def _run_experiment_vsc(
         cluster = PARTITIONS[j.partition_key].cluster
         try:
             jid = _sbatch(j.path,
-                          dependency=array_dep if cluster == summarize_cluster else None)
+                          dependency=array_dep if cluster == primary_cluster else None)
             console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
-            (dep_ids if cluster == summarize_cluster else cross_ids).append(jid)
+            (dep_ids if cluster == primary_cluster else cross_ids).append(jid)
         except subprocess.CalledProcessError as exc:
             console.print(f"[red]sbatch failed for {j.path}:[/red] {exc.stderr}")
             raise
 
     if cross_ids:
-        console.print(
-            f"  [yellow]note:[/yellow] job(s) {', '.join(cross_ids)} run on another "
-            f"cluster; the summarize job cannot wait for them (afterok is "
-            f"per-cluster). Re-run [bold]tabpfncredit summarize[/bold] once they finish."
-        )
-    summarize_dep = ("afterok:" + ":".join(dep_ids)) if dep_ids else None
-    summarize_id = _sbatch(summarize_script, dependency=summarize_dep)
-    console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}")
-    console.print(f"\n[bold]Final job id (summarize):[/bold] {summarize_id}")
-    return summarize_id
+        console.print(f"  [yellow]note:[/yellow] {', '.join(cross_ids)} run on another cluster.")
+    chain_ids = ":".join(dep_ids) if dep_ids else ":".join(cross_ids)
+    console.print(f"\n[bold]Final job id (chain):[/bold] {chain_ids or '(none)'}")
+    return chain_ids or None
 
 
 # ============================================================================
@@ -778,7 +769,6 @@ def cmd_resubmit(
             experiment=exp, work_items=items, out_dir=out_dir, n_folds=cv,
             max_slots=resubmit_max_slots,
         )
-        summarize_script = generate_summarize_script(experiment=exp, out_dir=out_dir)
         for j in jobs:
             console.print(
                 f"  generated {j.path.name}  ({j.partition_key}, "
@@ -792,50 +782,24 @@ def cmd_resubmit(
             console.print("")
             continue
 
-        summarize_cluster = PARTITIONS["cpu"].cluster
-        dep_ids: List[str] = []
-        cross_ids: List[str] = []
-        # Submit the wICE primary arrays FIRST so they always get in under the
-        # submit limit; cross-cluster replica arrays (Genius/Mindwell) go after
-        # and merely accelerate -- if the limit is hit they drop harmlessly.
-        jobs_ordered = sorted(
-            jobs, key=lambda jj: PARTITIONS[jj.partition_key].cluster != summarize_cluster
-        )
-        for j in jobs_ordered:
-            # Tolerant submit: a cross-cluster array (e.g. Mindwell gpu_b200)
-            # the account can't reach must NOT abort the whole resubmit -- those
-            # are replica accelerators; the wICE primary still completes the run.
+        # Tolerant submit: a cross-cluster array (e.g. Mindwell gpu_b200) the
+        # account can't reach must NOT abort the resubmit -- those are replica
+        # accelerators; the wICE primary still completes the run. Summaries are
+        # NOT auto-generated anymore -- rebuild them by opening the notebooks or
+        # with `tabpfncredit summarize --experiment <name>` once jobs finish.
+        for j in jobs:
             try:
                 jid = _sbatch(j.path)
+                console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
             except Exception as exc:
                 console.print(
                     f"  [yellow]skip[/yellow] {j.path.name} ({j.partition_key}): "
                     f"submit failed ({exc}). Continuing -- other clusters carry it."
                 )
-                continue
-            console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
-            (dep_ids if PARTITIONS[j.partition_key].cluster == summarize_cluster
-             else cross_ids).append(jid)
-        if cross_ids:
-            console.print(
-                f"  [yellow]note:[/yellow] {', '.join(cross_ids)} run on another cluster "
-                f"(cross-cluster afterok is not possible); re-run "
-                f"[bold]tabpfncredit summarize --experiment {exp}[/bold] after they finish."
-            )
-        if dep_ids:
-            summarize_id = _sbatch(
-                summarize_script, dependency="afterok:" + ":".join(dep_ids),
-            )
-            console.print(f"  [green]submitted[/green] {summarize_script.name} -> {summarize_id}\n")
-        else:
-            # No same-cluster (wICE) primary array to depend on -- submitting
-            # summarize now would run it before any results exist. Tell the user
-            # to run it once the cross-cluster arrays finish.
-            console.print(
-                f"  [yellow]no wICE primary array[/yellow] to gate summarize on; "
-                f"run [bold]tabpfncredit summarize --experiment {exp}[/bold] when "
-                f"the arrays above finish.\n"
-            )
+        console.print(
+            f"  [dim]when finished: `tabpfncredit summarize --experiment {exp}` "
+            f"(or just open the notebooks).[/dim]\n"
+        )
 
 
 # ============================================================================

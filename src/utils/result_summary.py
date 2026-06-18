@@ -220,9 +220,14 @@ def summarize_to_csv(
     Returns the paths of the two written CSVs.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
-    df = collect_fold_results(base, experiment)
     per_fold_path = out_dir / f"{experiment}_per_fold.csv"
     per_method_path = out_dir / f"{experiment}_per_method.csv"
+    # Delete the old summaries FIRST so a stale CSV can never survive (e.g. a
+    # removed method must vanish, not linger), then rebuild from the result tree.
+    for _stale in (per_fold_path, per_method_path):
+        _stale.unlink(missing_ok=True)
+
+    df = collect_fold_results(base, experiment)
 
     if _HAS_POLARS:
         df.write_csv(per_fold_path)

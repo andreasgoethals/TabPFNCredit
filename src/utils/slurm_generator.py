@@ -481,9 +481,9 @@ def _sbatch_header(
     lines = [
         f"#SBATCH --job-name={job_name}",
         f"#SBATCH --clusters={spec.cluster}",
-        # Slurm credit account. Set TABPFN_SLURM_ACCOUNT on the login node before
-        # generating/submitting (kept out of the public repo); placeholder otherwise.
-        f"#SBATCH --account={os.environ.get('TABPFN_SLURM_ACCOUNT', 'lp_yourproject')}",
+        # Slurm credit account: defaults to the project's account; override for
+        # another project with TABPFN_SLURM_ACCOUNT.
+        f"#SBATCH --account={os.environ.get('TABPFN_SLURM_ACCOUNT', 'lp_verbekelab')}",
         f"#SBATCH --partition={spec.partition}",
         "#SBATCH --nodes=1",
         "#SBATCH --ntasks=1",
@@ -1024,84 +1024,6 @@ def load_plan(path: Path) -> List[List[dict]]:
     import json
     payload = json.loads(Path(path).read_text())
     return payload["slots"]
-
-
-# ============================================================================
-#  Summarize SLURM script
-# ============================================================================
-#
-# Emitted alongside the per-partition arrays. The caller submits this with
-# ``--dependency=afterok:<array_ids>`` so it runs once *every* array slot
-# has finished -- producing the per-fold + per-method CSVs.
-
-def generate_summarize_script(
-    *,
-    experiment: str,
-    out_dir: Path,
-    mail_email: str = "",
-) -> Path:
-    """Write a tiny single-task SLURM script that runs ``tabpfncredit summarize``.
-
-    Uses the ``batch`` (CPU) partition since aggregation is pure pandas /
-    polars work -- no GPU needed.
-    """
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    spec = PARTITIONS["cpu"]
-    job_name = f"{experiment.lower()}_summarize"
-    log_dir = _log_dir(experiment)
-    # 15 minutes is plenty -- polars scans all <method>.json files in
-    # seconds even on multi-thousand-row sweeps.
-    walltime = "00:15:00"
-
-    header = _sbatch_header(
-        job_name=job_name,
-        spec=spec,
-        n_gpus=0,
-        array_range="0",        # single task, not an array
-        walltime=walltime,
-        log_dir=log_dir,
-        mail_email=mail_email,
-        gpu_cmode=None,
-    )
-    # Strip the array directive from a header that uses array_range="0":
-    # the helper still emits ``#SBATCH --array=0`` which we don't want here.
-    header = "\n".join(
-        line for line in header.splitlines() if not line.startswith("#SBATCH --array=")
-    ) + "\n"
-
-    banner = "\n".join([
-        f'mkdir -p "{log_dir}"',
-        'echo "============================================="',
-        f'echo "{experiment} -- summarize step"',
-        'echo "JobID:   ${SLURM_JOB_ID}"',
-        'echo "Node:    ${SLURMD_NODENAME}"',
-        'echo "============================================="',
-    ]) + "\n"
-
-    invocation = dedent(f"""\
-        cd "{_REPO_ROOT}"
-
-        export TABPFN_STAGING_ROOT="{_staging_bash()}"
-        export TABPFN_RESULTS_ROOT={_results_root_bash()}
-
-        tabpfncredit summarize --experiment {experiment}
-        """)
-
-    script = "\n".join([
-        _SHEBANG,
-        header,
-        _prologue(cluster=spec.cluster, partition=spec.partition),
-        banner,
-        invocation,
-        _EPILOGUE,
-    ])
-
-    script_path = out_dir / f"{job_name}.slurm"
-    script_path.write_text(script, encoding="utf-8")
-    script_path.chmod(0o755)
-    return script_path
 
 
 __all__ = [

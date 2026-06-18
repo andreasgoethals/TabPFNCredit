@@ -248,8 +248,8 @@ module purge
 module load Python/3.12.3-GCCcore-13.3.0          # 'module spider Python/3.12' for the exact name
 source tabpfncreditvenv/bin/activate
 
-# 3. Set your project account (read from the env; not stored in the repo).
-export TABPFN_SLURM_ACCOUNT=lp_<your_project>
+# 3. (optional) override the Slurm account; the repo default is already correct.
+# export TABPFN_SLURM_ACCOUNT=lp_<your_project>
 
 # 4. Pull the latest benchmark code (editable install -> the pull is live).
 git pull
@@ -260,18 +260,20 @@ git pull
 #    --no-cache-dir forces a fresh clone of @main; --no-deps leaves torch/etc. alone.
 pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/<you>/TALENT@main"
 
-# 6. (one-off this release) drop the retired dummy baseline + refresh summaries.
-python -m src.utils.remove_results --method dummy --resummarize
+# 6. (one-off this release) drop the retired dummy baseline (also clears stale summaries).
+python -m src.utils.remove_results --method dummy
 
-# 7. Resubmit ONLY the missing points of ALL experiments, across every cluster.
+# 7. Wipe any old summaries on PROJECT STORAGE so nothing stale lingers.
+rm -f "${TABPFN_STAGING_ROOT:-/staging/leuven/stg_00211}"/results/summaries/*.csv
+
+# 8. Resubmit ONLY the missing points of ALL experiments, across every cluster.
 TABPFN_ALL_CLUSTERS=1 tabpfncredit resubmit --all
-
-# 7. After the cross-cluster (Genius/Mindwell) arrays finish, refresh the CSVs
-#    (the wICE-gated summarize ran automatically; this folds in cross-cluster results).
-for E in Experiment0 Experiment1 Experiment2 Experiment3; do
-    tabpfncredit summarize --experiment "$E"
-done
 ```
+
+Summaries are **not** produced automatically anymore. Once the run finishes,
+rebuild the CSVs by **opening the notebooks** (each one refreshes its
+experiment's summary on run, deleting the old one first) or, on the VSC,
+`tabpfncredit summarize --experiment <name>`.
 
 `resubmit --all` first prints an `expected / done / missing` report per
 experiment, then submits only the gaps; `TABPFN_ALL_CLUSTERS=1` replicates the

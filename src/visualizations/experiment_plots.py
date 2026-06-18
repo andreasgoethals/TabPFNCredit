@@ -226,6 +226,11 @@ def reset_figure_dir(figures_dir: Path) -> Path:
 #  Summary loaders
 # ---------------------------------------------------------------------------
 
+# Experiments whose summary CSVs were already rebuilt in this kernel session, so
+# opening a notebook refreshes them ONCE (not on every load_summary call).
+_SUMMARIZED_THIS_SESSION: set = set()
+
+
 def load_summary(
     summary_dir: Path,
     *,
@@ -251,13 +256,26 @@ def load_summary(
     ``tabpfncredit summarize`` step.
     """
     summary_dir = Path(summary_dir)
+    exp = experiment.lower()
     suffix = "per_method.csv" if aggregated else "per_fold.csv"
-    path = summary_dir / f"{experiment.lower()}_{suffix}"
-    if not path.exists() and auto_summarize:
-        from src.utils.result_summary import summarize_to_csv
+    path = summary_dir / f"{exp}_{suffix}"
+    if auto_summarize:
         results_root = summary_dir.parent
-        logger.info("Summary %s missing -- building it from %s ...", path.name, results_root)
-        summarize_to_csv(base=results_root, experiment=experiment.lower(), out_dir=summary_dir)
+        exp_dir = results_root / exp
+        results_present = exp_dir.is_dir() and next(exp_dir.rglob("*.json"), None) is not None
+        # Refresh the CSVs ONCE per experiment per session whenever the result
+        # files are present -- so simply RUNNING a notebook rebuilds the summaries
+        # from the latest results (old CSVs are deleted first in summarize_to_csv).
+        # A CSV-only download (no result files locally) just reads the CSV as-is.
+        if results_present and exp not in _SUMMARIZED_THIS_SESSION:
+            from src.utils.result_summary import summarize_to_csv
+            logger.info("Refreshing %s summaries from %s ...", exp, results_root)
+            summarize_to_csv(base=results_root, experiment=exp, out_dir=summary_dir)
+            _SUMMARIZED_THIS_SESSION.add(exp)
+        elif not path.exists():
+            from src.utils.result_summary import summarize_to_csv
+            logger.info("Summary %s missing -- building it from %s ...", path.name, results_root)
+            summarize_to_csv(base=results_root, experiment=exp, out_dir=summary_dir)
     if not path.exists():
         raise FileNotFoundError(
             f"{path} not found and could not be built -- are there result files "
@@ -918,6 +936,138 @@ def runtime_performance_scatter(
     ], loc="best", fontsize=10)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_cost_quality_{metric.lower()}")
+
+
+# ---------------------------------------------------------------------------
+#  Foundation-model vs baseline head-to-head (e.g. TabPFN v3 vs CatBoost)
+# ---------------------------------------------------------------------------
+
+def foundation_vs_baseline_size_trend(
+    df: pd.DataFrame,
+    *,
+    metric: str,
+    task: str,
+    fnd_method: str = "tabpfn_v3",
+    base_method: str = "catboost",
+    relative: bool = True,
+    higher_is_better: bool = True,
+    task_name: str = "PD",
+    figsize: Tuple[int, int] = (11, 7),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Per-dataset gain of ``fnd_method`` over ``base_method`` vs **dataset size**,
+    with an OLS trend line — does the foundation model's edge grow on SMALL data?
+
+    y = relative gain ``100·(fnd−base)/|base|`` (%) when ``relative`` else the raw
+    difference; x = dataset rows (log). Dots are **green** where the foundation
+    model wins and red otherwise; the zero (equal-performance) line is dashed and
+    the regression slope (per decade of size) is annotated."""
+    from src.data.dataset_inventory import row_counts
+
+    mean_col = _resolve_mean_column(df, metric)
+    piv = (df[df["method"].isin([fnd_method, base_method])]
+           .groupby(["dataset", "method"])[mean_col].mean().unstack("method"))
+    if fnd_method not in piv.columns or base_method not in piv.columns:
+        logger.warning("size_trend: need both %s and %s in the data", fnd_method, base_method)
+        return None
+    piv = piv.dropna(subset=[fnd_method, base_method])
+    sizes = row_counts(task)
+    piv = piv[[d in sizes for d in piv.index]]
+    if piv.empty:
+        logger.warning("size_trend: no datasets with a known row count (need processed data)")
+        return None
+
+    x = np.array([sizes[d] for d in piv.index], dtype=float)
+    fnd, base = piv[fnd_method].to_numpy(), piv[base_method].to_numpy()
+    if relative:
+        y = 100.0 * (fnd - base) / np.where(np.abs(base) < 1e-9, np.nan, np.abs(base))
+        ylabel = f"relative {_pretty_metric(metric)} gain: {fnd_method} vs {base_method} (%)"
+    else:
+        y = fnd - base
+        ylabel = f"{_pretty_metric(metric)} difference ({fnd_method} − {base_method})"
+    win = (fnd >= base) if higher_is_better else (fnd <= base)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.set_xscale("log")
+    ax.axhline(0.0, color="0.4", lw=1.3, ls="--", zorder=1)
+    ax.scatter(x[win], y[win], s=95, c="#2ca02c", edgecolor="black", linewidth=0.6,
+               zorder=3, label=f"{fnd_method} better")
+    ax.scatter(x[~win], y[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
+               zorder=3, label=f"{base_method} better")
+    for xi, yi, d in zip(x, y, piv.index):
+        if np.isfinite(yi):
+            ax.annotate(str(d).split(".")[-1], (xi, yi), xytext=(0, 8),
+                        textcoords="offset points", ha="center", fontsize=7, color="0.35")
+    mask = np.isfinite(y)
+    if mask.sum() >= 2:
+        lx = np.log10(x[mask])
+        coef = np.polyfit(lx, y[mask], 1)
+        xs = np.linspace(lx.min(), lx.max(), 100)
+        ax.plot(10 ** xs, np.polyval(coef, xs), color="#1f4e79", lw=2.4, zorder=2,
+                label=f"OLS trend ({coef[0]:+.2f}/decade of size)")
+    ax.set_xlabel("dataset size (rows, log scale)", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
+    ax.set_title(f"{task_name}: does {fnd_method}'s edge over {base_method} grow on small data?",
+                 fontsize=TITLE_FS, fontweight="bold")
+    ax.legend(loc="best", fontsize=9)
+    ax.grid(True, which="both", alpha=0.25)
+    plt.tight_layout()
+    return _save(fig, out_dir,
+                 f"{task_name.lower()}_{fnd_method}_vs_{base_method}_sizetrend_{metric.lower()}")
+
+
+def foundation_vs_baseline_scatter(
+    df: pd.DataFrame,
+    *,
+    metric: str,
+    fnd_method: str = "tabpfn_v3",
+    base_method: str = "catboost",
+    higher_is_better: bool = True,
+    task_name: str = "PD",
+    figsize: Tuple[int, int] = (8, 8),
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Per-dataset head-to-head: y = ``fnd_method``'s metric, x = ``base_method``'s,
+    with the **y = x diagonal** (equal performance). One point per dataset, green
+    above the line (foundation model wins) and red below; labelled. Shows at a
+    glance on which datasets the two methods diverge most."""
+    mean_col = _resolve_mean_column(df, metric)
+    piv = (df[df["method"].isin([fnd_method, base_method])]
+           .groupby(["dataset", "method"])[mean_col].mean().unstack("method"))
+    if fnd_method not in piv.columns or base_method not in piv.columns:
+        logger.warning("scatter: need both %s and %s in the data", fnd_method, base_method)
+        return None
+    piv = piv.dropna(subset=[fnd_method, base_method])
+    if piv.empty:
+        return None
+    xb, yf = piv[base_method].to_numpy(), piv[fnd_method].to_numpy()
+    win = (yf >= xb) if higher_is_better else (yf <= xb)
+    pm = _pretty_metric(metric)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    lo, hi = float(min(xb.min(), yf.min())), float(max(xb.max(), yf.max()))
+    pad = 0.04 * ((hi - lo) or 1.0)
+    lim = (lo - pad, hi + pad)
+    ax.plot(lim, lim, color="0.4", lw=1.3, ls="--", zorder=1, label="equal performance (y = x)")
+    ax.scatter(xb[win], yf[win], s=95, c="#2ca02c", edgecolor="black", linewidth=0.6,
+               zorder=3, label=f"{fnd_method} better")
+    ax.scatter(xb[~win], yf[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
+               zorder=3, label=f"{base_method} better")
+    for xi, yi, d in zip(xb, yf, piv.index):
+        ax.annotate(str(d).split(".")[-1], (xi, yi), xytext=(5, 0),
+                    textcoords="offset points", ha="left", va="center", fontsize=7, color="0.35")
+    ax.set_xlim(lim)
+    ax.set_ylim(lim)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel(f"{base_method} {pm}", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel(f"{fnd_method} {pm}", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_title(f"{task_name}: {fnd_method} vs {base_method} per dataset ({pm})",
+                 fontsize=TITLE_FS, fontweight="bold")
+    ax.legend(loc="best", fontsize=9)
+    ax.grid(True, alpha=0.25)
+    plt.tight_layout()
+    return _save(fig, out_dir,
+                 f"{task_name.lower()}_{fnd_method}_vs_{base_method}_scatter_{metric.lower()}")
 
 
 # ---------------------------------------------------------------------------
