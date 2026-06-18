@@ -30,7 +30,7 @@
 # committed (stale copies are misleading). README documents them as gitignored.
 scripts/*/_generated/
 
-# ---- Foundation-model weights (downloaded by scripts/fetch_weights.py) ----
+# ---- Foundation-model weights (downloaded by src/utils/fetch_weights.py) ----
 # Multi-GB; uploaded to the VSC manually, never committed.
 /checkpoints/
 

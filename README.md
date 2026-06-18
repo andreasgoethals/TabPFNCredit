@@ -2,6 +2,11 @@
 
 **Benchmarking tabular foundation models for credit-risk prediction.**
 
+![Python](https://img.shields.io/badge/python-3.10–3.12-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Built on TALENT](https://img.shields.io/badge/built%20on-TALENT-orange)
+![Runs: laptop · SLURM HPC](https://img.shields.io/badge/runs-laptop%20·%20SLURM%20HPC-8A2BE2)
+
 TabPFNCredit evaluates modern tabular foundation models (the TabPFN
 family, TabICL, TabDPT, MITRA, LimiX, HyperFast, TabPTM) against deep
 tabular networks (FT-Transformer, SAINT, RealMLP, TabM, …) and classical
@@ -332,9 +337,13 @@ src/
     result_io.py                    # save_method / load_method / scan_results
     result_summary.py               # polars-backed per-fold + per-method CSVs
     slurm_generator.py              # SLURM script generator
+    resubmit_planner.py             # gap scan -> only the missing points
+    statistical_testing.py          # Friedman/Nemenyi/Bayesian/CD diagrams …
+    remove_results.py               # prune results by exp/task/dataset/method/HPO/fold
+    fetch_weights.py                # download foundation-model weights -> checkpoints/ (run LOCALLY)
     file_lock.py                    # cross-platform FileLock
   visualizations/
-    experiment_plots.py             # heatmaps, ranking bars, learning curves
+    experiment_plots.py             # heatmaps, ranking bars, learning/imbalance curves
     calibration_plots.py            # reliability diagrams
     data_exploration.py             # backs the Data_Exploration notebook
 
@@ -343,7 +352,6 @@ scripts/
     config/CONFIG_{DATA,METHOD,EXPERIMENT}.yaml
     _generated/                     # SLURM scripts (auto-emitted, gitignored)
   run_all_experiments.sh            # submit the full chained HPC sweep
-  fetch_weights.py                  # download foundation-model weights -> checkpoints/ (run LOCALLY)
   setup_vsc_checkpoints.sh          # provision the uploaded checkpoints/ on the VSC (offline)
 
 notebooks/                          # thin viewers calling src.visualizations

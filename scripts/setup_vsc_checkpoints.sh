@@ -3,11 +3,10 @@
 # setup_vsc_checkpoints.sh -- provision uploaded weights on the VSC (OFFLINE)
 # ============================================================================
 # Run this ONCE on the VSC after you have:
-#   1. Downloaded weights locally with `python scripts/fetch_weights.py`, and
+#   1. Downloaded weights locally with `python -m src.utils.fetch_weights`, and
 #   2. Uploaded the resulting `checkpoints/` folder to EITHER this repo's root
 #      (`$VSC_DATA/TabPFNCredit/checkpoints/`) or the shared project storage
-#      (`$TABPFN_STAGING_ROOT/checkpoints/`, default
-#      `/staging/leuven/stg_00211/checkpoints/`). This script auto-detects
+#      (`$TABPFN_STAGING_ROOT/checkpoints/`). This script auto-detects
 #      which one is populated (repo first, then project storage); override the
 #      location with `TABPFN_CHECKPOINTS_DIR=/path/to/checkpoints`.
 #
@@ -60,7 +59,7 @@ echo "checkpoints: $CKPT"
 
 if [ ! -d "$CKPT" ]; then
     echo "ERROR: $CKPT not found. Upload the 'checkpoints/' folder produced by" >&2
-    echo "       'python scripts/fetch_weights.py' to the repo root first." >&2
+    echo "       'python -m src.utils.fetch_weights' to the repo root first." >&2
     exit 1
 fi
 
@@ -95,7 +94,7 @@ provision_mitra() {
         echo "  [ok]   Mitra ($sub) -> $dst"
     else
         echo "  [skip] Mitra ($sub): not in checkpoints (config.json+model.safetensors missing)."
-        echo "         (fine if you did not fetch 'mitra'; otherwise re-run fetch_weights.py)"
+        echo "         (fine if you did not fetch 'mitra'; otherwise re-run 'python -m src.utils.fetch_weights')"
     fi
 }
 echo "Mitra:"
@@ -130,6 +129,6 @@ echo
 if [ "$status" -eq 0 ]; then
     echo "Done. Submit experiments as usual; compute nodes read everything offline."
 else
-    echo "Done with WARNINGS (see above). Re-run scripts/fetch_weights.py locally if needed."
+    echo "Done with WARNINGS (see above). Re-run 'python -m src.utils.fetch_weights' locally if needed."
 fi
 exit "$status"

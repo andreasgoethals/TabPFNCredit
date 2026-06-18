@@ -8,9 +8,9 @@
 # folder to the VSC (``$VSC_DATA/TabPFNCredit/checkpoints/``) where the compute
 # nodes -- which have NO outbound internet -- read it OFFLINE.
 #
-#   python scripts/fetch_weights.py            # download everything
-#   python scripts/fetch_weights.py --only tabpfn_v3 tabicl_v2   # a subset
-#   python scripts/fetch_weights.py --list     # show what would be fetched
+#   python -m src.utils.fetch_weights            # download everything
+#   python -m src.utils.fetch_weights --only tabpfn_v3 tabicl_v2   # a subset
+#   python -m src.utils.fetch_weights --list     # show what would be fetched
 #
 # Why a dedicated script (instead of letting the models self-download on the
 # cluster)?  wICE compute nodes have no internet, and the login node's network
@@ -47,7 +47,7 @@ from typing import Callable, Dict, List, NamedTuple, Optional
 # lands there. These are the SAME variable names the generated SLURM scripts
 # export on the cluster, so "downloaded here" == "found there".
 # ----------------------------------------------------------------------------
-_REPO_ROOT = Path(__file__).resolve().parents[1]
+_REPO_ROOT = Path(__file__).resolve().parents[2]   # src/utils/ -> repo root
 
 
 def _configure_cache_env(checkpoints: Path) -> None:

@@ -481,7 +481,9 @@ def _sbatch_header(
     lines = [
         f"#SBATCH --job-name={job_name}",
         f"#SBATCH --clusters={spec.cluster}",
-        "#SBATCH --account=lp_verbekelab",
+        # Slurm credit account. Set TABPFN_SLURM_ACCOUNT on the login node before
+        # generating/submitting (kept out of the public repo); placeholder otherwise.
+        f"#SBATCH --account={os.environ.get('TABPFN_SLURM_ACCOUNT', 'lp_yourproject')}",
         f"#SBATCH --partition={spec.partition}",
         "#SBATCH --nodes=1",
         "#SBATCH --ntasks=1",

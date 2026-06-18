@@ -17,24 +17,32 @@ split across SLURM array jobs, and how to resume or migrate a partial run.
 - A VSC account with access to the Genius / wICE partitions.
 - The project checked out under `$VSC_DATA/TabPFNCredit`.
 
-### Cluster status & compute accounts (June 2026)
+### Configure your site (env vars)
 
-- **Submit with a regular project account.** Jobs use
-  `#SBATCH --account=lp_verbekelab` (set in `slurm_generator.py`). Tier-2
-  **Mindwell** is now in production, so the old pilot project is no longer
-  valid — all jobs (Genius / wICE / Mindwell) must use a regular project
-  account; `lp_verbekelab` already is one. Credit rates are in the VSC docs.
-- **Default routing is wICE** (`batch_sapphirerapids`, `gpu_a100`, `gpu_h100`),
-  which is fully released. **Genius GPU (V100)** and the new **Mindwell GPU**
-  (`gpu_b200`, NVIDIA B200) are wired as cross-cluster **replica** targets:
-  set `TABPFN_ALL_CLUSTERS=1` to fan the small-data Exp 2/3 sweeps across all of
-  them at once (see the env table). Replicas never gate the summarize job, so a
-  still-reserved Genius GPU or an unconfigured Mindwell environment simply drops
-  harmlessly — wICE always completes the run.
-- **7-day CPU walltime:** wICE/Mindwell `*_long` CPU partitions allow up to
-  168 h (vs 72 h on the regular `batch_*`). The generator targets the 72 h
-  partitions; long CPU baselines (rare) can be sent to `batch_sapphirerapids_long`
-  manually if ever needed.
+Set your Slurm credit account on the login node before generating/submitting —
+it is read from the environment and kept out of the repo:
+
+```bash
+export TABPFN_SLURM_ACCOUNT=lp_<your_project>     # your regular project credit account
+# optional: override where results/caches/checkpoints live (auto-detected otherwise)
+export TABPFN_STAGING_ROOT=/your/project/storage
+```
+
+Add `TABPFN_SLURM_ACCOUNT` to your `~/.bashrc` so every job picks it up — if it
+is unset the generator emits a placeholder account and the job is rejected.
+Use a **regular project account**: pilot projects are no longer valid now that
+Tier-2 Mindwell is in production.
+
+### Cluster routing
+
+- **Default routing is wICE** (`batch_sapphirerapids`, `gpu_a100`, `gpu_h100`).
+  **Genius GPU (V100)** and **Mindwell GPU** (`gpu_b200`, NVIDIA B200) are wired
+  as cross-cluster **replica** targets: set `TABPFN_ALL_CLUSTERS=1` to fan the
+  small-data Exp 2/3 sweeps across all of them at once (see the env table).
+  Replicas never gate the summarize job, so a reserved or unconfigured cluster
+  simply drops harmlessly — wICE always completes the run.
+- **7-day CPU walltime:** the `*_long` CPU partitions allow up to 168 h (vs 72 h
+  on `batch_*`); the generator targets the 72 h partitions.
 
 ---
 
@@ -46,7 +54,7 @@ needed:
 | Filesystem | Holds | Why |
 |---|---|---|
 | **General data storage** — `$VSC_DATA/TabPFNCredit` (the repo) | code, **logs** | small quota, backed up, persistent |
-| **Project storage** — `$TABPFN_STAGING_ROOT` (default `/staging/leuven/stg_00211`) | **datasets, checkpoints, results, caches** | large, non-purged; keeps heavy I/O off the small `$VSC_DATA` quota |
+| **Project storage** — `$TABPFN_STAGING_ROOT` (auto-detected on the VSC; override via the env var) | **datasets, checkpoints, results, caches** | large, non-purged; keeps heavy I/O off the small `$VSC_DATA` quota |
 
 - **Datasets & checkpoints** are read **repo first, then project storage** —
   put them in either place. On the cluster they live under
@@ -92,16 +100,16 @@ internet, upload the folder, and provision it on the cluster.
 **(a) On a machine with internet** (inside the project venv):
 
 ```bash
-python scripts/fetch_weights.py                 # -> ./checkpoints  (several GB)
+python -m src.utils.fetch_weights                 # -> ./checkpoints  (several GB)
 # or a subset:
-python scripts/fetch_weights.py --only tabpfn_v3 tabicl_v2
+python -m src.utils.fetch_weights --only tabpfn_v3 tabicl_v2
 ```
 
 **(b) Upload `checkpoints/` to the project storage on the VSC** (the repo
 root works too — both are found automatically):
 
 ```bash
-rsync -av checkpoints/ <vsc>:/staging/leuven/stg_00211/checkpoints/
+rsync -av checkpoints/ <vsc>:"$TABPFN_STAGING_ROOT"/checkpoints/   # or $VSC_DATA/TabPFNCredit/checkpoints/
 ```
 
 **(c) On a VSC login node, provision once:**
@@ -240,19 +248,22 @@ module purge
 module load Python/3.12.3-GCCcore-13.3.0          # 'module spider Python/3.12' for the exact name
 source tabpfncreditvenv/bin/activate
 
-# 3. Pull the latest benchmark code (editable install -> the pull is live).
+# 3. Set your project account (read from the env; not stored in the repo).
+export TABPFN_SLURM_ACCOUNT=lp_<your_project>
+
+# 4. Pull the latest benchmark code (editable install -> the pull is live).
 git pull
 
-# 4. Re-fetch your TALENT fork from GitHub into the venv. TALENT is a git
-#    dependency (see pyproject: `TALENT @ git+https://github.com/andreasgoethals/TALENT@main`),
+# 5. Re-fetch your TALENT fork from GitHub into the venv. TALENT is a git
+#    dependency (see pyproject: `TALENT @ git+https://github.com/<you>/TALENT@main`),
 #    so pip thinks it's "already satisfied" and skips a new commit unless forced.
 #    --no-cache-dir forces a fresh clone of @main; --no-deps leaves torch/etc. alone.
-pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/andreasgoethals/TALENT@main"
+pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/<you>/TALENT@main"
 
-# 5. Sanity-check that the new HPO feature is in the freshly fetched TALENT.
-python -c "from TALENT.model.lib.tuning_metric import supported_tune_metrics; print(supported_tune_metrics())"
+# 6. (one-off this release) drop the retired dummy baseline + refresh summaries.
+python -m src.utils.remove_results --method dummy --resummarize
 
-# 6. Resubmit ONLY the missing points of ALL experiments, across every cluster.
+# 7. Resubmit ONLY the missing points of ALL experiments, across every cluster.
 TABPFN_ALL_CLUSTERS=1 tabpfncredit resubmit --all
 
 # 7. After the cross-cluster (Genius/Mindwell) arrays finish, refresh the CSVs
@@ -276,7 +287,7 @@ preserving the `<experiment>/<task>/<dataset>/` layout:
 ```bash
 rsync -av --exclude='*/logs/' \
     "$VSC_DATA/TabPFNCredit/results/" \
-    "/staging/leuven/stg_00211/results/"
+    "$TABPFN_STAGING_ROOT/results/"
 ```
 
 `--exclude='*/logs/'` leaves logs on `$VSC_DATA` (they don't affect
