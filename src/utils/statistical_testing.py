@@ -46,8 +46,9 @@ import matplotlib.pyplot as plt
 # (same fonts, the crimson foundation-model highlight, R2 -> R²).
 from src.visualizations.experiment_plots import (  # noqa: E402
     TICK_FS, LABEL_FS, TITLE_FS,
-    _pretty_metric, _color_foundation_ticks, _foundation_methods,
+    _pretty_metric, _color_foundation_ticks, _foundation_methods, _best_to_worst_colors,
 )
+from src.methods.method_names import display_name as _display_name  # noqa: E402
 
 
 # ============================================================================
@@ -749,7 +750,7 @@ def plot_cd_diagram(
         ax.plot([r, r], [axis_y, y], c="0.25", lw=0.8)                 # stem
         ax.plot([r, anchor], [y, y], c="0.25", lw=0.8)                 # connector to anchor
         ax.text(anchor + (-0.05 * span if left_side else 0.05 * span), y,
-                f"{name} ({r:.2f})",
+                f"{_display_name(name)} ({r:.2f})",
                 ha="right" if left_side else "left", va="center",
                 fontsize=12, color="crimson" if name in fnd else "black",
                 fontweight="bold" if name in fnd else "normal")
@@ -835,16 +836,26 @@ def plot_percent_of_max_bars(
     """Bars of the percentage-of-maximum-performance summary (NOT PAMA)."""
     t = percent_of_max(matrix, higher_is_better=higher_is_better)
     nm = _pretty_metric(metric_name)
-    fig, ax = plt.subplots(figsize=(max(8, 0.55 * len(t) + 4), 6))
-    ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color="#4878CF", edgecolor="black", linewidth=0.6)
-    ax.set_xlabel(f"Mean % of best-per-dataset {nm}".strip())
-    ax.set_xlim(max(0.0, t["PctOfMax_%"].min() - 5), 100.5)
+    n = len(t)
+    # Same look as the experiment bar plots: best-first (top), green->red
+    # gradient + black border. Data reversed for barh (so index[0] sits on top),
+    # colours reversed to match (green = best stays at the top).
+    colors = _best_to_worst_colors(n)[::-1]
+    fig, ax = plt.subplots(figsize=(max(9, 0.55 * n + 4), max(4.5, 0.42 * n + 2)))
+    ax.set_axisbelow(True)
+    ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color=colors,
+            edgecolor="black", linewidth=0.8, zorder=3)
+    ax.set_xlabel(f"Mean % of best-per-dataset {nm}".strip(),
+                  fontsize=LABEL_FS, fontweight="bold")
+    ax.set_xlim(max(0.0, t["PctOfMax_%"].min() - 5), 104)
     ax.set_title(f"Percentage of maximum performance ({nm})"
-                 if nm else "Percentage of maximum performance", fontweight="bold")
+                 if nm else "Percentage of maximum performance",
+                 fontweight="bold", fontsize=TITLE_FS)
     ax.tick_params(labelsize=TICK_FS)
-    _color_foundation_ticks(ax, axis="y")
+    _color_foundation_ticks(ax, axis="y")     # foundation names in crimson
     for y, v in enumerate(t["PctOfMax_%"][::-1]):
-        ax.text(v + 0.15, y, f"{v:.1f}", va="center", fontsize=9)
+        ax.text(v + 0.4, y, f"{v:.1f}", va="center", fontsize=10,
+                fontweight="bold", color="0.15")
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -864,24 +875,33 @@ def plot_pama_bars(
     t = pama_fold_level(per_fold_df, metric, higher_is_better=higher_is_better)
     t = t[t["PAMA_%"] > 0]
     fm = set(foundation_methods or [])
-    colors = ["#d62728" if mth in fm else "#4878CF" for mth in t.index]
-    fig, ax = plt.subplots(figsize=(max(8, 0.45 * len(t) + 4), max(4, 0.35 * len(t) + 2)))
-    ax.barh(t.index[::-1], t["PAMA_%"][::-1], color=colors[::-1])
+    n = len(t)
+    # Same look as the experiment bar plots: best-first (top), green->red
+    # gradient + black border. (Foundation models are flagged by their crimson
+    # NAME, like every other figure -- not by a special bar colour.) Data is
+    # reversed for barh so index[0] sits on top; colours reversed to match.
+    colors = _best_to_worst_colors(n)[::-1]
+    fig, ax = plt.subplots(figsize=(max(9, 0.55 * n + 4), max(4.5, 0.42 * n + 2)))
+    ax.set_axisbelow(True)
+    ax.barh(t.index[::-1], t["PAMA_%"][::-1], color=colors,
+            edgecolor="black", linewidth=0.8, zorder=3)
     nm = _pretty_metric(metric_name or metric)
-    ax.set_xlabel(f"PAMA: % of fold-level observations with the top {nm}")
+    ax.set_xlabel(f"PAMA: % of fold-level observations with the top {nm}",
+                  fontsize=LABEL_FS, fontweight="bold")
     ax.set_title(f"Probability of Achieving MAximal accuracy ({nm}, "
                  f"n = {int(t['n_folds'].iloc[0])} folds)", fontweight="bold", fontsize=TITLE_FS)
     # Headroom so the "(wins)" annotation stays INSIDE the axes.
-    ax.set_xlim(0, t["PAMA_%"].max() * 1.18 + 1)
+    ax.set_xlim(0, t["PAMA_%"].max() * 1.20 + 1)
     for y, (v, w) in enumerate(zip(t["PAMA_%"][::-1], t["wins"][::-1])):
-        ax.text(v + 0.2, y, f"{v:.1f}%  ({w})", va="center", fontsize=9)
+        ax.text(v + 0.4, y, f"{v:.1f}%  ({w})", va="center", fontsize=10,
+                fontweight="bold", color="0.15")
     ax.tick_params(labelsize=TICK_FS)
     # Foundation-model names in the shared crimson, like every other figure.
     _color_foundation_ticks(ax, axis="y")
     if fm:
         share = t.loc[t.index.isin(fm), "PAMA_%"].sum()
-        ax.text(0.98, 0.02, f"foundation models collectively: {share:.1f}%",
-                transform=ax.transAxes, ha="right", fontsize=10,
+        ax.text(0.98, 0.04, f"foundation models collectively: {share:.1f}%",
+                transform=ax.transAxes, ha="right", fontsize=11,
                 bbox=dict(boxstyle="round", fc="#ffe9e9", ec="crimson"))
     fig.tight_layout()
     return _finish(fig, out_path)

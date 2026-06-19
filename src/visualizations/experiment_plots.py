@@ -34,6 +34,9 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+# Standard, consistent figure labels (TALENT-free import: safe everywhere).
+from src.methods.method_names import display_name as _display_name
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -112,30 +115,48 @@ def _foundation_methods() -> set:
 
 
 def _color_foundation_ticks(ax, axis: str = "x") -> None:
-    """Render tabular-foundation-model names in crimson + bold on the given
-    tick ``axis`` ("x" or "y"), so they stand out consistently in every chart
-    (including the stats module, which reuses this)."""
-    fnd = _foundation_methods()
-    if not fnd:
+    """Relabel a per-method tick ``axis`` ("x"/"y") with the standard display
+    names AND render foundation-model names in crimson + bold, so naming is
+    identical in every chart (this module AND the stats module, which reuses it).
+
+    Matching is done on the RAW registry key *before* relabelling, so it is
+    correct whether the tick text is still a raw key or already a display name.
+    Non-method ticks (e.g. dataset names) pass through ``display_name``
+    unchanged, so calling this on a non-method axis is a harmless no-op.
+    Existing rotation / alignment is preserved across the relabel."""
+    from matplotlib.ticker import FixedLocator
+    get = ax.get_xticklabels if axis == "x" else ax.get_yticklabels
+    setlab = ax.set_xticklabels if axis == "x" else ax.set_yticklabels
+    cur = get()
+    raws = [t.get_text() for t in cur]
+    if not any(raws):                      # ticks not drawn yet -> nothing to do
         return
-    labels = ax.get_xticklabels() if axis == "x" else ax.get_yticklabels()
-    for lbl in labels:
-        if lbl.get_text() in fnd:
+    rot = cur[0].get_rotation()
+    ha = cur[0].get_horizontalalignment()
+    # Pin a FixedLocator at the current positions so relabelling is legitimate
+    # (no "FixedFormatter without FixedLocator" warning) and survives a redraw.
+    locs = ax.get_xticks() if axis == "x" else ax.get_yticks()
+    (ax.xaxis if axis == "x" else ax.yaxis).set_major_locator(FixedLocator(list(locs)))
+    fnd = _foundation_methods()
+    fnd_disp = {_display_name(m) for m in fnd}
+    new = setlab([_display_name(r) for r in raws], rotation=rot, ha=ha)
+    for lbl, raw in zip(new, raws):
+        if raw in fnd or raw in fnd_disp:
             lbl.set_color("crimson")
             lbl.set_fontweight("bold")
 
 
 def _style_method_axis(ax, *, connect: bool = False) -> None:
-    """Uniform per-method x axis: 45-deg right-aligned labels at TICK_FS, with
-    foundation-model names highlighted in red. ``connect=True`` draws a thin
-    dotted vertical line at each tick (from the x-axis up to the box/point),
-    so it is unambiguous which method a box belongs to."""
+    """Uniform per-method x axis: standard display labels, 45-deg right-aligned
+    at TICK_FS, with foundation-model names highlighted in red. ``connect=True``
+    draws a thin dotted vertical line at each tick (from the x-axis up to the
+    box/point) so it is unambiguous which method a box belongs to."""
     ax.tick_params(axis="x", labelsize=TICK_FS)
     ax.tick_params(axis="y", labelsize=TICK_FS)
+    _color_foundation_ticks(ax)            # relabel -> display names + foundation red
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45)
         lbl.set_horizontalalignment("right")
-    _color_foundation_ticks(ax)
     if connect:
         for x in ax.get_xticks():
             ax.axvline(x, color="0.6", lw=0.6, ls=":", alpha=0.7, zorder=0)
@@ -415,6 +436,10 @@ def per_dataset_bars(
     ax.set_ylabel(metric, fontsize=12, fontweight="bold")
     ax.set_title(f"{task_name} per-dataset {metric}", fontsize=14, fontweight="bold")
     ax.legend(loc="upper right", bbox_to_anchor=(1.18, 1.0), fontsize=9)
+    leg = ax.get_legend()                                  # standardise method names
+    if leg is not None:
+        for t in leg.get_texts():
+            t.set_text(_display_name(t.get_text()))
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_per_dataset_{metric.lower()}")
 
@@ -464,10 +489,10 @@ def _sweep_curve(
             # evolution's detail while still removing the per-point jitter.
             win = max(3, len(y) // 12)
             y_ma = pd.Series(y.to_numpy()).rolling(win, min_periods=1, center=True).mean()
-            ax.plot(g["sweep_value"], y_ma.to_numpy(), lw=2.2, label=method, color=color)
+            ax.plot(g["sweep_value"], y_ma.to_numpy(), lw=2.2, label=_display_name(method), color=color)
         else:
             ax.plot(g["sweep_value"], y, marker="o", ms=1.1, lw=1.1,
-                    label=method, color=color)
+                    label=_display_name(method), color=color)
     ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
     if relative:
         ax.axhline(1.0, color="0.6", lw=0.8, ls="--")
@@ -568,7 +593,7 @@ def per_dataset_sweep_curves(
         for color, (method, g) in zip(palette, grp.groupby("method")):
             g = g.sort_values("sweep_value")
             ax.plot(g["sweep_value"], g[mean_col], marker="o", ms=ms, lw=0.8,
-                    label=method, color=color)
+                    label=_display_name(method), color=color)
         ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
         ax.set_xlabel(xlabel, fontsize=LABEL_FS, fontweight="bold")
         ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
@@ -935,7 +960,7 @@ def runtime_performance_scatter(
     lab = agg[agg["method"].isin(notable)]
     lab = lab[lab["time"] > 0]
     if len(lab):
-        items = [(r.time, r.perf, r.method, r.method in fnd) for r in lab.itertuples()]
+        items = [(r.time, r.perf, _display_name(r.method), r.method in fnd) for r in lab.itertuples()]
         fs = 10
         all_px = ax.transData.transform(agg[["time", "perf"]].to_numpy(float))
         pos = ax.transData.transform(np.array([(t, p) for t, p, _, _ in items], float))
@@ -1030,6 +1055,7 @@ def foundation_vs_baseline_size_trend(
     the regression slope (per decade of size) is annotated."""
     from src.data.dataset_inventory import row_counts
 
+    fnd_disp, base_disp = _display_name(fnd_method), _display_name(base_method)
     mean_col = _resolve_mean_column(df, metric)
     piv = (df[df["method"].isin([fnd_method, base_method])]
            .groupby(["dataset", "method"])[mean_col].mean().unstack("method"))
@@ -1047,19 +1073,19 @@ def foundation_vs_baseline_size_trend(
     fnd, base = piv[fnd_method].to_numpy(), piv[base_method].to_numpy()
     if relative:
         y = 100.0 * (fnd - base) / np.where(np.abs(base) < 1e-9, np.nan, np.abs(base))
-        ylabel = f"relative {_pretty_metric(metric)} gain: {fnd_method} vs {base_method} (%)"
+        ylabel = f"relative {_pretty_metric(metric)} gain: {fnd_disp} vs {base_disp} (%)"
     else:
         y = fnd - base
-        ylabel = f"{_pretty_metric(metric)} difference ({fnd_method} − {base_method})"
+        ylabel = f"{_pretty_metric(metric)} difference ({fnd_disp} − {base_disp})"
     win = (fnd >= base) if higher_is_better else (fnd <= base)
 
     fig, ax = plt.subplots(figsize=figsize)
     ax.set_xscale("log")
     ax.axhline(0.0, color="0.4", lw=1.3, ls="--", zorder=1)
     ax.scatter(x[win], y[win], s=95, c="#2ca02c", edgecolor="black", linewidth=0.6,
-               zorder=3, label=f"{fnd_method} better")
+               zorder=3, label=f"{fnd_disp} better")
     ax.scatter(x[~win], y[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
-               zorder=3, label=f"{base_method} better")
+               zorder=3, label=f"{base_disp} better")
     for xi, yi, d in zip(x, y, piv.index):
         if np.isfinite(yi):
             ax.annotate(str(d).split(".")[-1], (xi, yi), xytext=(0, 8),
@@ -1073,7 +1099,7 @@ def foundation_vs_baseline_size_trend(
                 label=f"OLS trend ({coef[0]:+.2f}/decade of size)")
     ax.set_xlabel("dataset size (rows, log scale)", fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(f"{task_name}: does {fnd_method}'s edge over {base_method} grow on small data?",
+    ax.set_title(f"{task_name}: does {fnd_disp}'s edge over {base_disp} grow on small data?",
                  fontsize=TITLE_FS, fontweight="bold")
     ax.legend(loc="best", fontsize=9)
     ax.grid(True, which="both", alpha=0.25)
@@ -1097,6 +1123,7 @@ def foundation_vs_baseline_scatter(
     with the **y = x diagonal** (equal performance). One point per dataset, green
     above the line (foundation model wins) and red below; labelled. Shows at a
     glance on which datasets the two methods diverge most."""
+    fnd_disp, base_disp = _display_name(fnd_method), _display_name(base_method)
     mean_col = _resolve_mean_column(df, metric)
     piv = (df[df["method"].isin([fnd_method, base_method])]
            .groupby(["dataset", "method"])[mean_col].mean().unstack("method"))
@@ -1116,18 +1143,18 @@ def foundation_vs_baseline_scatter(
     lim = (lo - pad, hi + pad)
     ax.plot(lim, lim, color="0.4", lw=1.3, ls="--", zorder=1, label="equal performance (y = x)")
     ax.scatter(xb[win], yf[win], s=95, c="#2ca02c", edgecolor="black", linewidth=0.6,
-               zorder=3, label=f"{fnd_method} better")
+               zorder=3, label=f"{fnd_disp} better")
     ax.scatter(xb[~win], yf[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
-               zorder=3, label=f"{base_method} better")
+               zorder=3, label=f"{base_disp} better")
     for xi, yi, d in zip(xb, yf, piv.index):
         ax.annotate(str(d).split(".")[-1], (xi, yi), xytext=(5, 0),
                     textcoords="offset points", ha="left", va="center", fontsize=7, color="0.35")
     ax.set_xlim(lim)
     ax.set_ylim(lim)
     ax.set_aspect("equal", adjustable="box")
-    ax.set_xlabel(f"{base_method} {pm}", fontsize=LABEL_FS, fontweight="bold")
-    ax.set_ylabel(f"{fnd_method} {pm}", fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(f"{task_name}: {fnd_method} vs {base_method} per dataset ({pm})",
+    ax.set_xlabel(f"{base_disp} {pm}", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel(f"{fnd_disp} {pm}", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_title(f"{task_name}: {fnd_disp} vs {base_disp} per dataset ({pm})",
                  fontsize=TITLE_FS, fontweight="bold")
     ax.legend(loc="best", fontsize=9)
     ax.grid(True, alpha=0.25)

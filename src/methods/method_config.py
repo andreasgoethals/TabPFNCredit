@@ -43,6 +43,10 @@ from TALENT.model.method_registry import (
     list_methods,
 )
 
+# Canonical figure labels (TALENT-free module). Re-exported here so the standard
+# display name for a registry key is discoverable next to the registry itself.
+from src.methods.method_names import METHOD_DISPLAY_NAMES, display_name
+
 MethodSet = Set[str]
 
 
@@ -289,6 +293,7 @@ __all__ = [
     "LOGIT_METHODS", "PROBABILITY_METHODS", "CLASS_LABEL_METHODS",
     "NO_HPO_METHODS", "HPO_METHODS",
     "FOUNDATION_METHODS", "TABPFN_VARIANTS",
+    "METHOD_DISPLAY_NAMES", "display_name",
     "REQUIRES_CAT_INDICES", "REQUIRES_CAT_OHE", "REQUIRES_CAT_TABR_OHE",
     "FORBIDS_CAT_INDICES",
     "REQUIRES_NO_NORMALIZATION", "REQUIRES_STANDARD_NORMALIZATION",

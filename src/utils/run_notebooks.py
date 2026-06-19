@@ -258,15 +258,38 @@ def _check_nbconvert(py: Path) -> None:
 
 
 def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
-                     kernel_name: str) -> None:
-    """Restart-and-run ``path`` in place with a fresh venv kernel (raises on failure)."""
+                     kernel_name: str, verbose: bool = False) -> None:
+    """Restart-and-run ``path`` in place with a fresh venv kernel (raises on failure).
+
+    Quiet by default: nbconvert's own chatter and the harmless Windows
+    ``zmq`` ``add_reader`` RuntimeWarning are captured (shown only on failure).
+    ``verbose=True`` streams everything live for debugging."""
     cmd = [str(py), "-m", "nbconvert", "--to", "notebook", "--execute", "--inplace",
+           "--log-level", "WARN",
            f"--ExecutePreprocessor.timeout={timeout}",
            f"--ExecutePreprocessor.kernel_name={kernel_name}"]
     if allow_errors:
         cmd.append("--ExecutePreprocessor.allow_errors=True")
     cmd.append(str(path))
-    subprocess.run(cmd, check=True)
+    # Silence the cosmetic "Proactor event loop ... add_reader" zmq warning the
+    # kernel emits on Windows (kept alongside any filter the user already set).
+    zmq_filter = "ignore::RuntimeWarning:zmq._future"
+    prior = os.environ.get("PYTHONWARNINGS")
+    env = {**os.environ, "PYTHONWARNINGS": f"{zmq_filter},{prior}" if prior else zmq_filter}
+    if verbose:
+        subprocess.run(cmd, check=True, env=env)
+    else:
+        subprocess.run(cmd, check=True, env=env, capture_output=True, text=True)
+
+
+def _print_error_tail(exc: subprocess.CalledProcessError, n: int = 18) -> None:
+    """Show the tail of a failed nbconvert run (the actual cell traceback)."""
+    txt = ((exc.stderr or "") + (exc.stdout or "")).strip()
+    if not txt:
+        return
+    print("        ---- nbconvert output (tail) ----")
+    for line in txt.splitlines()[-n:]:
+        print(f"        {line}")
 
 
 # ============================================================================
@@ -275,53 +298,85 @@ def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
 
 def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: bool,
         do_md: bool, md_path: Path, timeout: int, allow_errors: bool,
-        kernel_name: str, continue_on_error: bool, include_results: bool) -> int:
-    """Drive clear/execute/collect across ``targets``. Returns a process exit code."""
+        kernel_name: str, continue_on_error: bool, include_results: bool,
+        verbose: bool = False) -> int:
+    """Drive clear/execute/collect across ``targets``. Returns a process exit code.
+
+    One concise line per notebook: ``[i/N] <name> … ✓  12.3s  (cleared, ran, 5,512 chars)``.
+    On failure the tail of nbconvert's output is shown so the error is visible.
+    """
+    import time
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     included_order = [p.stem for p in discover_notebooks()]
     fresh: Dict[str, str] = {}
     ok, failed = [], []
+    n = len(targets)
+    width = max((len(p.stem) for p in targets), default=10)
+    # Status glyphs degrade to ASCII on a non-UTF-8 console (Windows cp1252)
+    # so a tick/cross never raises UnicodeEncodeError mid-run.
+    _uni = "utf" in (getattr(sys.stdout, "encoding", "") or "").lower()
+    M_OK, M_FAIL = ("✓", "✗") if _uni else ("ok", "FAIL")
 
-    for nb_path in targets:
+    for i, nb_path in enumerate(targets, 1):
         stem = nb_path.stem
         is_collected = stem in included_order  # exempt notebooks run but aren't collected
-        print(f"\n=== {stem} {'(run only, not collected)' if not is_collected else ''} ===")
+        tag = "" if is_collected else " (run-only)"
+        print(f"[{i}/{n}] {stem:<{width}}{tag} ... ", end="\n" if verbose else "", flush=True)
+        t0 = time.perf_counter()
         try:
+            steps: List[str] = []
             if do_clear:
-                print("  • clearing outputs")
                 clear_notebook(nb_path)
+                steps.append("cleared")
             if do_execute:
-                print(f"  • restart & run  ({py})")
                 execute_notebook(nb_path, py, timeout=timeout, allow_errors=allow_errors,
-                                 kernel_name=kernel_name)
+                                 kernel_name=kernel_name, verbose=verbose)
+                steps.append("ran")
             if do_md and is_collected:
                 nb = json.loads(nb_path.read_text(encoding="utf-8"))
                 body = harvest_stdout(nb, include_results=include_results)
-                title = notebook_title(nb, stem)
-                fresh[stem] = render_block(stem, title, nb_path.name, body, stamp)
-                print(f"  • collected {len(body)} chars of printed output")
+                fresh[stem] = render_block(stem, notebook_title(nb, stem), nb_path.name, body, stamp)
+                steps.append(f"{len(body):,} chars")
+            elif do_md and not is_collected:
+                steps.append("not collected")
+            dt = time.perf_counter() - t0
+            print(f"{M_OK} {dt:5.1f}s  ({', '.join(steps) or 'ok'})")
             ok.append(stem)
         except subprocess.CalledProcessError as exc:
+            dt = time.perf_counter() - t0
+            print(f"{M_FAIL}  {dt:.1f}s  (exit {exc.returncode})")
             failed.append(stem)
-            print(f"  ✗ execution FAILED (exit {exc.returncode})")
+            if not verbose:                         # in verbose the tail already streamed
+                _print_error_tail(exc)
             if not continue_on_error:
-                print("  (stopping; pass --continue-on-error to keep going)")
+                print("        stopped -- fix the error, or pass --continue-on-error.")
                 break
         except Exception as exc:  # noqa: BLE001
+            print(f"{M_FAIL}  {type(exc).__name__}: {exc}")
             failed.append(stem)
-            print(f"  ✗ {type(exc).__name__}: {exc}")
             if not continue_on_error:
                 break
 
     if do_md and fresh:
         update_all_results_md(md_path, fresh, included_order, stamp=stamp)
-        print(f"\nAll_Results.md updated ({len(fresh)} section(s)) -> {md_path}")
+        print(f"\nAll_Results.md  ->  {md_path}  ({len(fresh)} section{'s' if len(fresh) != 1 else ''})")
 
-    print(f"\nDone. ok={ok or '-'}  failed={failed or '-'}")
+    summary = f"\nDone: {len(ok)}/{n} ok"
+    if failed:
+        summary += f", {len(failed)} FAILED: {', '.join(failed)}"
+    print(summary)
     return 1 if failed else 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    # Print UTF-8 regardless of the console code page (Windows cp1252 would
+    # otherwise crash on a tick/arrow). errors="replace" keeps it crash-proof.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:  # pragma: no cover -- not all streams support it
+            pass
+
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("notebooks", nargs="*",
                     help="specific notebooks (name/stem/path); default: all included, in folder order")
@@ -337,6 +392,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="keep processing the remaining notebooks if one fails")
     ap.add_argument("--include-results", action="store_true",
                     help="also collect text/plain Out[] results, not just printed stdout")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="stream raw nbconvert/kernel output live (default: quiet, shown only on failure)")
     ap.add_argument("--venv", type=Path, default=DEFAULT_VENV,
                     help=f"project venv whose kernel runs the notebooks (default: {DEFAULT_VENV})")
     ap.add_argument("--python", type=Path, default=None,
@@ -369,14 +426,14 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"Pass --venv <dir> or --python <path>.")
         _check_nbconvert(Path(py))
 
-    print(f"Notebooks   : {[p.stem for p in targets]}")
-    print(f"Interpreter : {py or '(not running — md/clear only)'}")
-    print(f"All_Results : {md_path if do_md else '(skipped)'}")
+    steps = "+".join(s for s, on in (("clear", do_clear), ("run", do_execute), ("collect", do_md)) if on)
+    print(f"{len(targets)} notebook(s) | {steps} | kernel: {py.name if py else '(none)'} "
+          f"| md: {md_path.name if do_md else 'skipped'}")
 
     return run(targets, py=py, do_clear=do_clear, do_execute=do_execute, do_md=do_md,
                md_path=md_path, timeout=args.timeout, allow_errors=args.allow_errors,
                kernel_name=args.kernel_name, continue_on_error=args.continue_on_error,
-               include_results=args.include_results)
+               include_results=args.include_results, verbose=args.verbose)
 
 
 __all__ = [
