@@ -52,11 +52,13 @@ DEFAULT_RC = {
     "grid.alpha": 0.3,
 }
 
-# Shared sizing so every figure in this module reads the same way.
-TICK_FS = 12     # method / dataset tick labels -- must stay legible
-LABEL_FS = 13    # axis labels
-TITLE_FS = 15    # panel titles
-ANNOT_FS = 8     # heatmap cell numbers -- small enough to fit a "0.xxx" cell
+# Shared sizing so every figure in this module reads the same way. Sized up for
+# print: tick/method/dataset labels and axis titles stay legible when a figure
+# is shrunk into a paper column.
+TICK_FS = 14     # method / dataset tick labels
+LABEL_FS = 16    # axis labels
+TITLE_FS = 17    # panel titles
+ANNOT_FS = 11    # heatmap cell numbers -- small enough to fit a "0.xxx" cell
 
 # Well-known baselines worth labelling in an otherwise-crowded scatter (the
 # foundation models are always added on top of this at call time). Listed in a
@@ -95,8 +97,9 @@ def _heatmap_figsize(n_rows: int, n_cols: int) -> Tuple[float, float]:
 
 
 def _annot_fontsize(n_cols: int) -> int:
-    """Largest annotation font that still fits a cell at the capped width."""
-    return 11 if n_cols <= 14 else 10 if n_cols <= 20 else 9 if n_cols <= 30 else 7
+    """Largest annotation font that still fits a cell at the capped width.
+    Sized up for print legibility."""
+    return 14 if n_cols <= 14 else 12 if n_cols <= 20 else 11 if n_cols <= 30 else 9
 
 
 def _foundation_methods() -> set:
@@ -179,9 +182,14 @@ def _method_bar(
     if value_fmt is None:
         vmax = float(np.nanmax(np.abs(vals))) if n else 0.0
         value_fmt = "{:.3f}" if vmax < 10 else "{:.1f}"
+    # Print the value labels DIAGONALLY (45°, anchored bottom-left) so that, with
+    # many narrow bars, each number reads naturally while slanting up-and-right
+    # away from its neighbour instead of colliding sideways. Extra top margin
+    # gives the slanted labels room.
     ax.bar_label(bars, labels=[value_fmt.format(v) for v in vals],
-                 padding=8 if errs is not None else 4, fontsize=8.5, fontweight="bold")
-    ax.margins(y=0.16)  # headroom so the value labels aren't clipped
+                 padding=8 if errs is not None else 4, fontsize=10,
+                 fontweight="bold", rotation=45, rotation_mode="anchor")
+    ax.margins(y=0.20)  # headroom so the slanted value labels aren't clipped
     ax.set_xticks(range(n))
     ax.set_xticklabels(names)
     _style_method_axis(ax)
@@ -452,7 +460,9 @@ def _sweep_curve(
             y = y / top if top else y
         if smooth:
             # Moving average across sweep points (trend, not the raw wiggle).
-            win = max(3, len(y) // 6)
+            # A narrower window (~1/12 of the points) keeps more of the
+            # evolution's detail while still removing the per-point jitter.
+            win = max(3, len(y) // 12)
             y_ma = pd.Series(y.to_numpy()).rolling(win, min_periods=1, center=True).mean()
             ax.plot(g["sweep_value"], y_ma.to_numpy(), lw=2.2, label=method, color=color)
         else:
@@ -579,15 +589,19 @@ def sweep_evolution_summary(
     *,
     sweep_axis: str,
     task_name: str = "PD",
-    n_points: int = 12,
+    n_points: int = 16,
     higher_is_better: bool = True,
+    log_spacing: bool = False,
 ) -> str:
-    """Print the EVOLUTION of ``metric`` per method: its mean over all included
-    datasets at a spread of ~``n_points`` sweep values across the whole swept
-    range (not just the endpoint). Rows = methods (best average first), columns
-    = sweep values. This is the meaningful end-of-notebook summary for a sweep
-    experiment -- a single endpoint hides the trajectory we actually care
-    about."""
+    """Print the EVOLUTION of ``metric`` per method across the whole swept range
+    (not just the endpoint), in TWO tables, both rows = methods (best average
+    first), columns = a spread of ~``n_points`` sweep values:
+
+    1. **absolute** ``metric`` (mean over all included datasets) at each point;
+    2. **relative to each method's own best** (% of that method's best point) --
+       so you can read each method's trajectory shape independently of its level
+       (100% = the method's own peak over the sweep).
+    """
     mean_col = _resolve_mean_column(df, metric)
     sub = df[df["sweep_axis"] == sweep_axis].dropna(subset=["sweep_value"])
     if sub.empty:
@@ -596,17 +610,34 @@ def sweep_evolution_summary(
     grp = sub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
     n_all = grp["sweep_value"].nunique()
     piv = grp.pivot(index="method", columns="sweep_value", values=mean_col)
-    cols = sorted(piv.columns)
-    if len(cols) > n_points:
-        idx = np.linspace(0, len(cols) - 1, n_points).round().astype(int)
-        cols = [cols[i] for i in sorted(set(idx))]
+    cols_all = sorted(piv.columns)
+    if len(cols_all) > n_points:
+        if log_spacing:
+            # Denser at the LOW end (e.g. Experiment 2: small training-set sizes
+            # matter most). Pick the column nearest each log-spaced target value.
+            lo = max(float(cols_all[0]), 1e-9)
+            targets = np.logspace(np.log10(lo), np.log10(float(cols_all[-1])), n_points)
+            cols = sorted({min(cols_all, key=lambda c: abs(float(c) - t)) for t in targets})
+        else:
+            idx = np.linspace(0, len(cols_all) - 1, n_points).round().astype(int)
+            cols = [cols_all[i] for i in sorted(set(idx))]
+    else:
+        cols = cols_all
     piv = piv[cols]
     piv = piv.loc[piv.mean(axis=1).sort_values(ascending=not higher_is_better).index]
+    # Relative to each method's OWN best over the FULL sweep (peak = 100%).
+    own_best = piv.max(axis=1) if higher_is_better else piv.min(axis=1)
+    rel = 100.0 * piv.div(own_best, axis=0)
     pm = _pretty_metric(metric)
-    header = (f"{task_name} — {pm} evolution over {sweep_axis} "
-              f"(mean across {sub['dataset'].nunique()} datasets; "
-              f"{len(cols)} of {n_all} sweep points; best average first)")
-    text = header + "\n" + "=" * min(max(len(header), 64), 118) + "\n" + piv.round(4).to_string()
+    rule = "=" * 118
+
+    h1 = (f"{task_name} — {pm} evolution over {sweep_axis}  "
+          f"(mean across {sub['dataset'].nunique()} datasets; "
+          f"{len(cols)} of {n_all} sweep points; best average first)")
+    h2 = (f"{task_name} — {pm} as % of each method's OWN best over the sweep "
+          f"(100% = that method's peak)")
+    text = (h1 + "\n" + rule + "\n" + piv.round(4).to_string()
+            + "\n\n" + h2 + "\n" + rule + "\n" + rel.round(1).to_string())
     print(text)
     return text
 
@@ -893,30 +924,65 @@ def runtime_performance_scatter(
                    marker="*" if is_f else "o",
                    color="crimson" if is_f else "#1f77b4",
                    edgecolor="black", linewidth=0.7, zorder=3)
-    ax.margins(x=0.16, y=0.12)
-    # Label ONLY the notable methods, each right next to its dot. Among the few
-    # labelled points, alternate above/below and nudge consecutive near-equal-x
-    # points further out so the handful of names don't collide.
-    lab = agg[agg["method"].isin(notable)].reset_index(drop=True)
-    last_x, bump = None, 0
-    for i, r in enumerate(lab.itertuples()):
-        if last_x is not None and r.time > 0 and last_x > 0 \
-                and abs(np.log10(r.time) - np.log10(last_x)) < 0.08:
-            bump += 1
-        else:
-            bump = 0
-        last_x = r.time
-        above = (i % 2 == 0)
-        dy = (9 + 11 * bump) * (1 if above else -1)
-        is_f = r.method in fnd
-        ax.annotate(
-            r.method, xy=(r.time, r.perf), xytext=(0, dy),
-            textcoords="offset points", ha="center",
-            va="bottom" if above else "top", fontsize=9,
-            color="crimson" if is_f else "black",
-            fontweight="bold" if is_f else "normal",
-            arrowprops=dict(arrowstyle="-", color="0.55", lw=0.6),
-        )
+    ax.margins(x=0.22, y=0.18)  # whitespace around the cloud for the labels
+
+    # Label ONLY the notable methods, then de-overlap with a small force pass in
+    # PIXEL space: each label is repelled from EVERY point (so a name never sits
+    # on top of a dot/star) AND from every other label, then joined to its own
+    # dot with a thin leader line. Robust to dense clusters such as tabicl_v2 and
+    # tabpfn_v2.5 sitting at near-identical cost/quality.
+    fig.canvas.draw()
+    lab = agg[agg["method"].isin(notable)]
+    lab = lab[lab["time"] > 0]
+    if len(lab):
+        items = [(r.time, r.perf, r.method, r.method in fnd) for r in lab.itertuples()]
+        fs = 10
+        all_px = ax.transData.transform(agg[["time", "perf"]].to_numpy(float))
+        pos = ax.transData.transform(np.array([(t, p) for t, p, _, _ in items], float))
+        pos[:, 1] += 24.0                       # start each label above its dot
+        boxes = np.array([[max(len(t), 3) * 0.62 * fs, 1.45 * fs] for _, _, t, _ in items])
+        bb = ax.get_window_extent()
+        for _ in range(150):
+            moved = False
+            for i in range(len(items)):
+                wi, hi = boxes[i]
+                fx = fy = 0.0
+                for jj in range(len(items)):              # repel from other labels
+                    if jj == i:
+                        continue
+                    dx, dy = pos[i, 0] - pos[jj, 0], pos[i, 1] - pos[jj, 1]
+                    ox = (wi + boxes[jj, 0]) / 2 + 4 - abs(dx)
+                    oy = (hi + boxes[jj, 1]) / 2 + 3 - abs(dy)
+                    if ox > 0 and oy > 0:
+                        if oy <= ox:
+                            fy += np.copysign(oy, dy if dy else 1.0)
+                        else:
+                            fx += np.copysign(ox, dx if dx else 1.0)
+                for px, py in all_px:                     # repel from every point
+                    dx, dy = pos[i, 0] - px, pos[i, 1] - py
+                    ox = wi / 2 + 10 - abs(dx)
+                    oy = hi / 2 + 10 - abs(dy)
+                    if ox > 0 and oy > 0:
+                        if oy <= ox:
+                            fy += np.copysign(oy, dy if dy else 1.0)
+                        else:
+                            fx += np.copysign(ox, dx if dx else 1.0)
+                if fx or fy:
+                    pos[i, 0] = min(max(pos[i, 0] + 0.5 * fx, bb.x0 + wi / 2), bb.x1 - wi / 2)
+                    pos[i, 1] = min(max(pos[i, 1] + 0.5 * fy, bb.y0 + hi / 2), bb.y1 - hi / 2)
+                    moved = True
+            if not moved:
+                break
+        inv = ax.transData.inverted()
+        for (x, y, t, is_f), p in zip(items, pos):
+            xt, yt = inv.transform(p)
+            ax.annotate(
+                t, xy=(x, y), xytext=(xt, yt), textcoords="data",
+                ha="center", va="center", fontsize=fs,
+                color="crimson" if is_f else "black",
+                fontweight="bold" if is_f else "normal",
+                arrowprops=dict(arrowstyle="-", color="0.55", lw=0.6),
+            )
     ax.grid(True, which="both", alpha=0.25)
     pm = _pretty_metric(metric)
     _with_hpo = bool(hpo_methods) and n_trials > 1

@@ -147,13 +147,16 @@ dependencies = [
     # ---- Aggregation ----
     "polars>=1.0,<2",
 
-    # ---- Notebook kernel ----
+    # ---- Notebook kernel + headless execution ----
     # We don't ship full `notebook` / JupyterLab (heavy + slow to
-    # resolve). `ipykernel` is enough to register the venv as a Jupyter
-    # kernel -- VSCode's Jupyter extension and `jupyter notebook` (if
-    # you `pip install notebook` separately) both pick it up.
+    # resolve). `ipykernel` registers the venv as a Jupyter kernel
+    # (VSCode's Jupyter extension and `jupyter notebook` both pick it up).
+    # `nbconvert` is what `python -m src.utils.run_notebooks` uses to clear,
+    # restart-and-run every analysis notebook headlessly and collect their
+    # printed output into results/All_Results.md.
     "ipython>=8,<10",
     "ipykernel>=6,<7",
+    "nbconvert>=7,<8",
 ]
 
 # ----------------------------------------------------------------------------

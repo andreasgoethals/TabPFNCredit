@@ -964,6 +964,96 @@ def significant_pairs_text(
     return text
 
 
+def statistical_report(
+    df: pd.DataFrame,
+    per_fold_df: pd.DataFrame,
+    *,
+    metric: str,
+    task_name: str = "",
+    higher_is_better: bool = True,
+    focus: Optional[Sequence[str]] = None,
+    alpha: float = 0.05,
+) -> str:
+    """One copy-pasteable plain-text report of EVERY test in the statistical
+    section: PAMA, average ranks, Friedman/Iman-Davenport, Friedman Aligned
+    Ranks, Quade, the Nemenyi critical difference, the Holm-corrected Wilcoxon
+    AND paired-t significant pairs, the García & Herrera all-pairwise adjusted
+    p-values, and the Bayesian signed-rank verdicts for the focus methods. Built
+    to be pasted into another tool/LLM for interpretation."""
+    matrix = metric_matrix(df, metric)
+    k, N = matrix.shape[1], matrix.shape[0]
+    pm = _pretty_metric(metric)
+    direction = "higher is better" if higher_is_better else "lower is better"
+    out: List[str] = []
+    rule = "=" * 78
+    out += [rule,
+            f"STATISTICAL SUMMARY — {task_name} {pm}  "
+            f"({N} datasets x {k} methods; {direction}; alpha = {alpha})",
+            rule]
+
+    try:
+        pama = pama_fold_level(per_fold_df, metric, higher_is_better=higher_is_better)
+        out.append("\n[1] PAMA — probability of achieving the maximal score "
+                   "(% of (dataset, fold) observations where the method is the single best):")
+        for m, r in pama.head(15).iterrows():
+            out.append(f"      {m:20s} {r['PAMA_%']:5.1f}%   ({int(r['wins'])}/{int(r['n_folds'])})")
+    except Exception as exc:  # noqa: BLE001
+        out.append(f"\n[1] PAMA — unavailable ({exc})")
+
+    ranks = average_ranks(matrix, higher_is_better=higher_is_better)
+    out.append("\n[2] Average ranks across datasets (1 = best, lower is better):")
+    out += [f"      {m:20s} {v:5.2f}" for m, v in ranks.items()]
+
+    f = friedman_test(matrix, higher_is_better=higher_is_better)
+    verdict = "REJECT H0 -> methods differ" if f["p_iman_davenport"] < alpha else "cannot reject H0"
+    out.append(f"\n[3] Friedman omnibus (Iman-Davenport): F_F = {f['iman_davenport_F']:.3f}, "
+               f"p = {f['p_iman_davenport']:.3g}  ->  {verdict}.")
+    fa = friedman_aligned_ranks_test(matrix, higher_is_better=higher_is_better)
+    qu = quade_test(matrix, higher_is_better=higher_is_better)
+    out.append(f"[4] More powerful omnibus alternatives: Friedman Aligned Ranks "
+               f"chi2 = {fa['aligned_ranks_chi2']:.2f}, p = {fa['p']:.3g};  "
+               f"Quade F = {qu['quade_F']:.3f}, p = {qu['p']:.3g}.")
+    cd = nemenyi_cd(k, N, alpha)
+    out.append(f"[5] Nemenyi critical difference (alpha = {alpha}): CD = {cd:.3f} "
+               f"(two methods differ significantly iff their mean ranks differ by more than CD).")
+
+    sgn = 1 if higher_is_better else -1
+    for tag, label, runner in (("6a", "Wilcoxon signed-rank", wilcoxon_holm_pairwise),
+                               ("6b", "paired Student t-test", ttest_holm_pairwise)):
+        tab = runner(matrix, higher_is_better=higher_is_better, alpha=alpha)
+        sig = tab[tab["significant"]]
+        out.append(f"\n[{tag}] Significant pairwise differences — {label} "
+                   f"(Holm-corrected, alpha = {alpha}): {len(sig)} of {len(tab)} pairs.")
+        for r in sig.sort_values("p_holm").itertuples():
+            better = r.method_1 if sgn * (r.wins - r.losses) > 0 else r.method_2
+            worse = r.method_2 if better == r.method_1 else r.method_1
+            out.append(f"      {better:20s} > {worse:20s} "
+                       f"(W/L {r.wins}/{r.losses}, p_holm = {r.p_holm:.4f})")
+
+    try:
+        apv = pairwise_apv_table(matrix, higher_is_better=higher_is_better)
+        out.append("\n[7] All-pairwise adjusted p-values (García & Herrera) — "
+                   "significant pairs per procedure:")
+        for col in ("nemenyi", "holm", "shaffer", "bergmann_hommel"):
+            if col in apv.columns and apv[col].notna().any():
+                out.append(f"      {col:18s}: {int((apv[col] < alpha).sum())} / {len(apv)} significant")
+    except Exception as exc:  # noqa: BLE001
+        out.append(f"\n[7] All-pairwise APVs — unavailable ({exc})")
+
+    foc = [m for m in (focus or []) if m in matrix.columns]
+    if len(foc) >= 2:
+        out.append(f"\n[8] Bayesian signed-rank test (ROPE = +/-0.01) for focus methods {foc}:")
+        for x, y in itertools.combinations(foc, 2):
+            r = bayesian_signed_rank_test(matrix[x], matrix[y], rope=0.01)
+            out.append(f"      {x:14s} vs {y:14s}: P({x} better) = {r['P_right']:.3f}, "
+                       f"P(equivalent) = {r['P_rope']:.3f}, P({y} better) = {r['P_left']:.3f}")
+
+    out.append(rule)
+    text = "\n".join(out)
+    print(text)
+    return text
+
+
 def _finish(fig, out_path: Optional[Path]):
     saved = None
     if out_path is not None:
@@ -988,6 +1078,7 @@ __all__ = [
     "bayesian_sign_test", "bayesian_signed_rank_test",
     "control_apv_table", "pairwise_apv_table", "format_apv_table",
     "wilcoxon_holm_pairwise", "ttest_holm_pairwise", "significant_pairs_text",
+    "statistical_report",
     "win_loss_tie", "wlt_summary",
     "percent_of_max", "pama_fold_level",
     "plot_cd_diagram", "plot_significance_matrix",

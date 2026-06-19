@@ -2,8 +2,7 @@
 
 **Benchmarking tabular foundation models for credit-risk prediction.**
 
-![Python](https://img.shields.io/badge/python-3.10–3.12-blue)
-![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Python](https://img.shields.io/badge/python-3.10–3.12-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Built on TALENT](https://img.shields.io/badge/built%20on-TALENT-orange)
 ![Runs: laptop · SLURM HPC](https://img.shields.io/badge/runs-laptop%20·%20SLURM%20HPC-8A2BE2)
 
@@ -25,16 +24,26 @@ table.
 
 ## Contents
 
-- [1. Quick start](#1-quick-start)
-- [2. Command-line interface](#2-command-line-interface)
-- [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
-- [4. The four experiments](#4-the-four-experiments)
-- [5. Pipeline](#5-pipeline)
-- [6. Repository layout](#6-repository-layout)
-- [7. Result storage and logging](#7-result-storage-and-logging)
-- [8. Tests](#8-tests)
-- [9. Citation](#9-citation)
-- [10. License](#10-license)
+- [TabPFNCredit](#tabpfncredit)
+  - [Contents](#contents)
+  - [1. Quick start](#1-quick-start)
+    - [1.1 Local install and first run](#11-local-install-and-first-run)
+    - [1.2 HPC install (SLURM cluster)](#12-hpc-install-slurm-cluster)
+    - [1.3 Install profiles](#13-install-profiles)
+    - [1.4 Adapting to a non-VSC cluster](#14-adapting-to-a-non-vsc-cluster)
+  - [2. Command-line interface](#2-command-line-interface)
+  - [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
+    - [Average Precision, baseline-corrected](#average-precision-baseline-corrected)
+    - [LGD targets are clipped to `[0, 1]`](#lgd-targets-are-clipped-to-0-1)
+  - [4. The four experiments](#4-the-four-experiments)
+    - [Why the sweep curves are clean signal](#why-the-sweep-curves-are-clean-signal)
+  - [5. Pipeline](#5-pipeline)
+  - [6. Repository layout](#6-repository-layout)
+  - [7. Result storage and logging](#7-result-storage-and-logging)
+    - [Analysis notebooks](#analysis-notebooks)
+  - [8. Tests](#8-tests)
+  - [9. Citation](#9-citation)
+  - [10. License](#10-license)
 
 ---
 
@@ -340,6 +349,7 @@ src/
     resubmit_planner.py             # gap scan -> only the missing points
     statistical_testing.py          # Friedman/Nemenyi/Bayesian/CD diagrams …
     remove_results.py               # prune results by exp/task/dataset/method/HPO/fold
+    consolidate_shards.py           # merge Exp 2/3 per-task shard files into one file per cell
     fetch_weights.py                # download foundation-model weights -> checkpoints/ (run LOCALLY)
     file_lock.py                    # cross-platform FileLock
   visualizations/
