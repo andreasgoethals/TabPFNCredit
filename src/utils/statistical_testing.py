@@ -949,6 +949,103 @@ def plot_wilcoxon_wl_matrix(
     return _finish(fig, out_path)
 
 
+def _matrix_layout(k: int):
+    """Adaptive sizing for a SMALL k x k method-pair heatmap (the family/champion
+    notebooks), so the cells stay square and the labels never collide. Returns
+    ``(figsize, tick_fs, annot_fs, show_annot, title_fs)``."""
+    side = max(6.0, min(0.46 * k + 3.0, 22.0))          # square plotting area (inches)
+    tick_fs = int(max(7, min(13, 230 / max(k, 1))))     # k=4->13, 20->11, 30->7
+    annot_fs = int(max(6, min(11, 190 / max(k, 1))))
+    show_annot = k <= 16                                # past this, per-cell text is illegible
+    title_fs = TITLE_FS if k <= 12 else 14
+    return (side + 2.5, side), tick_fs, annot_fs, show_annot, title_fs
+
+
+def _style_matrix_ticks(ax, tick_fs: int) -> None:
+    """Rotate the x labels, map to display names + crimson foundation names, then
+    enforce the tick font AFTER relabelling so the labels can't collide."""
+    for lbl in ax.get_xticklabels():
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+    _color_foundation_ticks(ax, axis="x")
+    _color_foundation_ticks(ax, axis="y")
+    ax.tick_params(labelsize=tick_fs)
+    ax.set_xlabel(""); ax.set_ylabel("")
+
+
+def plot_significance_matrix_compact(
+    apv_table: pd.DataFrame,
+    methods: Sequence[str],
+    *,
+    procedure: str = "shaffer",
+    alpha: float = 0.05,
+    order: Optional[Sequence[str]] = None,
+    title: Optional[str] = None,
+    out_path: Optional[Path] = None,
+):
+    """Compact adjusted-p-value heatmap for the FAMILY / champion notebooks (a
+    small set of methods): square cells, larger labels, a clean title.
+    ``plot_significance_matrix`` (the all-learner version) is left untouched."""
+    import seaborn as sns
+    methods = list(order) if order is not None else list(methods)
+    mat = pd.DataFrame(np.nan, index=methods, columns=methods, dtype=float)
+    for r in apv_table.itertuples():
+        if r.method_1 in mat.index and r.method_2 in mat.columns:
+            v = getattr(r, procedure)
+            mat.loc[r.method_1, r.method_2] = v
+            mat.loc[r.method_2, r.method_1] = v
+    k = len(methods)
+    figsize, tick_fs, annot_fs, show_annot, title_fs = _matrix_layout(k)
+    fig, ax = plt.subplots(figsize=figsize)
+    annot = mat.map(lambda v: "" if pd.isna(v) else f"{v:.2f}") if show_annot else False
+    sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn_r", vmin=0, vmax=2 * alpha,
+                center=alpha, linewidths=0.4, linecolor="white", square=True,
+                annot_kws={"fontsize": annot_fs},
+                cbar_kws={"label": "adjusted p-value", "shrink": 0.6}, ax=ax)
+    ax.set_title(title or f"Pairwise adjusted p-values — green = significant (p < {alpha})",
+                 fontweight="bold", fontsize=title_fs, pad=12)
+    _style_matrix_ticks(ax, tick_fs)
+    fig.tight_layout()
+    return _finish(fig, out_path)
+
+
+def plot_wilcoxon_wl_matrix_compact(
+    matrix: pd.DataFrame,
+    *,
+    higher_is_better: bool = True,
+    alpha: float = 0.05,
+    metric_name: str = "",
+    out_path: Optional[Path] = None,
+):
+    """Compact pairwise win/loss heatmap for the FAMILY / champion notebooks:
+    square cells, larger labels, a clean title. ``plot_wilcoxon_wl_matrix`` (the
+    all-learner version) is left untouched."""
+    import seaborn as sns
+    tab = wilcoxon_holm_pairwise(matrix, higher_is_better=higher_is_better, alpha=alpha)
+    order = list(average_ranks(matrix, higher_is_better=higher_is_better).index)
+    k = len(order)
+    margin = pd.DataFrame(np.nan, index=order, columns=order, dtype=float)
+    annot = pd.DataFrame("", index=order, columns=order, dtype=object)
+    for r in tab.itertuples():
+        annot.loc[r.method_1, r.method_2] = f"{r.wins}/{r.losses}"
+        annot.loc[r.method_2, r.method_1] = f"{r.losses}/{r.wins}"
+        margin.loc[r.method_1, r.method_2] = r.wins - r.losses
+        margin.loc[r.method_2, r.method_1] = r.losses - r.wins
+    vmax = float(np.nanmax(np.abs(margin.values))) or 1.0
+    figsize, tick_fs, annot_fs, show_annot, title_fs = _matrix_layout(k)
+    fig, ax = plt.subplots(figsize=figsize)
+    sns.heatmap(margin, annot=annot if show_annot else False, fmt="", cmap="RdBu_r", center=0,
+                vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white", square=True,
+                cbar_kws={"label": "win - loss margin (row vs column)", "shrink": 0.6},
+                annot_kws={"fontsize": annot_fs}, ax=ax)
+    nm = _pretty_metric(metric_name)
+    ax.set_title(f"Pairwise win/loss, row vs column{' — ' + nm if nm else ''}",
+                 fontweight="bold", fontsize=title_fs, pad=12)
+    _style_matrix_ticks(ax, tick_fs)
+    fig.tight_layout()
+    return _finish(fig, out_path)
+
+
 def significant_pairs_text(
     matrix: pd.DataFrame,
     *,
@@ -1104,4 +1201,5 @@ __all__ = [
     "plot_cd_diagram", "plot_significance_matrix",
     "plot_win_loss_matrix", "plot_pama_bars",
     "plot_percent_of_max_bars", "plot_wilcoxon_wl_matrix",
+    "plot_significance_matrix_compact", "plot_wilcoxon_wl_matrix_compact",
 ]
