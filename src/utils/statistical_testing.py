@@ -962,14 +962,21 @@ def _matrix_layout(k: int):
 
 
 def _style_matrix_ticks(ax, tick_fs: int) -> None:
-    """Rotate the x labels, map to display names + crimson foundation names, then
-    enforce the tick font AFTER relabelling so the labels can't collide."""
-    for lbl in ax.get_xticklabels():
-        lbl.set_rotation(45)
-        lbl.set_horizontalalignment("right")
+    """Map ticks to display names + crimson foundation names, then force the
+    orientation EXPLICITLY -- diagonal (45 deg) on the x axis, horizontal on the
+    y axis -- so it renders identically regardless of the installed seaborn
+    version (some versions default heatmap y-labels to vertical)."""
     _color_foundation_ticks(ax, axis="x")
     _color_foundation_ticks(ax, axis="y")
     ax.tick_params(labelsize=tick_fs)
+    for lbl in ax.get_xticklabels():            # horizontal axis: diagonal labels
+        lbl.set_rotation(45)
+        lbl.set_horizontalalignment("right")
+        lbl.set_rotation_mode("anchor")
+    for lbl in ax.get_yticklabels():            # vertical axis: horizontal labels
+        lbl.set_rotation(0)
+        lbl.set_horizontalalignment("right")
+        lbl.set_verticalalignment("center")
     ax.set_xlabel(""); ax.set_ylabel("")
 
 
