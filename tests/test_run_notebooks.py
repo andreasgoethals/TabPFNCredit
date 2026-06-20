@@ -44,16 +44,21 @@ def test_natural_sort_orders_experiments_correctly():
                        "Experiment2.1-PD.ipynb"]
 
 
-def test_discover_excludes_exempt(tmp_path):
+def test_discover_runs_results_checking_but_not_method_runner(tmp_path):
     nbdir = tmp_path / "notebooks"
     nbdir.mkdir()
     for name in ["Experiment0.ipynb", "Experiment1.1-PD.ipynb",
                  "Results_Checking.ipynb", "Individual_Method_Runner.ipynb"]:
         (nbdir / name).write_text(json.dumps(_nb()), encoding="utf-8")
     stems = [p.stem for p in rn.discover_notebooks(nbdir)]
-    assert stems == ["Experiment0", "Experiment1.1-PD"]
+    # Results_Checking IS discovered (it gets re-run); the method runner is not.
+    assert stems == ["Experiment0", "Experiment1.1-PD", "Results_Checking"]
+    assert "Individual_Method_Runner" not in stems
+    # ...but Results_Checking is never collected into All_Results.md.
+    assert "Results_Checking" in rn.NO_COLLECT and "Individual_Method_Runner" in rn.NO_COLLECT
+    assert rn.RUN_SKIP == {"Individual_Method_Runner"}
     stems_all = [p.stem for p in rn.discover_notebooks(nbdir, include_exempt=True)]
-    assert "Results_Checking" in stems_all and "Individual_Method_Runner" in stems_all
+    assert "Individual_Method_Runner" in stems_all
 
 
 # --------------------------------------------------------------------------- #

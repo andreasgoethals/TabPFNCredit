@@ -55,8 +55,13 @@ from typing import Dict, List, Optional, Sequence
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.utils.paths import PROJECT_ROOT, results_root  # noqa: E402
 
-# Interactive tools that are NOT result notebooks: never auto-run, never collected.
-EXEMPT_STEMS = {"Results_Checking", "Individual_Method_Runner"}
+# The per-method tool is never auto-run (it's parametric/interactive).
+RUN_SKIP = {"Individual_Method_Runner"}
+# These never get a section in All_Results.md. Results_Checking IS run (a QA
+# audit), but its output is not a result to collect; the method runner is neither.
+NO_COLLECT = {"Individual_Method_Runner", "Results_Checking"}
+# Back-compat alias (older callers / tests referenced this name).
+EXEMPT_STEMS = NO_COLLECT
 DEFAULT_VENV = PROJECT_ROOT / "tabpfncreditvenv"
 NOTEBOOKS_DIR = PROJECT_ROOT / "notebooks"
 RESULTS_MD_NAME = "All_Results.md"
@@ -74,12 +79,13 @@ def _natural_key(name: str):
 
 def discover_notebooks(notebooks_dir: Path = NOTEBOOKS_DIR,
                        *, include_exempt: bool = False) -> List[Path]:
-    """All included ``.ipynb`` in folder (natural-sort) order; exempt ones dropped
-    unless ``include_exempt``. Hidden/checkpoint notebooks are ignored."""
+    """All runnable ``.ipynb`` in folder (natural-sort) order. ``Results_Checking``
+    IS included (it gets re-run); only the per-method tool is dropped, unless
+    ``include_exempt``. Hidden/checkpoint notebooks are ignored."""
     nbs = [p for p in notebooks_dir.glob("*.ipynb")
            if ".ipynb_checkpoints" not in p.parts]
     if not include_exempt:
-        nbs = [p for p in nbs if p.stem not in EXEMPT_STEMS]
+        nbs = [p for p in nbs if p.stem not in RUN_SKIP]
     return sorted(nbs, key=lambda p: _natural_key(p.name))
 
 
@@ -299,7 +305,7 @@ def _print_error_tail(exc: subprocess.CalledProcessError, n: int = 18) -> None:
 def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: bool,
         do_md: bool, md_path: Path, timeout: int, allow_errors: bool,
         kernel_name: str, continue_on_error: bool, include_results: bool,
-        verbose: bool = False) -> int:
+        verbose: bool = False, do_captions: bool = True) -> int:
     """Drive clear/execute/collect across ``targets``. Returns a process exit code.
 
     One concise line per notebook: ``[i/N] <name> … ✓  12.3s  (cleared, ran, 5,512 chars)``.
@@ -307,7 +313,9 @@ def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: 
     """
     import time
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    included_order = [p.stem for p in discover_notebooks()]
+    # Folder-order list of the notebooks that DO get an All_Results.md section
+    # (Results_Checking is run but excluded here, so it isn't collected).
+    included_order = [p.stem for p in discover_notebooks() if p.stem not in NO_COLLECT]
     fresh: Dict[str, str] = {}
     ok, failed = [], []
     n = len(targets)
@@ -361,6 +369,15 @@ def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: 
         update_all_results_md(md_path, fresh, included_order, stamp=stamp)
         print(f"\nAll_Results.md  ->  {md_path}  ({len(fresh)} section{'s' if len(fresh) != 1 else ''})")
 
+    # Refresh the figure captions from whatever figures the run just wrote.
+    if do_captions and do_execute and ok:
+        try:
+            from src.utils.generate_captions import generate_captions
+            written = generate_captions(PROJECT_ROOT / "figures")
+            print(f"CAPTIONS.md  ->  regenerated {len(written)} file(s) under figures/")
+        except Exception as exc:  # noqa: BLE001 -- captions are non-critical
+            print(f"(caption regeneration skipped: {type(exc).__name__}: {exc})")
+
     summary = f"\nDone: {len(ok)}/{n} ok"
     if failed:
         summary += f", {len(failed)} FAILED: {', '.join(failed)}"
@@ -394,6 +411,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="also collect text/plain Out[] results, not just printed stdout")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="stream raw nbconvert/kernel output live (default: quiet, shown only on failure)")
+    ap.add_argument("--no-captions", action="store_true",
+                    help="don't regenerate figures/**/CAPTIONS.md after running")
     ap.add_argument("--venv", type=Path, default=DEFAULT_VENV,
                     help=f"project venv whose kernel runs the notebooks (default: {DEFAULT_VENV})")
     ap.add_argument("--python", type=Path, default=None,
@@ -406,10 +425,11 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     targets = resolve_targets(args.notebooks)
     if args.list:
-        print("Run order (included notebooks):")
+        print("Run order:")
         for p in targets:
-            print(f"  {p.stem}")
-        print(f"\nExempt (never auto-run/collected): {sorted(EXEMPT_STEMS)}")
+            note = "  (run-only, not collected)" if p.stem in NO_COLLECT else ""
+            print(f"  {p.stem}{note}")
+        print(f"\nNever auto-run: {sorted(RUN_SKIP)}")
         return 0
 
     do_clear = not (args.md_only or args.no_clear)
@@ -433,14 +453,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     return run(targets, py=py, do_clear=do_clear, do_execute=do_execute, do_md=do_md,
                md_path=md_path, timeout=args.timeout, allow_errors=args.allow_errors,
                kernel_name=args.kernel_name, continue_on_error=args.continue_on_error,
-               include_results=args.include_results, verbose=args.verbose)
+               include_results=args.include_results, verbose=args.verbose,
+               do_captions=not args.no_captions)
 
 
 __all__ = [
     "discover_notebooks", "resolve_targets", "clear_notebook", "harvest_stdout",
     "notebook_title", "render_block", "parse_existing_blocks", "update_all_results_md",
     "venv_python", "execute_notebook", "run", "main",
-    "EXEMPT_STEMS", "DEFAULT_VENV", "RESULTS_MD_NAME",
+    "RUN_SKIP", "NO_COLLECT", "EXEMPT_STEMS", "DEFAULT_VENV", "RESULTS_MD_NAME",
 ]
 
 

@@ -788,8 +788,8 @@ def plot_significance_matrix(
     # RdYlGn_r so small APV (significant) is GREEN, large is red.
     sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn_r", vmin=0, vmax=2 * alpha,
                 center=alpha, linewidths=0.5, annot_kws={"fontsize": 9},
-                cbar_kws={"label": f"adjusted p-value ({procedure})"}, ax=ax)
-    ax.set_title(title or f"Pairwise adjusted p-values ({procedure}); "
+                cbar_kws={"label": "adjusted p-value"}, ax=ax)
+    ax.set_title(title or f"Pairwise adjusted p-values; "
                  f"green = significantly different (< {alpha})",
                  fontweight="bold", fontsize=TITLE_FS)
     ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS)

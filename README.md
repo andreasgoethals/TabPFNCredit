@@ -1,10 +1,15 @@
+<div align="center">
+
 # TabPFNCredit
 
-**Benchmarking tabular foundation models for credit-risk prediction.**
+### Benchmarking tabular foundation models for credit-risk prediction
 
-![Python](https://img.shields.io/badge/python-3.10–3.12-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![Python](https://img.shields.io/badge/python-3.10–3.12-blue)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
 ![Built on TALENT](https://img.shields.io/badge/built%20on-TALENT-orange)
 ![Runs: laptop · SLURM HPC](https://img.shields.io/badge/runs-laptop%20·%20SLURM%20HPC-8A2BE2)
+
+</div>
 
 TabPFNCredit evaluates modern tabular foundation models (the TabPFN
 family, TabICL, TabDPT, MITRA, LimiX, HyperFast, TabPTM) against deep
@@ -20,30 +25,39 @@ generates and submits SLURM jobs. The SLURM generator targets the KU
 Leuven VSC partitions by default but adapts to any cluster by editing one
 table.
 
+### At a glance
+
+|  |  |
+|---|---|
+| **Tasks** | PD — probability of default (classification, 14 datasets) · LGD — loss given default (regression, 7 datasets) |
+| **Methods** | 9 tabular foundation models · gradient boosting (CatBoost / XGBoost / LightGBM) · ~20 deep-tabular networks · classical baselines (LogReg, RF, SVM, …) |
+| **Experiments** | Headline benchmark · data-efficiency sweep · imbalance-robustness sweep · pilot coverage |
+| **Statistics** | PAMA · Friedman + Nemenyi · Wilcoxon / Holm · Bayesian ROPE · champion-level control tests |
+| **Runs on** | a laptop (in-process) **or** a SLURM HPC cluster (auto-generated jobs) |
+| **Built on** | [TALENT](https://github.com/LAMDA-Tabular/TALENT) |
+
 ---
 
 ## Contents
 
-- [TabPFNCredit](#tabpfncredit)
-  - [Contents](#contents)
-  - [1. Quick start](#1-quick-start)
-    - [1.1 Local install and first run](#11-local-install-and-first-run)
-    - [1.2 HPC install (SLURM cluster)](#12-hpc-install-slurm-cluster)
-    - [1.3 Install profiles](#13-install-profiles)
-    - [1.4 Adapting to a non-VSC cluster](#14-adapting-to-a-non-vsc-cluster)
-  - [2. Command-line interface](#2-command-line-interface)
-  - [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
-    - [Average Precision, baseline-corrected](#average-precision-baseline-corrected)
-    - [LGD targets are clipped to `[0, 1]`](#lgd-targets-are-clipped-to-0-1)
-  - [4. The four experiments](#4-the-four-experiments)
-    - [Why the sweep curves are clean signal](#why-the-sweep-curves-are-clean-signal)
-  - [5. Pipeline](#5-pipeline)
-  - [6. Repository layout](#6-repository-layout)
-  - [7. Result storage and logging](#7-result-storage-and-logging)
-    - [Analysis notebooks](#analysis-notebooks)
-  - [8. Tests](#8-tests)
-  - [9. Citation](#9-citation)
-  - [10. License](#10-license)
+- [1. Quick start](#1-quick-start)
+  - [1.1 Local install and first run](#11-local-install-and-first-run)
+  - [1.2 HPC install (SLURM cluster)](#12-hpc-install-slurm-cluster)
+  - [1.3 Install profiles](#13-install-profiles)
+  - [1.4 Adapting to a non-VSC cluster](#14-adapting-to-a-non-vsc-cluster)
+- [2. Command-line interface](#2-command-line-interface)
+- [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
+  - [Average Precision, baseline-corrected](#average-precision-baseline-corrected)
+  - [LGD targets are clipped to `[0, 1]`](#lgd-targets-are-clipped-to-0-1)
+- [4. The four experiments](#4-the-four-experiments)
+  - [Why the sweep curves are clean signal](#why-the-sweep-curves-are-clean-signal)
+- [5. Pipeline](#5-pipeline)
+- [6. Repository layout](#6-repository-layout)
+- [7. Result storage and logging](#7-result-storage-and-logging)
+  - [Analysis notebooks](#analysis-notebooks)
+- [8. Tests](#8-tests)
+- [9. Citation](#9-citation)
+- [10. License](#10-license)
 
 ---
 
@@ -425,11 +439,16 @@ viewers:
 | `Data_Exploration` | Dataset inventory, class balance, LGD target shapes, per-dataset structure. |
 | `Experiment0` | Pilot coverage + quick performance / cost overview. |
 | `Experiment1.1-PD` | Headline PD benchmark. Each matrix metric (**AUC**, **Brier**, **F1**) in three views — heatmap, per-method bar, across-dataset box — with the **AUC rank** kept next to AUC; then the **HPO effect**, a **time analysis** (train + predict + HPO; tunable methods' train time × `n_trials`) with the cost/quality frontier, a **TabPFN v3 vs CatBoost** head-to-head (relative-gain-vs-size trend + per-dataset `y = x` scatter), and a summary table. |
-| `Experiment1.3-LGD` | Headline LGD benchmark, same structure: **R²** and **Pearson correlation** in three views, **R² rank**, **HPO effect**, **time analysis**, the **TabPFN v3 vs CatBoost** head-to-head (R²), and a summary table. |
-| `Experiment1.2-PD-Stat` / `Experiment1.4-LGD-Stat` | Statistical analysis (PD / LGD), with narrated sections: PAMA, Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams** (compact, paper-ready), Win/Loss matrix, Holm-corrected significant pairs (Wilcoxon **and** paired t-test), all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian signed-rank ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
+| `Experiment1.2-PD-Stat` | Full **all-learner** statistical analysis (PD): PAMA, Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams** (compact, paper-ready), Win/Loss matrix, Holm-corrected significant pairs (Wilcoxon **and** paired t-test), all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian signed-rank ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
+| `Experiment1.3-PD-FamilyStat` | **Champion-level** statistical analysis (PD): one champion per family — **TabPFN-3**, **CatBoost**, **T2G-Former**, **Logistic Regression** — with a **TabPFN-3-as-control** test (Bonferroni–Dunn) plus the same omnibus / CD / Win-Loss / Holm / **Bayesian ROPE** battery and a copy-paste report. Higher power and a cleaner answer to "is the foundation model competitive with each established family?"; the complete all-learner version stays in 1.2. |
+| `Experiment1.4-LGD` | Headline LGD benchmark, same structure as 1.1: **R²** and **Pearson correlation** in three views, **R² rank**, **HPO effect**, **time analysis**, the **TabPFN v3 vs CatBoost** head-to-head (R²), and a summary table. |
+| `Experiment1.5-LGD-Stat` | Full all-learner statistical analysis (LGD): the same battery as 1.2, on **R²**. |
+| `Experiment1.6-LGD-FamilyStat` | **Champion-level** statistical analysis (LGD): **TabPFN-3**, **CatBoost**, **TabM**, **Linear Regression**. Same structure as 1.3; with only 7 LGD datasets the **Bayesian ROPE** result is emphasised over the (low-power) frequentist tests. |
 | `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs training-set size, in four pooled views (raw points · moving average · relative to each method's own best · moving average of that relative), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
 | `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same four pooled views, per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files. |
+
+**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook (in folder order, with the project venv kernel), collects each one's printed output into `results/All_Results.md`, and regenerates the per-figure `figures/**/CAPTIONS.md` (also available standalone via `python -m src.utils.generate_captions`). `Results_Checking` and `Individual_Method_Runner` are skipped. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
 
 ---
 
