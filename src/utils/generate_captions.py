@@ -118,18 +118,18 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     # ---- compute time ----
     R.append((r"^(pd|lgd)_bar_compute_time$",
               lambda g: ((S_COMPUTE, 0, 0),
-                         f"Median total compute time per method on {TASK_DISPLAY[g[0]]} "
+                         f"Mean total compute time per method on {TASK_DISPLAY[g[0]]} "
                          f"(train + predict; tunable methods' train time × n_trials), log axis, "
                          f"fastest first.")))
     R.append((r"^(pd|lgd)_box_compute_time$",
               lambda g: ((S_COMPUTE, 1, 0),
                          f"Distribution of total compute time per method (train + predict, one point "
-                         f"per dataset-fold), log axis, fastest-median first.")))
+                         f"per dataset-fold), log axis, fastest-mean first.")))
 
     # ---- cost / quality ----
     R.append((rf"^(pd|lgd)_cost_quality_({M})$",
               lambda g: ((S_COSTQ, _metric_rank(g[1]), 0),
-                         f"Cost/quality frontier: mean {_metric(g[1])} versus median compute time "
+                         f"Cost/quality frontier: mean {_metric(g[1])} versus mean compute time "
                          f"(train + predict, log x). Foundation models are red stars, other methods "
                          f"blue circles; notable methods are labelled.")))
 

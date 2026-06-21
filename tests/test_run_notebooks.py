@@ -164,6 +164,23 @@ def test_update_md_is_idempotent(tmp_path):
     assert md.read_text(encoding="utf-8") == first
 
 
+def test_update_md_prunes_renamed_notebook_sections(tmp_path):
+    # A section for a notebook that no longer exists (e.g. renamed) must be
+    # dropped on the next write, not kept forever.
+    md = tmp_path / "All_Results.md"
+    md.write_text(
+        rn.render_block("Experiment1.3-LGD", "old", "Experiment1.3-LGD.ipynb", "STALE", "s"),
+        encoding="utf-8")
+    order = ["Experiment0", "Experiment1.4-LGD"]   # the renamed stem is NOT here
+    rn.update_all_results_md(
+        md, {"Experiment1.4-LGD": rn.render_block("Experiment1.4-LGD", "new",
+                                                  "Experiment1.4-LGD.ipynb", "FRESH", "s")},
+        order, stamp="s")
+    txt = md.read_text(encoding="utf-8")
+    assert "STALE" not in txt and "Experiment1.3-LGD" not in txt   # orphan pruned
+    assert "FRESH" in txt                                          # current section written
+
+
 def test_venv_python_detection(tmp_path):
     # POSIX layout
     (tmp_path / "bin").mkdir()

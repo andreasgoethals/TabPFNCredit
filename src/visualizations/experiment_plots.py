@@ -742,16 +742,16 @@ def compute_time_bars(
     hpo_methods: Optional[Sequence[str]] = None,
     n_trials: int = 1,
 ) -> Optional[Path]:
-    """MEDIAN TOTAL compute time per method = train + predict, in seconds
+    """MEAN TOTAL compute time per method = train + predict, in seconds
     (log y; fastest = greenest, left). Uses train + predict because in-context
     models (TabPFN v1/v2/Real, Mitra) report ~0 train time -- their cost is at
     predict -- so a train-only bar would drop them off a log axis. No error bars
-    (a ± band reads poorly on a log scale); the median is printed above each bar.
+    (a ± band reads poorly on a log scale); the mean is printed above each bar.
 
     Pass ``hpo_methods`` + ``n_trials`` to fold the hyperparameter-search cost
     into the tunable methods' bars (their train time × ``n_trials``); the title
     then reads "train + predict + HPO"."""
-    vals = _total_time(df, agg="median", hpo_methods=hpo_methods, n_trials=n_trials)
+    vals = _total_time(df, agg="mean", hpo_methods=hpo_methods, n_trials=n_trials)
     if vals is None:
         logger.warning("compute_time_bars: no train_time/predict_time columns")
         return None
@@ -759,8 +759,8 @@ def compute_time_bars(
     cost = "train + predict + HPO" if with_hpo else "train + predict"
     return _method_bar(
         vals, errs=None, logy=True, value_fmt="{:.1f}",
-        title=f"{task_name}: median compute time per method ({cost}, seconds)",
-        ylabel="median compute time per fold (s)",
+        title=f"{task_name}: mean compute time per method ({cost}, seconds)",
+        ylabel="mean compute time per fold (s)",
         stem=f"{task_name.lower()}_bar_compute_time",
         out_dir=out_dir, figsize=figsize,
     )
@@ -774,7 +774,7 @@ def compute_time_boxplot(
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Box + strip of TOTAL compute time (fit + predict) per method, **log y**,
-    one point per (dataset, fold). Ordered fastest-median first; foundation
+    one point per (dataset, fold). Ordered fastest-mean first; foundation
     names in red. The log axis is essential -- times span several orders of
     magnitude across methods."""
     if "train_time" in df.columns:
@@ -788,7 +788,7 @@ def compute_time_boxplot(
         return None
     work = pd.DataFrame({"method": df["method"].to_numpy(), "t": total.to_numpy()})
     work = work[work["t"] > 0]  # log axis can't show zeros
-    order = work.groupby("method")["t"].median().sort_values().index
+    order = work.groupby("method")["t"].mean().sort_values().index
     fig, ax = plt.subplots(figsize=figsize)
     sns.boxplot(data=work, x="method", y="t", order=order, color="#cfe8ff", ax=ax)
     sns.stripplot(data=work, x="method", y="t", order=order,
@@ -930,7 +930,7 @@ def runtime_performance_scatter(
     from matplotlib.lines import Line2D
 
     mean_col = _resolve_mean_column(df, metric)
-    total = _total_time(df, hpo_methods=hpo_methods, n_trials=n_trials)
+    total = _total_time(df, agg="mean", hpo_methods=hpo_methods, n_trials=n_trials)
     if total is None:
         logger.warning("runtime_performance_scatter: no time columns")
         return None
@@ -1012,12 +1012,12 @@ def runtime_performance_scatter(
     pm = _pretty_metric(metric)
     _with_hpo = bool(hpo_methods) and n_trials > 1
     _cost = "train + predict + HPO" if _with_hpo else "train + predict"
-    # x = MEDIAN compute time across folds/datasets (robust to outliers);
-    # y = MEAN of the metric. State both on the axes so it is unambiguous.
-    ax.set_xlabel(f"median compute time per fold — {_cost} (s, log scale)",
+    # x = MEAN compute time across folds/datasets; y = MEAN of the metric.
+    # State both on the axes so it is unambiguous.
+    ax.set_xlabel(f"mean compute time per fold — {_cost} (s, log scale)",
                   fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(f"mean {pm}", fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(f"{task_name}: mean {pm} vs median compute cost ({_cost})",
+    ax.set_title(f"{task_name}: mean {pm} vs mean compute cost ({_cost})",
                  fontsize=TITLE_FS, fontweight="bold")
     ax.legend(handles=[
         Line2D([0], [0], marker="*", color="w", markerfacecolor="crimson",
@@ -1192,9 +1192,9 @@ def _summary_text(df: pd.DataFrame, *, task_name: str, metric_order, sort_by, hi
     table = pd.DataFrame({_pretty_metric(n): df.groupby("method")[present[n]].mean()
                           for n in names})
     table = table.dropna(axis=1, how="all")   # drop metrics this task never emits
-    total = _total_time(df, agg="median")
+    total = _total_time(df, agg="mean")
     if total is not None:
-        table["time_s (median)"] = total
+        table["time_s (mean)"] = total
 
     if sort_by and _pretty_metric(sort_by) in table.columns:
         table = table.sort_values(_pretty_metric(sort_by), ascending=not higher_is_better)
@@ -1211,7 +1211,7 @@ def _summary_text(df: pd.DataFrame, *, task_name: str, metric_order, sort_by, hi
 def pd_summary_text(df: pd.DataFrame, *, task_name: str = "PD",
                     sort_by: Optional[str] = "AUC", higher_is_better: bool = True) -> str:
     """Copy-pasteable table of the mean of every **PD (classification)** metric
-    per method, plus median compute time. Not a leaderboard (full list); pass
+    per method, plus mean compute time. Not a leaderboard (full list); pass
     ``sort_by=None`` for alphabetical order."""
     return _summary_text(df, task_name=task_name, metric_order=_PD_METRIC_ORDER,
                          sort_by=sort_by, higher_is_better=higher_is_better)
@@ -1220,7 +1220,7 @@ def pd_summary_text(df: pd.DataFrame, *, task_name: str = "PD",
 def lgd_summary_text(df: pd.DataFrame, *, task_name: str = "LGD",
                      sort_by: Optional[str] = "R2", higher_is_better: bool = True) -> str:
     """Copy-pasteable table of the mean of every **LGD (regression)** metric
-    per method, plus median compute time. Not a leaderboard (full list); pass
+    per method, plus mean compute time. Not a leaderboard (full list); pass
     ``sort_by=None`` for alphabetical order."""
     return _summary_text(df, task_name=task_name, metric_order=_LGD_METRIC_ORDER,
                          sort_by=sort_by, higher_is_better=higher_is_better)
@@ -1251,13 +1251,13 @@ def _pretty_metric(metric: str) -> str:
 
 def _total_time(
     df: pd.DataFrame,
-    agg: str = "median",
+    agg: str = "mean",
     *,
     hpo_methods: Optional[Sequence[str]] = None,
     n_trials: int = 1,
 ) -> Optional[pd.Series]:
     """TOTAL compute time per method = train + predict, in seconds, aggregated
-    by ``agg`` (default MEDIAN -- robust to a slow outlier fold/dataset).
+    by ``agg`` (default MEAN).
 
     In-context models (TabPFN v1/v2/Real, Mitra) report ``train_time = 0`` by
     design -- their cost lives in ``predict`` -- so plotting train-time alone

@@ -46,6 +46,7 @@ table.
   - [1.3 Install profiles](#13-install-profiles)
   - [1.4 Adapting to a non-VSC cluster](#14-adapting-to-a-non-vsc-cluster)
 - [2. Command-line interface](#2-command-line-interface)
+  - [Maintenance and analysis utilities](#maintenance-and-analysis-utilities-run-manually)
 - [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
   - [Average Precision, baseline-corrected](#average-precision-baseline-corrected)
   - [LGD targets are clipped to `[0, 1]`](#lgd-targets-are-clipped-to-0-1)
@@ -189,6 +190,22 @@ Re-running `tabpfncredit experiment <name>` is always safe: completed points
 are skipped (one result file per point is the resume unit). `resubmit` does
 the same thing more efficiently when most of an experiment is already done —
 it queues only the missing work instead of re-sharding everything.
+
+### Maintenance and analysis utilities (run manually)
+
+These are run **by hand** (locally or on the cluster) — none of them run
+automatically during an experiment. Each accepts `--help`, and the destructive
+ones accept `--dry-run` to preview first.
+
+| Utility | What it does | When to run it |
+|---|---|---|
+| `python -m src.utils.consolidate_shards` | Experiment 2/3 split one `(dataset, method)` cell's sweep across many SLURM array tasks, each writing its own `<method>__shard_<jobid>_<task>.json`. This merges all shards for a cell back into one tidy `<method>.json` and deletes the shards. Results are **unchanged** — the summariser already reads the union of a cell's shards; this is purely housekeeping. `--experiment`, `--dry-run`. | **Once, after an Exp 2/3 run finishes**, to collapse the many small shard files. |
+| `python -m src.utils.run_notebooks` | Clears, restart-runs every analysis notebook with the project venv kernel, collects each one's printed output into `results/All_Results.md`, and regenerates the figure captions. `--list`, `-v`, `--md-only`. | After downloading results, to refresh every figure + the results dump in one command. |
+| `python -m src.utils.generate_captions` | (Re)writes a paper-ready `CAPTIONS.md` next to the figures in every `figures/**` folder, derived from the figure file names. `--experiment`, `--dry-run`. | Standalone caption refresh (also done automatically by `run_notebooks`). |
+| `python -m src.utils.remove_results` | Prunes result files by `--experiment` / `--task` / `--dataset` / `--method` / `--hpo` / `--no-hpo` / `--folds`, then drops (or, with `--resummarize`, rebuilds) the affected summary CSVs. `--dry-run`. | To delete an obsolete or buggy method/dataset's results before re-running. |
+| `python -m src.utils.fetch_weights` | Downloads the foundation-model checkpoints into `checkpoints/`. `--list`, `--only <models>`, `--skip <models>`. | **Once, locally**, before staging weights to the cluster (see `VSC_RUN.md`). |
+
+(The pipeline commands — `tabpfncredit experiment / resubmit / summarize / list / doctor` — are in the table above.)
 
 ---
 
@@ -337,54 +354,77 @@ separate checkpoint files, so a re-run only does the work that is missing.
 
 ## 6. Repository layout
 
-```
-README.md                           # this file
-VSC_RUN.md                          # KU Leuven VSC run guide (weights, sharding, recovery)
-pyproject.toml                      # single-step install + tooling config
-
-src/
-  cli.py                            # `tabpfncredit` Typer CLI
-  data/
-    preprocessing.py                # cached TALENT-format conversion
-    dataset_preprocessing.py        # per-dataset cleaning + LGD target clipping
-    dataset_inventory.py            # row counts -> min_rows filter
-    data_feeder.py                  # CV-fold assembly + post-split anti-leakage
-  methods/
-    method_config.py                # thin layer over the TALENT registry
-    method_runner.py                # TALENT.run() per fold + metric enrichment
-    method_metrics.py               # PD / LGD metric helpers
-    cost_metrics.py                 # expected loss + profit curves
-    runtime_profile.py              # tier + sec/fold per method (drives SLURM)
-  utils/
-    config_reader.py                # YAML loader (min_rows + validators)
-    result_io.py                    # save_method / load_method / scan_results
-    result_summary.py               # polars-backed per-fold + per-method CSVs
-    slurm_generator.py              # SLURM script generator
-    resubmit_planner.py             # gap scan -> only the missing points
-    statistical_testing.py          # Friedman/Nemenyi/Bayesian/CD diagrams …
-    remove_results.py               # prune results by exp/task/dataset/method/HPO/fold
-    consolidate_shards.py           # merge Exp 2/3 per-task shard files into one file per cell
-    fetch_weights.py                # download foundation-model weights -> checkpoints/ (run LOCALLY)
-    file_lock.py                    # cross-platform FileLock
-  visualizations/
-    experiment_plots.py             # heatmaps, ranking bars, learning/imbalance curves
-    calibration_plots.py            # reliability diagrams
-    data_exploration.py             # backs the Data_Exploration notebook
-
-scripts/
-  Experiment{0,1,2,3}/
-    config/CONFIG_{DATA,METHOD,EXPERIMENT}.yaml
-    _generated/                     # SLURM scripts (auto-emitted, gitignored)
-  run_all_experiments.sh            # submit the full chained HPC sweep
-  setup_vsc_checkpoints.sh          # provision the uploaded checkpoints/ on the VSC (offline)
-
-notebooks/                          # thin viewers calling src.visualizations
-tests/                              # pytest suite
-
-data/                               # raw + processed datasets       (gitignored)
-results/                            # per-(dataset, method) JSON+npz  (gitignored)
-figures/                            # generated PDF plots             (gitignored)
-checkpoints/                        # downloaded model weights        (gitignored)
+```text
+TabPFNCredit/
+├── README.md                           # this file
+├── VSC_RUN.md                          # KU Leuven VSC run guide (weights, sharding, recovery)
+├── pyproject.toml                      # single-step install + tooling config
+├── CITATION.cff                        # citation metadata
+├── LICENSE.txt                         # MIT licence
+│
+├── src/
+│   ├── cli.py                          # `tabpfncredit` Typer CLI
+│   ├── data/
+│   │   ├── preprocessing.py            # cached TALENT-format conversion
+│   │   ├── dataset_preprocessing.py    # per-dataset cleaning + LGD target clipping
+│   │   ├── dataset_inventory.py        # dataset row counts -> min_rows filter
+│   │   └── data_feeder.py              # CV-fold assembly + post-split anti-leakage
+│   ├── methods/
+│   │   ├── method_config.py            # thin layer over the TALENT registry
+│   │   ├── method_names.py             # canonical figure display names (TALENT-free)
+│   │   ├── method_runner.py            # TALENT.run() per fold + metric enrichment
+│   │   ├── method_metrics.py           # PD / LGD metric helpers
+│   │   ├── cost_metrics.py             # expected loss + profit curves
+│   │   └── runtime_profile.py          # tier + sec/fold per method (drives SLURM)
+│   ├── utils/
+│   │   ├── paths.py                    # central path resolution (repo / project storage)
+│   │   ├── config_reader.py            # YAML loader (min_rows + validators)
+│   │   ├── result_io.py                # save_method / load_method / scan_results
+│   │   ├── result_summary.py           # polars-backed per-fold + per-method CSVs
+│   │   ├── results_checking.py         # completeness / integrity audit
+│   │   ├── statistical_testing.py      # Friedman/Nemenyi/Bayesian/PAMA + CD diagrams
+│   │   ├── slurm_generator.py          # SLURM script generator
+│   │   ├── resubmit_planner.py         # gap scan -> only the missing points
+│   │   ├── consolidate_shards.py       # merge Exp 2/3 per-task shard files
+│   │   ├── remove_results.py           # prune results by exp/task/dataset/method/HPO/fold
+│   │   ├── run_notebooks.py            # clear + restart-run all notebooks -> All_Results.md
+│   │   ├── generate_captions.py        # auto-write figures/**/CAPTIONS.md
+│   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
+│   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
+│   │   └── file_lock.py                # cross-platform FileLock
+│   └── visualizations/
+│       ├── experiment_plots.py         # heatmaps, ranking bars, learning/imbalance curves
+│       ├── calibration_plots.py        # reliability diagrams
+│       └── data_exploration.py         # backs the Data_Exploration notebook
+│
+├── scripts/
+│   ├── Experiment{0,1,2,3}/
+│   │   ├── config/CONFIG_{DATA,METHOD,EXPERIMENT}.yaml
+│   │   └── _generated/                 # SLURM scripts (auto-emitted, gitignored)
+│   ├── run_all_experiments.sh          # submit the full chained HPC sweep
+│   └── setup_vsc_checkpoints.sh        # provision uploaded checkpoints/ on the VSC
+│
+├── notebooks/                          # thin viewers calling src.visualizations
+│   ├── Data_Exploration.ipynb
+│   ├── Experiment0.ipynb               # pilot coverage + quick overview
+│   ├── Experiment1.1-PD.ipynb          # PD headline benchmark
+│   ├── Experiment1.2-PD-Stat.ipynb     # PD all-learner statistics
+│   ├── Experiment1.3-PD-FamilyStat.ipynb   # PD champion-level statistics
+│   ├── Experiment1.4-LGD.ipynb         # LGD headline benchmark
+│   ├── Experiment1.5-LGD-Stat.ipynb    # LGD all-learner statistics
+│   ├── Experiment1.6-LGD-FamilyStat.ipynb  # LGD champion-level statistics
+│   ├── Experiment2.1-PD.ipynb          # PD data-efficiency sweep
+│   ├── Experiment2.2-LGD.ipynb         # LGD data-efficiency sweep
+│   ├── Experiment3.ipynb               # imbalance-robustness sweep
+│   ├── Individual_Method_Runner.ipynb  # ad-hoc single-method tool
+│   └── Results_Checking.ipynb          # results completeness audit
+│
+├── tests/                              # pytest suite
+│
+├── data/                               # raw + processed datasets               (gitignored)
+├── results/                            # per-(dataset, method) JSON + summaries  (gitignored)
+├── figures/                            # generated PDFs + CAPTIONS.md            (gitignored)
+└── checkpoints/                        # downloaded model weights               (gitignored)
 ```
 
 ---

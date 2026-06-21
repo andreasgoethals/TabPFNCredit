@@ -260,13 +260,10 @@ git pull
 #    --no-cache-dir forces a fresh clone of @main; --no-deps leaves torch/etc. alone.
 pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/<you>/TALENT@main"
 
-# 6. (one-off this release) drop the retired dummy baseline (also clears stale summaries).
-python -m src.utils.remove_results --method dummy
-
-# 7. Wipe any old summaries on PROJECT STORAGE so nothing stale lingers.
+# 6. Wipe any old summaries on PROJECT STORAGE so nothing stale lingers.
 rm -f "${TABPFN_STAGING_ROOT:-/staging/leuven/stg_00211}"/results/summaries/*.csv
 
-# 8. Resubmit ONLY the missing points of ALL experiments, across every cluster.
+# 7. Resubmit ONLY the missing points of ALL experiments, across every cluster.
 TABPFN_ALL_CLUSTERS=1 tabpfncredit resubmit --all
 ```
 
@@ -296,3 +293,51 @@ rsync -av --exclude='*/logs/' \
 skip-if-done). A point is skipped only if its `<method>.json` has all
 `cv_splits` folds; a partially-finished point re-runs and overwrites, so a
 half-complete copy is safe.
+
+---
+
+## 6. After the run finishes — consolidate & download
+
+Once every array has completed (`squeue -M all -u "$USER"` is empty):
+
+```bash
+cd "$VSC_DATA/TabPFNCredit"
+module purge && module load Python/3.12.3-GCCcore-13.3.0
+source tabpfncreditvenv/bin/activate
+
+# 1. Collapse the Experiment 2/3 shard files into one <method>.json per cell.
+#    Results are unchanged (the summariser already reads the union of a cell's
+#    shards) -- this is pure housekeeping. Preview with --dry-run first.
+python -m src.utils.consolidate_shards --dry-run
+python -m src.utils.consolidate_shards
+
+# 2. (optional) Build the summary CSVs on the cluster, so you can download just
+#    those (a few MB) instead of the full JSON tree. The notebooks also rebuild
+#    them locally, so this is only a download-size optimisation.
+for e in Experiment0 Experiment1 Experiment2 Experiment3; do
+  tabpfncredit summarize --experiment "$e"
+done
+```
+
+Then pull the results to your laptop. `rsync` only transfers what changed, so
+repeat syncs are fast (the firewall MFA prompt is the same as `scp`):
+
+```bash
+# Run this on your LOCAL machine. Whole results tree:
+rsync -avz --info=progress2 \
+  vsc<id>@login.hpc.kuleuven.be:/staging/leuven/stg_00211/results/ \
+  "<local path>/TabPFNCredit/results/"
+
+# ...or, if you only run notebooks locally, just the summary CSVs (tiny):
+rsync -avz --info=progress2 \
+  vsc<id>@login.hpc.kuleuven.be:/staging/leuven/stg_00211/results/summaries/ \
+  "<local path>/TabPFNCredit/results/summaries/"
+```
+
+Finally, locally, regenerate every figure + the copy-pasteable results dump in
+one command (clears, restart-runs all notebooks, writes `results/All_Results.md`
+and the figure `CAPTIONS.md`):
+
+```bash
+python -m src.utils.run_notebooks
+```
