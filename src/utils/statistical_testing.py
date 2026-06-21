@@ -788,7 +788,7 @@ def plot_significance_matrix(
     # RdYlGn_r so small APV (significant) is GREEN, large is red.
     sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn_r", vmin=0, vmax=2 * alpha,
                 center=alpha, linewidths=0.5, annot_kws={"fontsize": 9},
-                cbar_kws={"label": "adjusted p-value"}, ax=ax)
+                cbar=False, ax=ax)
     ax.set_title(title or f"Pairwise adjusted p-values; "
                  f"green = significantly different (< {alpha})",
                  fontweight="bold", fontsize=TITLE_FS)
@@ -936,8 +936,7 @@ def plot_wilcoxon_wl_matrix(
     fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
     sns.heatmap(margin, annot=annot, fmt="", cmap="RdBu_r", center=0,
                 vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white",
-                cbar_kws={"label": "win - loss margin (row vs column)"},
-                annot_kws={"fontsize": 11}, ax=ax)
+                cbar=False, annot_kws={"fontsize": 11}, ax=ax)
     ax.set_title(f"Pairwise Win/Loss of row vs column ({_pretty_metric(metric_name)})",
                  fontweight="bold", fontsize=TITLE_FS)
     ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS + 1)
@@ -1007,8 +1006,7 @@ def plot_significance_matrix_compact(
     annot = mat.map(lambda v: "" if pd.isna(v) else f"{v:.2f}") if show_annot else False
     sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn_r", vmin=0, vmax=2 * alpha,
                 center=alpha, linewidths=0.4, linecolor="white", square=True,
-                annot_kws={"fontsize": annot_fs},
-                cbar_kws={"label": "adjusted p-value", "shrink": 0.6}, ax=ax)
+                annot_kws={"fontsize": annot_fs}, cbar=False, ax=ax)
     ax.set_title(title or f"Pairwise adjusted p-values — green = significant (p < {alpha})",
                  fontweight="bold", fontsize=title_fs, pad=12)
     _style_matrix_ticks(ax, tick_fs)
@@ -1043,8 +1041,7 @@ def plot_wilcoxon_wl_matrix_compact(
     fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(margin, annot=annot if show_annot else False, fmt="", cmap="RdBu_r", center=0,
                 vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white", square=True,
-                cbar_kws={"label": "win - loss margin (row vs column)", "shrink": 0.6},
-                annot_kws={"fontsize": annot_fs}, ax=ax)
+                cbar=False, annot_kws={"fontsize": annot_fs}, ax=ax)
     nm = _pretty_metric(metric_name)
     ax.set_title(f"Pairwise win/loss, row vs column{' — ' + nm if nm else ''}",
                  fontweight="bold", fontsize=title_fs, pad=12)

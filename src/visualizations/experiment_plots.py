@@ -203,14 +203,16 @@ def _method_bar(
     if value_fmt is None:
         vmax = float(np.nanmax(np.abs(vals))) if n else 0.0
         value_fmt = "{:.3f}" if vmax < 10 else "{:.1f}"
-    # Print the value labels DIAGONALLY (45°, anchored bottom-left) so that, with
-    # many narrow bars, each number reads naturally while slanting up-and-right
-    # away from its neighbour instead of colliding sideways. Extra top margin
-    # gives the slanted labels room.
+    # Value labels rotated 45° and placed ABOVE each bar. Using matplotlib's
+    # bar_label (default rotation_mode) aligns the whole rotated text box just
+    # above the bar edge, so a number can never dip INSIDE the bar -- including on
+    # a log axis. The 45° slant clears the taller neighbour. Extra top margin
+    # (more on a log axis, where the tallest bar reaches near the top) gives the
+    # slanted labels room.
     ax.bar_label(bars, labels=[value_fmt.format(v) for v in vals],
-                 padding=8 if errs is not None else 4, fontsize=10,
-                 fontweight="bold", rotation=45, rotation_mode="anchor")
-    ax.margins(y=0.20)  # headroom so the slanted value labels aren't clipped
+                 padding=9 if errs is not None else 5, fontsize=10,
+                 fontweight="bold", rotation=45)
+    ax.margins(y=0.34 if logy else 0.22)
     ax.set_xticks(range(n))
     ax.set_xticklabels(names)
     _style_method_axis(ax)
@@ -1033,6 +1035,59 @@ def runtime_performance_scatter(
 #  Foundation-model vs baseline head-to-head (e.g. TabPFN v3 vs CatBoost)
 # ---------------------------------------------------------------------------
 
+def _declutter_labels(ax, xy, texts, *, fontsize: int = 8, color: str = "0.30") -> None:
+    """De-overlap point labels in PIXEL space: each label is repelled from every
+    other label AND from every point, then joined to its own point by a thin
+    leader line. Keeps crowded dataset names from intertwining. Call AFTER the
+    axis limits/scale are final."""
+    if not texts:
+        return
+    fig = ax.figure
+    fig.canvas.draw()
+    pts = ax.transData.transform(np.asarray(xy, dtype=float))
+    pos = pts.astype(float).copy()
+    pos[:, 1] += 16.0                                    # start each label above its point
+    boxes = np.array([[max(len(t), 2) * 0.60 * fontsize, 1.5 * fontsize] for t in texts])
+    bb = ax.get_window_extent()
+    for _ in range(120):
+        moved = False
+        for i in range(len(texts)):
+            wi, hi = boxes[i]
+            fx = fy = 0.0
+            for j in range(len(texts)):                  # repel from other labels
+                if j == i:
+                    continue
+                dx, dy = pos[i, 0] - pos[j, 0], pos[i, 1] - pos[j, 1]
+                ox = (wi + boxes[j, 0]) / 2 + 3 - abs(dx)
+                oy = (hi + boxes[j, 1]) / 2 + 2 - abs(dy)
+                if ox > 0 and oy > 0:
+                    if oy <= ox:
+                        fy += np.copysign(oy, dy if dy else 1.0)
+                    else:
+                        fx += np.copysign(ox, dx if dx else 1.0)
+            for px, py in pts:                           # repel from every point
+                dx, dy = pos[i, 0] - px, pos[i, 1] - py
+                ox = wi / 2 + 8 - abs(dx)
+                oy = hi / 2 + 8 - abs(dy)
+                if ox > 0 and oy > 0:
+                    if oy <= ox:
+                        fy += np.copysign(oy, dy if dy else 1.0)
+                    else:
+                        fx += np.copysign(ox, dx if dx else 1.0)
+            if fx or fy:
+                pos[i, 0] = min(max(pos[i, 0] + 0.5 * fx, bb.x0 + wi / 2), bb.x1 - wi / 2)
+                pos[i, 1] = min(max(pos[i, 1] + 0.5 * fy, bb.y0 + hi / 2), bb.y1 - hi / 2)
+                moved = True
+        if not moved:
+            break
+    inv = ax.transData.inverted()
+    for (x, y), p, t in zip(xy, pos, texts):
+        xt, yt = inv.transform(p)
+        ax.annotate(t, xy=(x, y), xytext=(xt, yt), textcoords="data",
+                    ha="center", va="center", fontsize=fontsize, color=color,
+                    arrowprops=dict(arrowstyle="-", color="0.7", lw=0.5))
+
+
 def foundation_vs_baseline_size_trend(
     df: pd.DataFrame,
     *,
@@ -1086,10 +1141,6 @@ def foundation_vs_baseline_size_trend(
                zorder=3, label=f"{fnd_disp} better")
     ax.scatter(x[~win], y[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
                zorder=3, label=f"{base_disp} better")
-    for xi, yi, d in zip(x, y, piv.index):
-        if np.isfinite(yi):
-            ax.annotate(str(d).split(".")[-1], (xi, yi), xytext=(0, 8),
-                        textcoords="offset points", ha="center", fontsize=7, color="0.35")
     mask = np.isfinite(y)
     if mask.sum() >= 2:
         lx = np.log10(x[mask])
@@ -1103,6 +1154,8 @@ def foundation_vs_baseline_size_trend(
                  fontsize=TITLE_FS, fontweight="bold")
     ax.legend(loc="best", fontsize=9)
     ax.grid(True, which="both", alpha=0.25)
+    _declutter_labels(ax, [(xi, yi) for xi, yi in zip(x, y) if np.isfinite(yi)],
+                      [str(d).split(".")[-1] for d, yi in zip(piv.index, y) if np.isfinite(yi)])
     plt.tight_layout()
     return _save(fig, out_dir,
                  f"{task_name.lower()}_{fnd_method}_vs_{base_method}_sizetrend_{metric.lower()}")
@@ -1146,9 +1199,6 @@ def foundation_vs_baseline_scatter(
                zorder=3, label=f"{fnd_disp} better")
     ax.scatter(xb[~win], yf[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
                zorder=3, label=f"{base_disp} better")
-    for xi, yi, d in zip(xb, yf, piv.index):
-        ax.annotate(str(d).split(".")[-1], (xi, yi), xytext=(5, 0),
-                    textcoords="offset points", ha="left", va="center", fontsize=7, color="0.35")
     ax.set_xlim(lim)
     ax.set_ylim(lim)
     ax.set_aspect("equal", adjustable="box")
@@ -1158,6 +1208,7 @@ def foundation_vs_baseline_scatter(
                  fontsize=TITLE_FS, fontweight="bold")
     ax.legend(loc="best", fontsize=9)
     ax.grid(True, alpha=0.25)
+    _declutter_labels(ax, list(zip(xb, yf)), [str(d).split(".")[-1] for d in piv.index])
     plt.tight_layout()
     return _save(fig, out_dir,
                  f"{task_name.lower()}_{fnd_method}_vs_{base_method}_scatter_{metric.lower()}")
