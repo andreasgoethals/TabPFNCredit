@@ -51,12 +51,29 @@ def test_matrix_views_order_by_metric_then_view():
     assert caption_for("pd_rank_box_auc")[0] < caption_for("pd_heatmap_brier")[0]
 
 
-def test_generate_writes_one_file_per_dir(tmp_path):
-    (tmp_path / "experiment9" / "pd").mkdir(parents=True)
-    for stem in ("pd_heatmap_auc", "pd_bar_mean_auc"):
-        (tmp_path / "experiment9" / "pd" / f"{stem}.pdf").write_bytes(b"%PDF-1.4")
-    (tmp_path / "empty").mkdir()                        # no pdfs -> no CAPTIONS.md
+def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):
+    # Two chapters' figures, created out of order; output must be ONE file at the
+    # figures root, chapters in notebook order, figures in generation order.
+    for sub, stems in (("experiment1/pd", ["pd_bar_mean_auc", "pd_heatmap_auc"]),
+                       ("experiment0", ["pd_heatmap_auc"])):
+        (tmp_path / sub).mkdir(parents=True)
+        for stem in stems:
+            (tmp_path / sub / f"{stem}.pdf").write_bytes(b"%PDF-1.4")
+    (tmp_path / "empty").mkdir()
     written = generate_captions(tmp_path)
-    assert len(written) == 1
+    assert written == [tmp_path / "CAPTIONS.md"]                 # single file, at the root
     txt = written[0].read_text(encoding="utf-8")
-    assert "pd_heatmap_auc.pdf" in txt and txt.index("heatmap") < txt.index("bar_mean")
+    # Experiment 0 chapter precedes Experiment 1.1, and within a chapter the
+    # heatmap is listed before the bar (generation order), not alphabetically.
+    assert txt.index("Experiment 0") < txt.index("Experiment 1.1")
+    assert txt.index("`pd_heatmap_auc.pdf`") < txt.index("`pd_bar_mean_auc.pdf`")
+
+
+def test_generate_removes_stale_per_directory_files(tmp_path):
+    d = tmp_path / "experiment0"
+    d.mkdir(parents=True)
+    (d / "pd_pama.pdf").write_bytes(b"%PDF-1.4")
+    (d / "CAPTIONS.md").write_text("old per-dir file", encoding="utf-8")   # stale
+    generate_captions(tmp_path)
+    assert not (d / "CAPTIONS.md").exists()                     # pruned
+    assert (tmp_path / "CAPTIONS.md").exists()                  # single file written

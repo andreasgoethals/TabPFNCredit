@@ -1,15 +1,15 @@
-"""Auto-generate the per-figure ``CAPTIONS.md`` files under ``figures/``.
+"""Auto-generate a single ``figures/CAPTIONS.md`` for every figure.
 
 Every figure is saved with a structured stem (e.g. ``pd_bar_mean_auc``,
 ``lgd_tabpfn_v3_vs_catboost_scatter_r2``, ``pd_cd_auc``). This tool parses those
-stems and writes a research-paper caption for each, into one ``CAPTIONS.md`` per
-leaf figure directory, ordered like the notebooks (matrix views grouped by
-metric, then HPO / compute / cost-quality / head-to-head, then curves,
-per-dataset plots and the statistical figures). Method names are rendered with
-the standard display labels (TALENT-free import, so this runs anywhere).
+stems, writes a research-paper caption for each, and collects them into ONE
+``figures/CAPTIONS.md`` split into chapters -- one per analysis notebook, in
+notebook order -- with each chapter's figures listed in the order the notebook
+produces them and the figure's file name as the heading. Method names use the
+standard display labels (TALENT-free import, so this runs anywhere).
 
     python -m src.utils.generate_captions
-    python -m src.utils.generate_captions --experiment experiment1 --dry-run
+    python -m src.utils.generate_captions --dry-run
 """
 
 from __future__ import annotations
@@ -81,6 +81,13 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     R.append((r"^(pd|lgd)_target_hists$",
               lambda g: ((S_DATA, 1, g[0]),
                          "Histogram of the loss-given-default target value for each LGD dataset.")))
+    R.append((r"^corr_(.+)$",
+              lambda g: ((S_DATA, 2, g[0]),
+                         f"Pairwise feature-correlation heatmap for the {_dataset(g[0])} dataset.")))
+    R.append((r"^pca_(.+)$",
+              lambda g: ((S_DATA, 3, g[0]),
+                         f"First two principal components of the {_dataset(g[0])} dataset "
+                         f"(one point per instance).")))
 
     # ---- matrix-metric views (heatmap / bar / box / rank views) ----
     R.append((rf"^(pd|lgd)_heatmap_({M})$",
@@ -233,55 +240,90 @@ def caption_for(stem: str) -> Tuple[Tuple, str]:
 
 
 # ---------------------------------------------------------------------------
-#  Per-directory titles + writing
+#  Consolidated CAPTIONS.md  (one file, chapters in notebook order)
 # ---------------------------------------------------------------------------
-_DIR_TITLES = {
-    "data_exploration": "Data exploration", "experiment0": "Experiment 0",
-    "experiment1": "Experiment 1", "experiment2": "Experiment 2", "experiment3": "Experiment 3",
-}
-_SUB_TITLES = {
-    "pd": "PD", "lgd": "LGD", "pd_stats": "PD — statistics", "lgd_stats": "LGD — statistics",
-    "pd_family": "PD — champion statistics", "lgd_family": "LGD — champion statistics",
-}
+# Each chapter mirrors one analysis notebook, in the same order the notebooks
+# appear in notebooks/; the second item is the figure sub-directory that notebook
+# writes to under figures/.
+CHAPTERS: List[Tuple[str, str]] = [
+    ("Data exploration",                           "data_exploration"),
+    ("Experiment 0 — pilot coverage",              "experiment0"),
+    ("Experiment 1.1 — PD benchmark",              "experiment1/pd"),
+    ("Experiment 1.2 — PD statistical analysis",   "experiment1/pd_stats"),
+    ("Experiment 1.3 — PD champion-level statistics", "experiment1/pd_family"),
+    ("Experiment 1.4 — LGD benchmark",             "experiment1/lgd"),
+    ("Experiment 1.5 — LGD statistical analysis",  "experiment1/lgd_stats"),
+    ("Experiment 1.6 — LGD champion-level statistics", "experiment1/lgd_family"),
+    ("Experiment 2.1 — PD data-efficiency sweep",  "experiment2/pd"),
+    ("Experiment 2.2 — LGD data-efficiency sweep", "experiment2/lgd"),
+    ("Experiment 3 — imbalance-robustness sweep",  "experiment3"),
+]
 
 
-def _title(rel_parts: Sequence[str]) -> str:
-    head = _DIR_TITLES.get(rel_parts[0], rel_parts[0])
-    if len(rel_parts) > 1:
-        return f"{head} — {_SUB_TITLES.get(rel_parts[-1], rel_parts[-1])}"
-    return head
+def _ordered_stems(d: Path) -> List[str]:
+    """The ``.pdf`` stems in directory ``d`` in notebook (figure-generation) order."""
+    pdfs = [f.stem for f in d.glob("*.pdf")]
+    return [s for _key, s in sorted((caption_for(s)[0], s) for s in pdfs)]
 
 
 def generate_captions(figures_root: Path, experiments: Optional[Sequence[str]] = None,
                       dry_run: bool = False) -> List[Path]:
-    """Write one ``CAPTIONS.md`` per leaf directory under ``figures_root`` that
-    contains ``.pdf`` figures. Returns the list of files written."""
+    """Write a SINGLE ``figures/CAPTIONS.md``: one chapter per notebook (in
+    notebook order), each listing its figures in generation order with the figure
+    file name as the heading. Any stale per-directory ``CAPTIONS.md`` from the old
+    layout is removed. Returns ``[the file]`` (or ``[]`` if there are no figures)."""
     figures_root = Path(figures_root)
     exps = {e.lower() for e in experiments} if experiments else None
-    written: List[Path] = []
+
+    # Old layout wrote one CAPTIONS.md per leaf dir; everything now lives in one
+    # file at the figures root, so clear the per-directory ones.
+    for stale in figures_root.rglob("CAPTIONS.md"):
+        if stale.parent != figures_root and not dry_run:
+            stale.unlink(missing_ok=True)
+
+    def _section(title: str, d: Path) -> List[str]:
+        stems = _ordered_stems(d)
+        if not stems:
+            return []
+        out = [f"## {title}\n"]
+        for stem in stems:
+            out.append(f"**`{stem}.pdf`**\n> {caption_for(stem)[1]}\n")
+        return out
+
+    body: List[str] = []
+    covered = set()
+    for title, sub in CHAPTERS:
+        if exps and sub.split("/")[0].lower() not in exps:
+            continue
+        d = figures_root / sub
+        covered.add(d.resolve())
+        if d.is_dir():
+            body += _section(title, d)
+
+    # Catch any figure directory not listed above, so nothing is silently dropped.
     for d in sorted(p for p in figures_root.rglob("*") if p.is_dir()):
-        pdfs = sorted(f.stem for f in d.glob("*.pdf"))
-        if not pdfs:
+        if d.resolve() in covered or not any(d.glob("*.pdf")):
             continue
-        rel = d.relative_to(figures_root).parts
-        if exps and rel[0].lower() not in exps:
+        rel = "/".join(d.relative_to(figures_root).parts)
+        if exps and rel.split("/")[0].lower() not in exps:
             continue
-        entries = sorted((caption_for(s) + (s,) for s in pdfs), key=lambda x: x[0])
-        lines = [
-            f"<!-- Auto-generated by src/utils/generate_captions.py. Figures are listed in "
-            f"notebook order. Conventions: tabular foundation models are shown in red; methods "
-            f"are ordered best-first (left/top); bar error bars are the fold-level standard "
-            f"deviation unless noted. -->\n",
-            f"# {_title(rel)} — figure captions\n",
-        ]
-        for _key, caption, stem in entries:
-            lines.append(f"**`{stem}.pdf`**\n> {caption}\n")
-        text = "\n".join(lines) + "\n"
-        out = d / "CAPTIONS.md"
-        if not dry_run:
-            out.write_text(text, encoding="utf-8")
-        written.append(out)
-    return written
+        body += _section(rel, d)
+
+    if not body:
+        return []
+    header = (
+        "<!-- Auto-generated by src/utils/generate_captions.py -- do not edit by hand. -->\n\n"
+        "# Figure captions\n\n"
+        "Captions for every generated figure, grouped by notebook (in notebook order) and, within "
+        "each chapter, in the order the figures are produced; the heading of each entry is the "
+        "figure's file name. Conventions: tabular foundation models are shown in red; methods are "
+        "ordered best-first; bar error bars are the fold-level standard deviation unless noted.\n"
+    )
+    out = figures_root / "CAPTIONS.md"
+    if not dry_run:
+        figures_root.mkdir(parents=True, exist_ok=True)
+        out.write_text(header + "\n" + "\n".join(body) + "\n", encoding="utf-8")
+    return [out]
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -292,16 +334,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--dry-run", action="store_true", help="report only, write nothing")
     args = ap.parse_args(argv)
     written = generate_captions(args.figures_root, experiments=args.experiment, dry_run=args.dry_run)
-    verb = "would write" if args.dry_run else "wrote"
-    print(f"{verb} {len(written)} CAPTIONS.md file(s):")
-    for p in written:
-        print(f"  {p.relative_to(args.figures_root.parent)}")
-    if not written:
-        print("  (no figure directories found)")
+    if written:
+        print(f"{'would write' if args.dry_run else 'wrote'} {written[0]}")
+    else:
+        print("(no figures found)")
     return 0
 
 
-__all__ = ["caption_for", "generate_captions", "main", "METRIC_DISPLAY"]
+__all__ = ["caption_for", "generate_captions", "main", "CHAPTERS", "METRIC_DISPLAY"]
 
 
 if __name__ == "__main__":

@@ -370,12 +370,12 @@ def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: 
         update_all_results_md(md_path, fresh, included_order, stamp=stamp)
         print(f"\nAll_Results.md  ->  {md_path}  ({len(fresh)} section{'s' if len(fresh) != 1 else ''})")
 
-    # Refresh the figure captions from whatever figures the run just wrote.
+    # Refresh the consolidated figure captions from whatever figures the run wrote.
     if do_captions and do_execute and ok:
         try:
             from src.utils.generate_captions import generate_captions
             written = generate_captions(PROJECT_ROOT / "figures")
-            print(f"CAPTIONS.md  ->  regenerated {len(written)} file(s) under figures/")
+            print(f"captions      ->  {written[0] if written else '(no figures found)'}")
         except Exception as exc:  # noqa: BLE001 -- captions are non-critical
             print(f"(caption regeneration skipped: {type(exc).__name__}: {exc})")
 
@@ -413,7 +413,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="stream raw nbconvert/kernel output live (default: quiet, shown only on failure)")
     ap.add_argument("--no-captions", action="store_true",
-                    help="don't regenerate figures/**/CAPTIONS.md after running")
+                    help="don't regenerate figures/CAPTIONS.md after running")
     ap.add_argument("--venv", type=Path, default=DEFAULT_VENV,
                     help=f"project venv whose kernel runs the notebooks (default: {DEFAULT_VENV})")
     ap.add_argument("--python", type=Path, default=None,

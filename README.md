@@ -201,7 +201,7 @@ ones accept `--dry-run` to preview first.
 |---|---|---|
 | `python -m src.utils.consolidate_shards` | Experiment 2/3 split one `(dataset, method)` cell's sweep across many SLURM array tasks, each writing its own `<method>__shard_<jobid>_<task>.json`. This merges all shards for a cell back into one tidy `<method>.json` and deletes the shards. Results are **unchanged** — the summariser already reads the union of a cell's shards; this is purely housekeeping. `--experiment`, `--dry-run`. | **Once, after an Exp 2/3 run finishes**, to collapse the many small shard files. |
 | `python -m src.utils.run_notebooks` | Clears, restart-runs every analysis notebook with the project venv kernel, collects each one's printed output into `results/All_Results.md`, and regenerates the figure captions. `--list`, `-v`, `--md-only`. | After downloading results, to refresh every figure + the results dump in one command. |
-| `python -m src.utils.generate_captions` | (Re)writes a paper-ready `CAPTIONS.md` next to the figures in every `figures/**` folder, derived from the figure file names. `--experiment`, `--dry-run`. | Standalone caption refresh (also done automatically by `run_notebooks`). |
+| `python -m src.utils.generate_captions` | Writes a single `figures/CAPTIONS.md` with a paper-ready caption per figure, split into one chapter per notebook (in notebook order) and titled by figure file name. `--dry-run`. | Standalone caption refresh (also done automatically by `run_notebooks`). |
 | `python -m src.utils.remove_results` | Prunes result files by `--experiment` / `--task` / `--dataset` / `--method` / `--hpo` / `--no-hpo` / `--folds`, then drops (or, with `--resummarize`, rebuilds) the affected summary CSVs. `--dry-run`. | To delete an obsolete or buggy method/dataset's results before re-running. |
 | `python -m src.utils.fetch_weights` | Downloads the foundation-model checkpoints into `checkpoints/`. `--list`, `--only <models>`, `--skip <models>`. | **Once, locally**, before staging weights to the cluster (see `VSC_RUN.md`). |
 
@@ -388,7 +388,7 @@ TabPFNCredit/
 │   │   ├── consolidate_shards.py       # merge Exp 2/3 per-task shard files
 │   │   ├── remove_results.py           # prune results by exp/task/dataset/method/HPO/fold
 │   │   ├── run_notebooks.py            # clear + restart-run all notebooks -> All_Results.md
-│   │   ├── generate_captions.py        # auto-write figures/**/CAPTIONS.md
+│   │   ├── generate_captions.py        # auto-write the single figures/CAPTIONS.md
 │   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
 │   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
 │   │   └── file_lock.py                # cross-platform FileLock
@@ -488,7 +488,7 @@ viewers:
 | `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same four pooled views, per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files. |
 
-**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook (in folder order, with the project venv kernel), collects each one's printed output into `results/All_Results.md`, and regenerates the per-figure `figures/**/CAPTIONS.md` (also available standalone via `python -m src.utils.generate_captions`). `Results_Checking` and `Individual_Method_Runner` are skipped. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
+**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook (in folder order, with the project venv kernel), collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` (also available standalone via `python -m src.utils.generate_captions`). `Results_Checking` and `Individual_Method_Runner` are skipped. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
 
 ---
 
