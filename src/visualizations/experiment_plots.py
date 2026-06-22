@@ -511,7 +511,9 @@ def _sweep_curve(
         note.append("moving average")
     note.append("mean over datasets")
     ax.set_title(f"{title} ({'; '.join(note)})", fontsize=TITLE_FS, fontweight="bold")
-    ax.legend(loc="best", fontsize=10)
+    # Method legend bottom-right (the data-rich corner is usually empty here),
+    # larger so the method names are easy to read.
+    ax.legend(loc="lower right", fontsize=13, framealpha=0.92)
     plt.tight_layout()
     suffix = ("_relative" if relative else "") + ("_smooth" if smooth else "")
     return _save(fig, out_dir, plot_name + suffix)
@@ -601,7 +603,7 @@ def per_dataset_sweep_curves(
         ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
         ax.set_title(f"{task_name} — {dataset}: {pm} (raw points)",
                      fontsize=TITLE_FS, fontweight="bold")
-        ax.legend(loc="best", fontsize=9)
+        ax.legend(loc="lower right", fontsize=12, framealpha=0.92)
         plt.tight_layout()
         stem = f"{task_name.lower()}_{sweep_axis}_{str(dataset).replace('.', '_')}_{metric.lower()}"
         p = _save(fig, out_dir, stem)

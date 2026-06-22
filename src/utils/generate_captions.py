@@ -72,79 +72,87 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     # ---- data exploration ----
     R.append((r"^(pd|lgd)_dataset_sizes$",
               lambda g: ((S_DATA, 0, g[0]),
-                         f"Training-set size of each {TASK_DISPLAY[g[0]]} dataset (rows, log scale).")))
+                         f"Number of rows in each {TASK_DISPLAY[g[0]]} dataset (one bar per dataset, "
+                         f"log scale).")))
     R.append((r"^(pd|lgd)_target_balance$",
               lambda g: ((S_DATA, 1, g[0]),
-                         "Class balance (default rate) across the PD datasets.")))
+                         "Default rate (share of the positive class) of each PD dataset, one bar per "
+                         "dataset.")))
     R.append((r"^(pd|lgd)_target_hists$",
               lambda g: ((S_DATA, 1, g[0]),
-                         "Distribution of the LGD target across datasets.")))
+                         "Histogram of the loss-given-default target value for each LGD dataset.")))
 
     # ---- matrix-metric views (heatmap / bar / box / rank views) ----
     R.append((rf"^(pd|lgd)_heatmap_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["heatmap"]),
-                         f"Heatmap of {_metric(g[1])} for every method on each {TASK_DISPLAY[g[0]]} "
-                         f"dataset (five-fold mean, tuned models). Columns ordered best-first and "
-                         f"coloured green-to-red; tabular foundation-model names are in red.")))
+                         f"{_cap(_metric(g[1]))} of each method (columns) on every {TASK_DISPLAY[g[0]]} "
+                         f"dataset (rows), as the five-fold mean of the tuned model. Columns are "
+                         f"ordered best-first and shaded green (best) to red (worst); foundation-model "
+                         f"names are in red.")))
     R.append((rf"^(pd|lgd)_bar_mean_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["bar_mean"]),
-                         f"Per-method mean of {_metric(g[1])} across the {TASK_DISPLAY[g[0]]} datasets "
-                         f"(value above each bar; error bars are the fold-level standard deviation), "
-                         f"ordered best-first.")))
+                         f"Per-method mean of {_metric(g[1])} across the {TASK_DISPLAY[g[0]]} "
+                         f"datasets, ordered best-first; the value is printed above each bar and the "
+                         f"error bar is the fold-level standard deviation. Foundation-model names are "
+                         f"in red.")))
     R.append((rf"^(pd|lgd)_box_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["box"]),
-                         f"Distribution of {_metric(g[1])} across datasets, one box per method "
-                         f"(one point per dataset), ordered by the mean.")))
+                         f"Distribution of {_metric(g[1])} across the {TASK_DISPLAY[g[0]]} datasets "
+                         f"(one point per dataset), one box per method, ordered by the mean.")))
     R.append((rf"^(pd|lgd)_rank_matrix_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["rank_matrix"]),
-                         f"Per-dataset {_metric(g[1])} rank of each method (1 = best on that dataset); "
-                         f"columns ordered by mean rank, foundation models in red.")))
+                         f"Per-dataset rank of each method on {_metric(g[1])} (1 = best, green; worse, "
+                         f"red), with columns ordered by mean rank. Foundation-model names are in "
+                         f"red.")))
     R.append((rf"^(pd|lgd)_ranking_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["ranking"]),
-                         f"Mean {_metric(g[1])} rank per method (lower is better; error bars are the "
-                         f"standard deviation of the per-dataset ranks).")))
+                         f"Mean {_metric(g[1])} rank per method across the {TASK_DISPLAY[g[0]]} datasets "
+                         f"(1 = best, lower is better), ordered best-first; error bars are the standard "
+                         f"deviation of the per-dataset ranks.")))
     R.append((rf"^(pd|lgd)_rank_box_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["rank_box"]),
-                         f"Distribution of per-dataset {_metric(g[1])} ranks per method (rank 1 = best, "
-                         f"at the top).")))
+                         f"Distribution of each method's per-dataset {_metric(g[1])} ranks (1 = best, at "
+                         f"the top), one box per method.")))
 
     # ---- HPO effect ----
     R.append((rf"^(pd|lgd)_hpo_effect_({M})$",
               lambda g: ((S_HPO, _metric_rank(g[1]), 0),
-                         f"Mean change in {_metric(g[1])} from hyper-parameter tuning (HPO minus "
-                         f"NO_HPO) per method; positive means tuning helps. Foundation models are 0 "
-                         f"by construction.")))
+                         f"Mean effect of hyper-parameter tuning on {_metric(g[1])} (tuned minus "
+                         f"untuned, averaged over datasets); positive (green) means tuning helps. "
+                         f"Foundation models are zero by construction, as they are not tuned.")))
 
     # ---- compute time ----
     R.append((r"^(pd|lgd)_bar_compute_time$",
               lambda g: ((S_COMPUTE, 0, 0),
-                         f"Mean total compute time per method on {TASK_DISPLAY[g[0]]} "
-                         f"(train + predict; tunable methods' train time × n_trials), log axis, "
-                         f"fastest first.")))
+                         f"Mean compute time per method on {TASK_DISPLAY[g[0]]} (train + predict per "
+                         f"fold, seconds, log axis; for tuned methods the train time includes the "
+                         f"HPO-search cost), fastest first. Foundation-model names are in red.")))
     R.append((r"^(pd|lgd)_box_compute_time$",
               lambda g: ((S_COMPUTE, 1, 0),
-                         f"Distribution of total compute time per method (train + predict, one point "
-                         f"per dataset-fold), log axis, fastest-mean first.")))
+                         f"Distribution of compute time (train + predict) per method, one point per "
+                         f"(dataset, fold), on a log axis and ordered fastest first.")))
 
     # ---- cost / quality ----
     R.append((rf"^(pd|lgd)_cost_quality_({M})$",
               lambda g: ((S_COSTQ, _metric_rank(g[1]), 0),
-                         f"Cost/quality frontier: mean {_metric(g[1])} versus mean compute time "
-                         f"(train + predict, log x). Foundation models are red stars, other methods "
-                         f"blue circles; notable methods are labelled.")))
+                         f"Mean {_metric(g[1])} (y) against mean compute time (x; train + predict, log "
+                         f"scale) for each method on {TASK_DISPLAY[g[0]]}; foundation models are red "
+                         f"stars, the other methods blue circles, and notable methods are labelled.")))
 
     # ---- foundation-vs-baseline head-to-head ----
     R.append((rf"^(pd|lgd)_(.+?)_vs_(.+?)_sizetrend_({M})$",
               lambda g: ((S_HEAD, _metric_rank(g[3]), 0),
                          f"Per-dataset relative {_metric(g[3])} gain of {display_name(g[1])} over "
-                         f"{display_name(g[2])} versus dataset size (log x), with an OLS trend line; "
-                         f"green where {display_name(g[1])} wins, the dashed line marks equal "
-                         f"performance.")))
+                         f"{display_name(g[2])} (y) against dataset size in rows (x, log scale); points "
+                         f"are green where {display_name(g[1])} wins and red where {display_name(g[2])} "
+                         f"wins, the dashed line marks equal performance, and the solid line is the OLS "
+                         f"trend.")))
     R.append((rf"^(pd|lgd)_(.+?)_vs_(.+?)_scatter_({M})$",
               lambda g: ((S_HEAD, _metric_rank(g[3]), 1),
                          f"Per-dataset head-to-head of {display_name(g[1])} (y) versus "
-                         f"{display_name(g[2])} (x) in {_metric(g[3])}, with the y = x diagonal; "
-                         f"points above the line are datasets where {display_name(g[1])} wins.")))
+                         f"{display_name(g[2])} (x) on {_metric(g[3])}; each point is a dataset and the "
+                         f"dashed line is y = x, so points above it are datasets where "
+                         f"{display_name(g[1])} wins.")))
 
     # ---- pooled learning / imbalance curves ----
     R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?$",
@@ -155,39 +163,53 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     # ---- per-dataset raw-point curves ----
     R.append((rf"^(pd|lgd)_row_limit_(.+)_({M})$",
               lambda g: ((S_PERDS, 0, _dataset(g[1])),
-                         f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus "
-                         f"training-set size (raw points, one line per method).")))
+                         f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus training-set "
+                         f"size (rows), one line per method (raw per-point values, no smoothing).")))
     R.append((rf"^(pd|lgd)_minority_proportion_(.+)_({M})$",
               lambda g: ((S_PERDS, 1, _dataset(g[1])),
                          f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus the "
-                         f"minority-class proportion (raw points, one line per method).")))
+                         f"minority-class (default) proportion, one line per method (raw per-point "
+                         f"values).")))
 
     # ---- statistical figures ----
     R.append((r"^(pd|lgd)_pama$",
               lambda g: ((S_STAT, 0, 0),
-                         "PAMA — share of (dataset, fold) observations on which each method achieves "
-                         "the single best score; bars green-to-red best-first, foundation-model names "
-                         "in red.")))
+                         "Share of (dataset, fold) observations on which each method achieves the "
+                         "single best score (PAMA, Probability of Achieving the MAximal accuracy), one "
+                         "bar per method, ordered best-first; foundation-model names are in red.")))
     R.append((rf"^(pd|lgd)_cd_({M})$",
               lambda g: ((S_STAT, 1, _metric_rank(g[1])),
                          f"Nemenyi critical-difference diagram of the {_metric(g[1])} average ranks "
-                         f"(methods joined by a bar are statistically indistinguishable); foundation "
-                         f"models in red.")))
+                         f"(1 = best); methods connected by a bold bar are not significantly different "
+                         f"(the bar spans one critical difference). Foundation-model names are in "
+                         f"red.")))
     R.append((r"^(pd|lgd)_winloss$",
               lambda g: ((S_STAT, 2, 0),
-                         "Pairwise win/loss matrix: wins of the row method over the column method "
-                         "across datasets; cell colour is the win − loss margin.")))
+                         "Pairwise win/loss matrix: each cell 'W/L' is the number of datasets on which "
+                         "the row method beats versus loses to the column method (ties omitted), "
+                         "coloured by the win-minus-loss margin (red = the row method dominates, blue = "
+                         "it is dominated). Methods are ordered by mean rank, so the strongest sit "
+                         "top-left; foundation-model names are in red.")))
     R.append((r"^(pd|lgd)_significance$",
               lambda g: ((S_STAT, 3, 0),
-                         "Pairwise adjusted-p-value matrix (green = the pair differs significantly); "
-                         "methods ordered best-first, foundation-model names in red.")))
+                         "Pairwise matrix of the multiple-comparison-adjusted p-values for every pair "
+                         "of methods: each cell is green where the two methods differ significantly and "
+                         "red where they do not, with the p-value printed in the cell. The matrix is "
+                         "symmetric, methods are ordered best-first, and foundation-model names are in "
+                         "red.")))
 
     return [(re.compile(p), b) for p, b in R]
 
 
+def _cap(s: str) -> str:
+    """Capitalise the first letter only (keeps acronyms like AUC intact)."""
+    return s[:1].upper() + s[1:] if s else s
+
+
 def _curve_caption(g) -> str:
-    kind = "Learning curve" if g[1] == "learning_curve" else "Imbalance-robustness curve"
-    xaxis = "training-set size" if g[1] == "learning_curve" else "minority-class proportion"
+    learning = g[1] == "learning_curve"
+    kind = "Learning curve" if learning else "Imbalance-robustness curve"
+    xaxis = "training-set size (rows)" if learning else "minority-class (default) proportion"
     notes = []
     if g[3]:
         notes.append("relative to each method's own best")

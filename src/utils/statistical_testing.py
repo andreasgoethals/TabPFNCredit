@@ -936,7 +936,7 @@ def plot_wilcoxon_wl_matrix(
     fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
     sns.heatmap(margin, annot=annot, fmt="", cmap="RdBu_r", center=0,
                 vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white",
-                cbar=False, annot_kws={"fontsize": 11}, ax=ax)
+                cbar=False, annot_kws={"fontsize": 13}, ax=ax)
     ax.set_title(f"Pairwise Win/Loss of row vs column ({_pretty_metric(metric_name)})",
                  fontweight="bold", fontsize=TITLE_FS)
     ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS + 1)
@@ -954,7 +954,9 @@ def _matrix_layout(k: int):
     ``(figsize, tick_fs, annot_fs, show_annot, title_fs)``."""
     side = max(6.0, min(0.46 * k + 3.0, 22.0))          # square plotting area (inches)
     tick_fs = int(max(7, min(13, 230 / max(k, 1))))     # k=4->13, 20->11, 30->7
-    annot_fs = int(max(6, min(11, 190 / max(k, 1))))
+    # Big in-cell numbers when there are few methods (family matrices have roomy
+    # cells); shrink only once the grid gets dense.
+    annot_fs = int(max(8, min(16, 220 / max(k, 1))))    # k=4->16, 12->16, 18->12
     show_annot = k <= 16                                # past this, per-cell text is illegible
     title_fs = TITLE_FS if k <= 12 else 14
     return (side + 2.5, side), tick_fs, annot_fs, show_annot, title_fs
