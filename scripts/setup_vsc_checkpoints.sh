@@ -43,7 +43,7 @@ cd "$REPO_ROOT"
 # otherwise prefer a populated repo-local checkpoints/, else fall back to the
 # shared project storage -- the same repo-first-then-staging order the SLURM
 # jobs use at run time.
-STAGING_ROOT="${TABPFN_STAGING_ROOT:-/staging/leuven/stg_00211}"
+STAGING_ROOT="${TABPFN_STAGING_ROOT:-/lustre1/project/stg_00211/TabPFNCredit}"
 if [ -n "${TABPFN_CHECKPOINTS_DIR:-}" ]; then
     CKPT="$TABPFN_CHECKPOINTS_DIR"
 elif [ -d "$REPO_ROOT/checkpoints" ] && [ -n "$(ls -A "$REPO_ROOT/checkpoints" 2>/dev/null)" ]; then

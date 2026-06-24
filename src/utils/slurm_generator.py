@@ -75,10 +75,11 @@ from src.methods.runtime_profile import (
 # ``$VSC_DATA/TabPFNCredit/logs`` -- on the general data storage, no surprises.
 _REPO_ROOT = str(Path(__file__).resolve().parents[2])
 
-# Shared project-storage root (env-overridable). Results live here so they
-# never fill the small general data storage; logs and the (inode-heavy) joblib
-# cache do NOT (the cache goes to $VSC_SCRATCH).
-_DEFAULT_STAGING_ROOT = "/staging/leuven/stg_00211"
+# Shared project-storage root (env-overridable): this project's own subfolder
+# of the shared ``stg_00211`` allocation. Results live here so they never fill
+# the small general data storage; logs and the (inode-heavy) joblib cache do
+# NOT (the cache goes to $VSC_SCRATCH).
+_DEFAULT_STAGING_ROOT = "/lustre1/project/stg_00211/TabPFNCredit"
 
 
 def _staging_bash() -> str:

@@ -15,7 +15,8 @@ Lookup policy (matches the project's storage layout on the HPC cluster):
   fill the (small) general data storage. Overridable with ``$TABPFN_CACHE_ROOT``.
 
 The project-storage root is ``$TABPFN_STAGING_ROOT`` (default
-``/staging/leuven/stg_00211``). When that directory does not exist (e.g. a
+``/lustre1/project/stg_00211/TabPFNCredit`` -- this project's own subfolder of
+the shared ``stg_00211`` allocation). When that directory does not exist (e.g. a
 laptop), every project-storage lookup is skipped and the repo-local folders
 are used, so this module never changes local behaviour.
 """
@@ -29,9 +30,12 @@ from typing import List, Optional
 # Repo root: <repo>/src/utils/paths.py -> parents[2] == <repo>.
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-# Default shared project-storage root on the cluster. Env-overridable so a
-# different project number / mount point needs no code change.
-_DEFAULT_STAGING_ROOT = "/staging/leuven/stg_00211"
+# Default shared project-storage root on the cluster: this project's own
+# subfolder of the shared ``stg_00211`` allocation (everything lives under
+# ``.../stg_00211/TabPFNCredit``, never directly in the allocation root).
+# Env-overridable so a different project number / mount point needs no code
+# change.
+_DEFAULT_STAGING_ROOT = "/lustre1/project/stg_00211/TabPFNCredit"
 
 
 # ============================================================================
@@ -41,7 +45,8 @@ _DEFAULT_STAGING_ROOT = "/staging/leuven/stg_00211"
 def staging_root() -> Optional[Path]:
     """Return the shared project-storage root, or ``None`` if unavailable.
 
-    Honours ``$TABPFN_STAGING_ROOT`` (default ``/staging/leuven/stg_00211``).
+    Honours ``$TABPFN_STAGING_ROOT`` (default
+    ``/lustre1/project/stg_00211/TabPFNCredit``).
     Returns ``None`` when the directory does not exist -- e.g. on a laptop --
     so callers fall back to the repo-local folders automatically.
     """

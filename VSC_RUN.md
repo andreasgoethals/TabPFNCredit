@@ -261,7 +261,7 @@ git pull
 pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/<you>/TALENT@main"
 
 # 6. Wipe any old summaries on PROJECT STORAGE so nothing stale lingers.
-rm -f "${TABPFN_STAGING_ROOT:-/staging/leuven/stg_00211}"/results/summaries/*.csv
+rm -f "${TABPFN_STAGING_ROOT:-/lustre1/project/stg_00211/TabPFNCredit}"/results/summaries/*.csv
 
 # 7. Resubmit ONLY the missing points of ALL experiments, across every cluster.
 TABPFN_ALL_CLUSTERS=1 tabpfncredit resubmit --all
@@ -325,12 +325,12 @@ repeat syncs are fast (the firewall MFA prompt is the same as `scp`):
 ```bash
 # Run this on your LOCAL machine. Whole results tree:
 rsync -avz --info=progress2 \
-  vsc<id>@login.hpc.kuleuven.be:/staging/leuven/stg_00211/results/ \
+  vsc<id>@login.hpc.kuleuven.be:/lustre1/project/stg_00211/TabPFNCredit/results/ \
   "<local path>/TabPFNCredit/results/"
 
 # ...or, if you only run notebooks locally, just the summary CSVs (tiny):
 rsync -avz --info=progress2 \
-  vsc<id>@login.hpc.kuleuven.be:/staging/leuven/stg_00211/results/summaries/ \
+  vsc<id>@login.hpc.kuleuven.be:/lustre1/project/stg_00211/TabPFNCredit/results/summaries/ \
   "<local path>/TabPFNCredit/results/summaries/"
 ```
 
