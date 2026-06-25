@@ -2,7 +2,7 @@
 
 Internal/registry keys (TALENT's canonical ``model_type`` strings, e.g.
 ``tabpfn_v3``, ``LogReg``) map to the single consistent label shown in every
-generated figure (``TabPFN-3``, ``Logistic Regression``). The data, file names,
+generated figure (``TabPFN-3``, ``log. reg``). The data, file names,
 focus lists and statistical tests all keep using the raw registry keys — ONLY
 the text a reader sees in a figure is mapped through :func:`display_name`.
 
@@ -71,8 +71,8 @@ METHOD_DISPLAY_NAMES: dict[str, str] = {
     "dnnr": "DNNR",
     "tabautopnpnet": "TabAuto-PNPNet",
     # ---- Classical ML ------------------------------------------------------
-    "LogReg": "Logistic Regression",
-    "LinearRegression": "Linear Regression",
+    "LogReg": "log. reg",
+    "LinearRegression": "lin. reg",
     "knn": "KNN",
     "RandomForest": "Random Forest",
     "svm": "SVM",

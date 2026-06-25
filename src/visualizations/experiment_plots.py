@@ -43,25 +43,66 @@ logger = logging.getLogger(__name__)
 #  Style
 # ---------------------------------------------------------------------------
 
+# ============================================================================
+#  Canonical paper-wide style -- ONE size per element, shared by EVERY figure
+#  here AND in ``statistical_testing.py`` (which imports these names). The goal:
+#  every generated PDF uses the same title / axis-label / tick / legend /
+#  value-label / call-out sizes and the same marker, line and bar styling, so the
+#  figures read as one coherent set when dropped into the paper. Change a size in
+#  exactly one place -- here.
+# ============================================================================
+TITLE_FS  = 16   # panel title (every figure)
+LABEL_FS  = 14   # x / y axis titles
+TICK_FS   = 12   # tick labels: method names, dataset names, numeric ticks
+LEGEND_FS = 12   # legend / colour-index entries
+VALUE_FS  = 11   # numbers printed on/above bars and inside heatmap cells
+NOTE_FS   = 11   # call-out boxes + per-point (dataset) labels
+ANNOT_FS  = VALUE_FS  # backwards-compatible alias (heatmap cell numbers)
+
+# Element geometry -- identical across figures.
+PT_NORMAL = 70.0    # scatter marker area (pt^2) for an ordinary method
+PT_FND    = 130.0   # scatter marker area for a foundation-model marker
+EDGE_LW   = 0.8     # black contour width on bars and scatter markers
+CURVE_LW  = 2.0     # line width for the pooled sweep curves
+RUN_MS    = 1.5     # marker size for the individual-run dots on every sweep curve
+                    # (Experiment 2 & 3, PD & LGD) -- one size everywhere
+
+# Canonical figure geometry. Two charts of the same shape class get the SAME
+# width, so when included at one width in LaTeX their fonts scale identically.
+FIG_SQUARE = (7.5, 7.5)   # head-to-head scatter (equal x/y aspect)
+FIG_WIDE   = (9.5, 6.0)   # single-panel landscape: curves, cost/quality, trend
+
+
+def _vbar_figsize(n: int) -> Tuple[float, float]:
+    """Size for every VERTICAL methods-on-x chart (bar / box / rank box /
+    compute bar / compute box). Width grows with the method count so the slanted
+    labels never collide; height is fixed, so all such charts of the same method
+    set are byte-for-byte identical and scale the same way in the paper."""
+    return (round(min(0.50 * n + 4.0, 19.0), 2), 6.0)
+
+
+def _hbar_figsize(n: int) -> Tuple[float, float]:
+    """Size for every HORIZONTAL methods-on-y chart (HPO effect / PAMA /
+    %-of-max). Fixed width; height grows with the method count."""
+    return (10.0, round(max(4.5, 0.40 * n + 2.0), 2))
+
+
 DEFAULT_RC = {
-    "figure.figsize": (16, 9),
-    "font.size": 12,
-    "axes.titlesize": 15,
-    "axes.labelsize": 13,
-    "xtick.labelsize": 12,
-    "ytick.labelsize": 12,
-    "legend.fontsize": 11,
+    "figure.figsize": FIG_WIDE,
+    "savefig.dpi": 200,
+    "font.size": TICK_FS,
+    "axes.titlesize": TITLE_FS,
+    "axes.titleweight": "bold",
+    "axes.labelsize": LABEL_FS,
+    "axes.labelweight": "bold",
+    "xtick.labelsize": TICK_FS,
+    "ytick.labelsize": TICK_FS,
+    "legend.fontsize": LEGEND_FS,
+    "legend.framealpha": 0.92,
+    "lines.linewidth": CURVE_LW,
     "axes.grid": True,
     "grid.alpha": 0.3,
 }
-
-# Shared sizing so every figure in this module reads the same way. Sized up for
-# print: tick/method/dataset labels and axis titles stay legible when a figure
-# is shrunk into a paper column.
-TICK_FS = 14     # method / dataset tick labels
-LABEL_FS = 16    # axis labels
-TITLE_FS = 17    # panel titles
-ANNOT_FS = 11    # heatmap cell numbers -- small enough to fit a "0.xxx" cell
 
 # Well-known baselines worth labelling in an otherwise-crowded scatter (the
 # foundation models are always added on top of this at call time). Listed in a
@@ -90,6 +131,35 @@ def _best_to_worst_colors(n: int):
     """Green (best) -> red (worst) gradient. The caller passes data ALREADY
     sorted best-first, so position 0 is greenest and the last bar is reddest."""
     return plt.get_cmap("RdYlGn")(np.linspace(0.92, 0.08, max(n, 1)))
+
+
+def _strip_size(n_per_method: int) -> float:
+    """Marker size for the strip-plot dots overlaid on box plots, tied to how
+    many points each method contributes: bigger when there are FEWER (so the
+    sparser LGD plots read clearly), smaller when dense (so PD doesn't blob).
+    Clamped to a sane range so every box plot's dots stay within one size band."""
+    return float(np.clip(18.0 / max(n_per_method, 1) ** 0.5, 4.0, 8.0))
+
+
+# A metric's natural lower bound for a TRUNCATED y axis: AUC at the random-
+# classifier 0.5, R2 at 0 (predicting the mean). Other metrics get no floor.
+_METRIC_BASELINE = {"AUC": 0.5, "R2": 0.0}
+
+
+def _metric_floor(metric: str, values) -> Optional[float]:
+    """Lower y-limit for a bar/box of ``metric``, or ``None`` if the metric has
+    no meaningful floor. AUC starts at ``min(0.5, lowest value shown)`` -- 0.5
+    (random) unless something dips below it, in which case the lowest value is
+    shown. R2 is floored hard at 0 ("only show from 0")."""
+    m = str(metric).upper()
+    base = _METRIC_BASELINE.get(m)
+    if base is None:
+        return None
+    if m == "R2":
+        return 0.0
+    arr = np.asarray(values, dtype=float)
+    lo = float(np.nanmin(arr)) if arr.size else base
+    return min(base, lo)
 
 
 def _heatmap_figsize(n_rows: int, n_cols: int) -> Tuple[float, float]:
@@ -173,13 +243,15 @@ def _method_bar(
     logy: bool = False,
     value_fmt: Optional[str] = None,
     figsize: Optional[Tuple[float, float]] = None,
+    y_floor: Optional[float] = None,
 ) -> Optional[Path]:
     """Consistent vertical per-method bar chart used by every bar plot here:
     a green(best)->red(worst) gradient, a black contour per bar, optional
     ``± std`` error bars, the metric's average printed above each bar, and the
     shared label styling (foundation models in red). ``series`` must be sorted
-    best-first so the gradient lines up with performance. Width is capped for
-    paper figures."""
+    best-first so the gradient lines up with performance. ``y_floor`` truncates
+    the y axis at a given value (e.g. AUC at 0.5) instead of starting at 0; width
+    follows the shared :func:`_vbar_figsize` rule for a uniform paper look."""
     names = list(series.index)
     n = len(names)
     vals = series.to_numpy(dtype=float)
@@ -190,10 +262,10 @@ def _method_bar(
         yerr = errs.reindex(series.index).to_numpy()
     else:
         yerr = np.asarray(errs)
-    fig, ax = plt.subplots(figsize=figsize or (min(0.42 * n + 3, 18.0), 5.2))
+    fig, ax = plt.subplots(figsize=figsize or _vbar_figsize(n))
     bars = ax.bar(
         range(n), vals,
-        color=_best_to_worst_colors(n), edgecolor="black", linewidth=0.8,
+        color=_best_to_worst_colors(n), edgecolor="black", linewidth=EDGE_LW,
         yerr=yerr, capsize=4 if yerr is not None else 0,
         # Navy error bars read clearly over the green→red bar gradient.
         error_kw={"ecolor": "#0b1f4d", "lw": 2.0, "capthick": 2.0, "zorder": 5},
@@ -206,13 +278,24 @@ def _method_bar(
     # Value labels rotated 45° and placed ABOVE each bar. Using matplotlib's
     # bar_label (default rotation_mode) aligns the whole rotated text box just
     # above the bar edge, so a number can never dip INSIDE the bar -- including on
-    # a log axis. The 45° slant clears the taller neighbour. Extra top margin
-    # (more on a log axis, where the tallest bar reaches near the top) gives the
-    # slanted labels room.
+    # a log axis. The 45° slant clears the taller neighbour.
     ax.bar_label(bars, labels=[value_fmt.format(v) for v in vals],
-                 padding=9 if errs is not None else 5, fontsize=10,
+                 padding=9 if errs is not None else 5, fontsize=VALUE_FS,
                  fontweight="bold", rotation=45)
-    ax.margins(y=0.34 if logy else 0.22)
+    head = 0.34 if logy else 0.22
+    if y_floor is not None and not logy:
+        # Truncated axis: start at y_floor; compute the top from the bars (and
+        # their upper whisker, if any) and add headroom -- relative to the
+        # truncated span -- for the slanted value labels.
+        tops = vals.astype(float)
+        if yerr is not None:
+            up = yerr[1] if (isinstance(yerr, np.ndarray) and yerr.ndim == 2) else np.asarray(yerr)
+            tops = tops + np.nan_to_num(up)
+        top = float(np.nanmax(tops)) if n else y_floor + 1.0
+        span = max(top - y_floor, 1e-9)
+        ax.set_ylim(y_floor, top + (head + 0.06) * span)
+    else:
+        ax.margins(y=head)
     ax.set_xticks(range(n))
     ax.set_xticklabels(names)
     _style_method_axis(ax)
@@ -371,9 +454,9 @@ def performance_heatmap(
         sns.heatmap(pivot, vmin=float(np.nanmin(pivot.values)),
                     vmax=float(np.nanmax(pivot.values)), **common)
     ax.set_title(f"{task_name} performance: {pm} (datasets x methods)",
-                 fontsize=TITLE_FS + 4, fontweight="bold", pad=20)
-    ax.set_xlabel("Method", fontsize=LABEL_FS + 1, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=LABEL_FS + 1, fontweight="bold")
+                 fontsize=TITLE_FS, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
     _style_method_axis(ax)
     ax.tick_params(axis="y", rotation=0)
     plt.tight_layout()
@@ -390,7 +473,7 @@ def method_ranking_bars(
     *,
     task_name: str = "PD",
     higher_is_better: bool = True,
-    figsize: Tuple[int, int] = (14, 8),
+    figsize: Optional[Tuple[int, int]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Bar chart of each method's mean rank for ``metric`` (1 = best), with ±
@@ -435,9 +518,11 @@ def per_dataset_bars(
     fig, ax = plt.subplots(figsize=figsize)
     sns.barplot(data=sub, x="dataset", y=mean_col, hue="method", ax=ax)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
-    ax.set_ylabel(metric, fontsize=12, fontweight="bold")
-    ax.set_title(f"{task_name} per-dataset {metric}", fontsize=14, fontweight="bold")
-    ax.legend(loc="upper right", bbox_to_anchor=(1.18, 1.0), fontsize=9)
+    ax.tick_params(labelsize=TICK_FS)
+    ax.set_ylabel(_pretty_metric(metric), fontsize=LABEL_FS, fontweight="bold")
+    ax.set_title(f"{task_name} per-dataset {_pretty_metric(metric)}",
+                 fontsize=TITLE_FS, fontweight="bold")
+    ax.legend(loc="upper right", bbox_to_anchor=(1.18, 1.0), fontsize=LEGEND_FS)
     leg = ax.get_legend()                                  # standardise method names
     if leg is not None:
         for t in leg.get_texts():
@@ -462,11 +547,13 @@ def _sweep_curve(
     plot_name: str,
     relative: bool = False,
     smooth: bool = False,
+    logx: bool = False,
 ) -> Optional[Path]:
     """ONE line per METHOD: the metric averaged over all datasets at each
     sweep value. With ``relative=True`` each method's curve is divided by its
     OWN maximum, showing performance relative to that method's top (1.0 =
-    the method's best point). Linear x axis with dense ticks; small markers."""
+    the method's best point). ``logx=True`` puts the sweep axis on a log scale
+    (so the small-data / extreme-imbalance end is readable)."""
     from matplotlib.ticker import MaxNLocator
 
     mean_col = _resolve_mean_column(df, metric)
@@ -476,6 +563,8 @@ def _sweep_curve(
                        sweep_axis)
         return None
     grp = sub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
+    if logx:
+        grp = grp[grp["sweep_value"] > 0]               # a log axis can't show <= 0
 
     fig, ax = plt.subplots(figsize=figsize)
     palette = sns.color_palette("tab10", n_colors=grp["method"].nunique())
@@ -491,11 +580,15 @@ def _sweep_curve(
             # evolution's detail while still removing the per-point jitter.
             win = max(3, len(y) // 12)
             y_ma = pd.Series(y.to_numpy()).rolling(win, min_periods=1, center=True).mean()
-            ax.plot(g["sweep_value"], y_ma.to_numpy(), lw=2.2, label=_display_name(method), color=color)
-        else:
-            ax.plot(g["sweep_value"], y, marker="o", ms=1.1, lw=1.1,
+            ax.plot(g["sweep_value"], y_ma.to_numpy(), lw=CURVE_LW,
                     label=_display_name(method), color=color)
-    ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
+        else:
+            ax.plot(g["sweep_value"], y, marker="o", ms=RUN_MS, lw=1.2,
+                    label=_display_name(method), color=color)
+    if logx:
+        ax.set_xscale("log")
+    else:
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
     if relative:
         ax.axhline(1.0, color="0.6", lw=0.8, ls="--")
     pm = _pretty_metric(metric)
@@ -509,13 +602,15 @@ def _sweep_curve(
         note.append("relative to each method's own best")
     if smooth:
         note.append("moving average")
+    if logx:
+        note.append("log x-axis")
     note.append("mean over datasets")
     ax.set_title(f"{title} ({'; '.join(note)})", fontsize=TITLE_FS, fontweight="bold")
-    # Method legend bottom-right (the data-rich corner is usually empty here),
-    # larger so the method names are easy to read.
-    ax.legend(loc="lower right", fontsize=13, framealpha=0.92)
+    # Method legend bottom-right (the data-rich corner is usually empty here).
+    ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
     plt.tight_layout()
-    suffix = ("_relative" if relative else "") + ("_smooth" if smooth else "")
+    suffix = (("_relative" if relative else "") + ("_smooth" if smooth else "")
+              + ("_logx" if logx else ""))
     return _save(fig, out_dir, plot_name + suffix)
 
 
@@ -524,20 +619,22 @@ def learning_curve(
     metric: str,
     *,
     task_name: str = "PD",
-    figsize: Tuple[int, int] = (14, 8),
+    figsize: Tuple[int, int] = FIG_WIDE,
     relative: bool = False,
     smooth: bool = False,
+    logx: bool = False,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 2: ``metric`` vs training rows -- one line per method,
     averaged over every included dataset. ``relative=True`` divides each
     method's curve by its own best value; ``smooth=True`` plots the moving
-    average instead of the raw points."""
+    average instead of the raw points; ``logx=True`` puts the training-row axis
+    on a log scale."""
     return _sweep_curve(
         df, sweep_axis="row_limit", metric=metric,
         title=f"{task_name} learning curve: {_pretty_metric(metric)}",
         xlabel="Training rows", figsize=figsize, out_dir=out_dir,
-        relative=relative, smooth=smooth,
+        relative=relative, smooth=smooth, logx=logx,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
@@ -547,20 +644,22 @@ def imbalance_curve(
     metric: str,
     *,
     task_name: str = "PD",
-    figsize: Tuple[int, int] = (14, 8),
+    figsize: Tuple[int, int] = FIG_WIDE,
     relative: bool = False,
     smooth: bool = False,
+    logx: bool = False,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 3: ``metric`` vs minority proportion -- one line per method,
     averaged over every included dataset. ``relative=True`` divides each
     method's curve by its own best value; ``smooth=True`` plots the moving
-    average instead of the raw points."""
+    average instead of the raw points; ``logx=True`` puts the minority-proportion
+    axis on a log scale."""
     return _sweep_curve(
         df, sweep_axis="minority_proportion", metric=metric,
         title=f"{task_name} imbalance robustness: {_pretty_metric(metric)}",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
-        relative=relative, smooth=smooth,
+        relative=relative, smooth=smooth, logx=logx,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
 
@@ -572,8 +671,8 @@ def per_dataset_sweep_curves(
     sweep_axis: str,
     xlabel: str,
     task_name: str = "PD",
-    figsize: Tuple[int, int] = (11, 6),
-    ms: float = 1.4,
+    figsize: Tuple[int, int] = FIG_WIDE,
+    ms: float = RUN_MS,
     out_dir: Optional[Path] = None,
 ) -> List[Path]:
     """One RAW-points plot PER dataset: the metric vs the sweep value, one
@@ -603,7 +702,7 @@ def per_dataset_sweep_curves(
         ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
         ax.set_title(f"{task_name} — {dataset}: {pm} (raw points)",
                      fontsize=TITLE_FS, fontweight="bold")
-        ax.legend(loc="lower right", fontsize=12, framealpha=0.92)
+        ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
         plt.tight_layout()
         stem = f"{task_name.lower()}_{sweep_axis}_{str(dataset).replace('.', '_')}_{metric.lower()}"
         p = _save(fig, out_dir, stem)
@@ -681,29 +780,46 @@ def metric_boxplots(
     *,
     task_name: str = "PD",
     higher_is_better: bool = True,
-    figsize: Tuple[int, int] = (16, 7),
+    figsize: Optional[Tuple[int, int]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Box + strip of the metric's distribution across datasets (one point per
-    dataset = its fold-mean), one box per method."""
+    """Per-method box of the metric, one dot per dataset. The **box** spans the
+    full set of per-fold scores -- so a method whose individual folds drop below
+    the AUC = 0.5 baseline is visible in the whiskers -- while the **dots** are
+    the per-dataset fold-means (one point per dataset). AUC starts the y axis at
+    ``min(0.5, lowest fold shown)`` and R² at 0; the dot size scales with the
+    dataset count so sparser (LGD) plots read clearly."""
     col = _resolve_mean_column(df, metric)
-    # One value per (dataset, method) so the box shows the cross-DATASET spread
-    # regardless of whether ``df`` is per-fold or per-method.
+    # Box over EVERY per-fold observation (so sub-baseline folds show in the
+    # whiskers); dots are the per-dataset fold-means (one clean point per dataset).
+    obs = df[["dataset", "method", col]].dropna(subset=[col])
     per_ds = df.groupby(["dataset", "method"], as_index=False)[col].mean()
     # Order by MEAN (not median) so this box plot is sorted identically to the
     # matrix and bar of the same metric -- one consistent ordering everywhere.
-    order = (per_ds.groupby("method")[col].mean()
+    order = (obs.groupby("method")[col].mean()
              .sort_values(ascending=not higher_is_better).index)
-    fig, ax = plt.subplots(figsize=figsize)
-    sns.boxplot(data=per_ds, x="method", y=col, order=order, color="#cfe8ff", ax=ax)
+    n_per_method = int(per_ds["method"].value_counts().max() or 1)
+    fig, ax = plt.subplots(figsize=figsize or _vbar_figsize(len(order)))
+    sns.boxplot(data=obs, x="method", y=col, order=order, color="#cfe8ff", ax=ax)
     sns.stripplot(data=per_ds, x="method", y=col, order=order,
-                  color="#1f4e79", size=4, alpha=0.6, ax=ax)
+                  color="#1f4e79", size=_strip_size(n_per_method), alpha=0.6, ax=ax)
     _style_method_axis(ax, connect=True)
     pm = _pretty_metric(metric)
     ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlabel("")
     ax.set_title(f"{task_name} {pm} distribution across datasets",
                  fontsize=TITLE_FS, fontweight="bold")
+    # Truncate the y axis at the metric's natural floor (AUC 0.5 / R² 0), but
+    # drop below it to min(0.5, lowest fold) when an individual fold falls under
+    # the baseline -- so a box whose folds dip below 0.5 is never clipped.
+    floor = _metric_floor(metric, obs[col].to_numpy(float))
+    if floor is not None:
+        base = _METRIC_BASELINE[str(metric).upper()]
+        if floor < base:
+            top = float(np.nanmax(obs[col].to_numpy(float)))
+            ax.set_ylim(bottom=floor - 0.03 * max(top - floor, 1e-9))
+        else:
+            ax.set_ylim(bottom=floor)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_box_{metric.lower()}")
 
@@ -715,13 +831,14 @@ def metric_bars(
     task_name: str = "PD",
     higher_is_better: bool = True,
     agg: str = "mean",
-    figsize: Tuple[int, int] = (16, 6),
+    figsize: Optional[Tuple[int, int]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Bar chart of the ``agg`` (mean/median) of ``metric`` per method, sorted
     best -> worst. The ``mean`` variant carries ± std error bars; when ``df``
     is the per-fold frame that std is the **fold-level** std (pooled over all
-    dataset×fold observations of the method), not the across-dataset spread."""
+    dataset×fold observations of the method), not the across-dataset spread.
+    AUC bars start the y axis at ``min(0.5, lowest bar)`` and R² bars at 0."""
     col = _resolve_mean_column(df, metric)
     grp = df.groupby("method")[col]
     vals = grp.agg(agg).sort_values(ascending=not higher_is_better)
@@ -734,6 +851,7 @@ def metric_bars(
         ylabel=ylabel,
         stem=f"{task_name.lower()}_bar_{agg}_{metric.lower()}",
         out_dir=out_dir, figsize=figsize,
+        y_floor=_metric_floor(metric, vals.to_numpy(float)),
     )
 
 
@@ -774,7 +892,7 @@ def compute_time_boxplot(
     df: pd.DataFrame,
     *,
     task_name: str = "PD",
-    figsize: Tuple[int, int] = (16, 7),
+    figsize: Optional[Tuple[int, int]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Box + strip of TOTAL compute time (fit + predict) per method, **log y**,
@@ -793,10 +911,11 @@ def compute_time_boxplot(
     work = pd.DataFrame({"method": df["method"].to_numpy(), "t": total.to_numpy()})
     work = work[work["t"] > 0]  # log axis can't show zeros
     order = work.groupby("method")["t"].mean().sort_values().index
-    fig, ax = plt.subplots(figsize=figsize)
+    n_per_method = int(len(work) / max(work["method"].nunique(), 1))
+    fig, ax = plt.subplots(figsize=figsize or _vbar_figsize(len(order)))
     sns.boxplot(data=work, x="method", y="t", order=order, color="#cfe8ff", ax=ax)
     sns.stripplot(data=work, x="method", y="t", order=order,
-                  color="#1f4e79", size=4, alpha=0.6, ax=ax)
+                  color="#1f4e79", size=_strip_size(n_per_method), alpha=0.6, ax=ax)
     ax.set_yscale("log")
     _style_method_axis(ax, connect=True)
     ax.set_ylabel("compute time per fold (s, log)", fontsize=LABEL_FS, fontweight="bold")
@@ -836,9 +955,9 @@ def rank_heatmap(
                 cbar_kws={"label": f"rank by {pm} (1 = best)"},
                 linewidths=0.5, ax=ax)
     ax.set_title(f"{task_name} rank matrix by {pm} (1 = best; best mean rank left)",
-                 fontsize=TITLE_FS + 4, fontweight="bold", pad=20)
-    ax.set_xlabel("Method", fontsize=LABEL_FS + 1, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=LABEL_FS + 1, fontweight="bold")
+                 fontsize=TITLE_FS, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
     _style_method_axis(ax)
     ax.tick_params(axis="y", rotation=0)
     plt.tight_layout()
@@ -851,18 +970,18 @@ def rank_boxplots(
     *,
     task_name: str = "PD",
     higher_is_better: bool = True,
-    figsize: Tuple[int, int] = (16, 7),
+    figsize: Optional[Tuple[int, int]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Box + strip of each method's per-dataset ranks by ``metric``."""
     ranks = _rank_pivot(df, metric, higher_is_better)
     long = ranks.melt(var_name="method", value_name="rank")
     order = list(ranks.columns)
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize or _vbar_figsize(len(order)))
     # Same blue palette as metric_boxplots for one consistent layout.
     sns.boxplot(data=long, x="method", y="rank", order=order, color="#cfe8ff", ax=ax)
     sns.stripplot(data=long, x="method", y="rank", order=order,
-                  color="#1f4e79", size=4, alpha=0.6, ax=ax)
+                  color="#1f4e79", size=_strip_size(len(ranks)), alpha=0.6, ax=ax)
     ax.invert_yaxis()  # rank 1 (best) on top
     _style_method_axis(ax, connect=True)
     pm = _pretty_metric(metric)
@@ -880,7 +999,7 @@ def hpo_improvement_bars(
     *,
     task_name: str = "PD",
     higher_is_better: bool = True,
-    figsize: Tuple[int, int] = (14, 7),
+    figsize: Optional[Tuple[int, int]] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Mean HPO-minus-NO_HPO improvement per method (Experiment 1).
@@ -896,10 +1015,10 @@ def hpo_improvement_bars(
         return None
     delta = (piv["HPO"] - piv["NO_HPO"]) * (1 if higher_is_better else -1)
     per_method = delta.groupby("method").agg(["mean", "std"]).sort_values("mean")
-    fig, ax = plt.subplots(figsize=figsize)
+    fig, ax = plt.subplots(figsize=figsize or _hbar_figsize(len(per_method)))
     colors = ["#2ca02c" if v >= 0 else "#d62728" for v in per_method["mean"]]
     ax.barh(per_method.index, per_method["mean"], xerr=per_method["std"].fillna(0),
-            color=colors, edgecolor="black", linewidth=0.6, error_kw={"alpha": 0.4})
+            color=colors, edgecolor="black", linewidth=EDGE_LW, error_kw={"alpha": 0.4})
     ax.axvline(0, color="black", lw=1)
     ax.tick_params(labelsize=TICK_FS)
     _color_foundation_ticks(ax, axis="y")     # foundation names in crimson, like everywhere
@@ -945,14 +1064,14 @@ def runtime_performance_scatter(
     fnd = _foundation_methods()
     notable = fnd | NOTABLE_METHODS
 
-    fig, ax = plt.subplots(figsize=figsize or (12, 8))
+    fig, ax = plt.subplots(figsize=figsize or FIG_WIDE)
     ax.set_xscale("log")
     for r in agg.itertuples():
         is_f = r.method in fnd
-        ax.scatter(r.time, r.perf, s=150 if is_f else 80,
+        ax.scatter(r.time, r.perf, s=PT_FND if is_f else PT_NORMAL,
                    marker="*" if is_f else "o",
                    color="crimson" if is_f else "#1f77b4",
-                   edgecolor="black", linewidth=0.7, zorder=3)
+                   edgecolor="black", linewidth=EDGE_LW, zorder=3)
     ax.margins(x=0.22, y=0.18)  # whitespace around the cloud for the labels
 
     # Label ONLY the notable methods, then de-overlap with a small force pass in
@@ -965,7 +1084,7 @@ def runtime_performance_scatter(
     lab = lab[lab["time"] > 0]
     if len(lab):
         items = [(r.time, r.perf, _display_name(r.method), r.method in fnd) for r in lab.itertuples()]
-        fs = 10
+        fs = NOTE_FS
         all_px = ax.transData.transform(agg[["time", "perf"]].to_numpy(float))
         pos = ax.transData.transform(np.array([(t, p) for t, p, _, _ in items], float))
         pos[:, 1] += 24.0                       # start each label above its dot
@@ -1028,7 +1147,7 @@ def runtime_performance_scatter(
                markeredgecolor="black", markersize=14, label="foundation model"),
         Line2D([0], [0], marker="o", color="w", markerfacecolor="#1f77b4",
                markeredgecolor="black", markersize=10, label="other"),
-    ], loc="best", fontsize=10)
+    ], loc="best", fontsize=LEGEND_FS)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_cost_quality_{metric.lower()}")
 
@@ -1037,7 +1156,7 @@ def runtime_performance_scatter(
 #  Foundation-model vs baseline head-to-head (e.g. TabPFN v3 vs CatBoost)
 # ---------------------------------------------------------------------------
 
-def _declutter_labels(ax, xy, texts, *, fontsize: int = 8, color: str = "0.30") -> None:
+def _declutter_labels(ax, xy, texts, *, fontsize: int = NOTE_FS, color: str = "0.30") -> None:
     """De-overlap point labels in PIXEL space: each label is repelled from every
     other label AND from every point, then joined to its own point by a thin
     leader line. Keeps crowded dataset names from intertwining. Call AFTER the
@@ -1100,7 +1219,7 @@ def foundation_vs_baseline_size_trend(
     relative: bool = True,
     higher_is_better: bool = True,
     task_name: str = "PD",
-    figsize: Tuple[int, int] = (11, 7),
+    figsize: Tuple[int, int] = FIG_WIDE,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Per-dataset gain of ``fnd_method`` over ``base_method`` vs **dataset size**,
@@ -1139,22 +1258,22 @@ def foundation_vs_baseline_size_trend(
     fig, ax = plt.subplots(figsize=figsize)
     ax.set_xscale("log")
     ax.axhline(0.0, color="0.4", lw=1.3, ls="--", zorder=1)
-    ax.scatter(x[win], y[win], s=95, c="#2ca02c", edgecolor="black", linewidth=0.6,
+    ax.scatter(x[win], y[win], s=PT_NORMAL, c="#2ca02c", edgecolor="black", linewidth=EDGE_LW,
                zorder=3, label=f"{fnd_disp} better")
-    ax.scatter(x[~win], y[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
+    ax.scatter(x[~win], y[~win], s=PT_NORMAL, c="#d62728", edgecolor="black", linewidth=EDGE_LW,
                zorder=3, label=f"{base_disp} better")
     mask = np.isfinite(y)
     if mask.sum() >= 2:
         lx = np.log10(x[mask])
         coef = np.polyfit(lx, y[mask], 1)
         xs = np.linspace(lx.min(), lx.max(), 100)
-        ax.plot(10 ** xs, np.polyval(coef, xs), color="#1f4e79", lw=2.4, zorder=2,
+        ax.plot(10 ** xs, np.polyval(coef, xs), color="#1f4e79", lw=CURVE_LW, zorder=2,
                 label=f"OLS trend ({coef[0]:+.2f}/decade of size)")
     ax.set_xlabel("dataset size (rows, log scale)", fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
     ax.set_title(f"{task_name}: does {fnd_disp}'s edge over {base_disp} grow on small data?",
                  fontsize=TITLE_FS, fontweight="bold")
-    ax.legend(loc="best", fontsize=9)
+    ax.legend(loc="best", fontsize=LEGEND_FS)
     ax.grid(True, which="both", alpha=0.25)
     _declutter_labels(ax, [(xi, yi) for xi, yi in zip(x, y) if np.isfinite(yi)],
                       [str(d).split(".")[-1] for d, yi in zip(piv.index, y) if np.isfinite(yi)])
@@ -1171,7 +1290,7 @@ def foundation_vs_baseline_scatter(
     base_method: str = "catboost",
     higher_is_better: bool = True,
     task_name: str = "PD",
-    figsize: Tuple[int, int] = (8, 8),
+    figsize: Tuple[int, int] = FIG_SQUARE,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Per-dataset head-to-head: y = ``fnd_method``'s metric, x = ``base_method``'s,
@@ -1197,9 +1316,9 @@ def foundation_vs_baseline_scatter(
     pad = 0.04 * ((hi - lo) or 1.0)
     lim = (lo - pad, hi + pad)
     ax.plot(lim, lim, color="0.4", lw=1.3, ls="--", zorder=1, label="equal performance (y = x)")
-    ax.scatter(xb[win], yf[win], s=95, c="#2ca02c", edgecolor="black", linewidth=0.6,
+    ax.scatter(xb[win], yf[win], s=PT_NORMAL, c="#2ca02c", edgecolor="black", linewidth=EDGE_LW,
                zorder=3, label=f"{fnd_disp} better")
-    ax.scatter(xb[~win], yf[~win], s=95, c="#d62728", edgecolor="black", linewidth=0.6,
+    ax.scatter(xb[~win], yf[~win], s=PT_NORMAL, c="#d62728", edgecolor="black", linewidth=EDGE_LW,
                zorder=3, label=f"{base_disp} better")
     ax.set_xlim(lim)
     ax.set_ylim(lim)
@@ -1208,7 +1327,7 @@ def foundation_vs_baseline_scatter(
     ax.set_ylabel(f"{fnd_disp} {pm}", fontsize=LABEL_FS, fontweight="bold")
     ax.set_title(f"{task_name}: {fnd_disp} vs {base_disp} per dataset ({pm})",
                  fontsize=TITLE_FS, fontweight="bold")
-    ax.legend(loc="best", fontsize=9)
+    ax.legend(loc="best", fontsize=LEGEND_FS)
     ax.grid(True, alpha=0.25)
     _declutter_labels(ax, list(zip(xb, yf)), [str(d).split(".")[-1] for d in piv.index])
     plt.tight_layout()

@@ -45,8 +45,9 @@ import matplotlib.pyplot as plt
 # Shared styling so the stats figures match the experiment notebooks exactly
 # (same fonts, the crimson foundation-model highlight, R2 -> R²).
 from src.visualizations.experiment_plots import (  # noqa: E402
-    TICK_FS, LABEL_FS, TITLE_FS,
+    TICK_FS, LABEL_FS, TITLE_FS, LEGEND_FS, VALUE_FS, NOTE_FS, EDGE_LW,
     _pretty_metric, _color_foundation_ticks, _foundation_methods, _best_to_worst_colors,
+    _hbar_figsize,
 )
 from src.methods.method_names import display_name as _display_name  # noqa: E402
 
@@ -716,7 +717,7 @@ def plot_cd_diagram(
     ax.plot([lo, hi], [axis_y, axis_y], c="black", lw=1.4)
     for t in range(lo, hi + 1):
         ax.plot([t, t], [axis_y, axis_y + 0.12], c="black", lw=1.2)
-        ax.text(t, axis_y + 0.18, str(t), ha="center", va="bottom", fontsize=10)
+        ax.text(t, axis_y + 0.18, str(t), ha="center", va="bottom", fontsize=TICK_FS)
         if t < hi:  # minor half-ticks
             ax.plot([t + 0.5, t + 0.5], [axis_y, axis_y + 0.06], c="black", lw=0.8)
 
@@ -726,7 +727,7 @@ def plot_cd_diagram(
     for xx in (lo, lo + cd):
         ax.plot([xx, xx], [ruler_y - 0.06, ruler_y + 0.06], lw=2.0, c="black")
     ax.text(lo + cd / 2, ruler_y + 0.10, f"CD = {cd:.3f}",
-            ha="center", va="bottom", fontsize=10)
+            ha="center", va="bottom", fontsize=VALUE_FS)
 
     # ---- clique bars: one row each, just below the axis ----
     for h, (i, j) in enumerate(cliques):
@@ -752,7 +753,7 @@ def plot_cd_diagram(
         ax.text(anchor + (-0.05 * span if left_side else 0.05 * span), y,
                 f"{_display_name(name)} ({r:.2f})",
                 ha="right" if left_side else "left", va="center",
-                fontsize=12, color="crimson" if name in fnd else "black",
+                fontsize=TICK_FS, color="crimson" if name in fnd else "black",
                 fontweight="bold" if name in fnd else "normal")
 
     ax.set_title(title, fontweight="bold", fontsize=TITLE_FS, pad=14)
@@ -817,7 +818,7 @@ def plot_win_loss_matrix(
     sns.heatmap(W, annot=True, fmt="d", cmap="Blues", linewidths=0.5,
                 annot_kws={"fontsize": 11}, cbar_kws={"label": "# datasets won"}, ax=ax)
     ax.set_title(title, fontweight="bold", fontsize=TITLE_FS)
-    ax.tick_params(labelsize=TICK_FS + 1)
+    ax.tick_params(labelsize=TICK_FS)
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45); lbl.set_horizontalalignment("right")
     _color_foundation_ticks(ax, axis="x")
@@ -841,10 +842,10 @@ def plot_percent_of_max_bars(
     # gradient + black border. Data reversed for barh (so index[0] sits on top),
     # colours reversed to match (green = best stays at the top).
     colors = _best_to_worst_colors(n)[::-1]
-    fig, ax = plt.subplots(figsize=(max(9, 0.55 * n + 4), max(4.5, 0.42 * n + 2)))
+    fig, ax = plt.subplots(figsize=_hbar_figsize(n))
     ax.set_axisbelow(True)
     ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color=colors,
-            edgecolor="black", linewidth=0.8, zorder=3)
+            edgecolor="black", linewidth=EDGE_LW, zorder=3)
     ax.set_xlabel(f"Mean % of best-per-dataset {nm}".strip(),
                   fontsize=LABEL_FS, fontweight="bold")
     ax.set_xlim(max(0.0, t["PctOfMax_%"].min() - 5), 104)
@@ -854,7 +855,7 @@ def plot_percent_of_max_bars(
     ax.tick_params(labelsize=TICK_FS)
     _color_foundation_ticks(ax, axis="y")     # foundation names in crimson
     for y, v in enumerate(t["PctOfMax_%"][::-1]):
-        ax.text(v + 0.4, y, f"{v:.1f}", va="center", fontsize=10,
+        ax.text(v + 0.4, y, f"{v:.1f}", va="center", fontsize=VALUE_FS,
                 fontweight="bold", color="0.15")
     fig.tight_layout()
     return _finish(fig, out_path)
@@ -867,13 +868,19 @@ def plot_pama_bars(
     higher_is_better: bool = True,
     metric_name: str = "",
     foundation_methods: Optional[Sequence[str]] = None,
+    min_wins: int = 1,
     out_path: Optional[Path] = None,
 ):
     """PAMA bars (Fernandez-Delgado et al., 2014): share of fold-level
-    observations where each method achieves the top score. Optionally
-    highlights foundation models and prints their collective share."""
-    t = pama_fold_level(per_fold_df, metric, higher_is_better=higher_is_better)
-    t = t[t["PAMA_%"] > 0]
+    observations where each method achieves the top score. ``min_wins`` keeps
+    only methods that win on at least that many (dataset, fold) observations --
+    ``min_wins=1`` shows every winner, ``min_wins=2`` drops the one-off winners.
+    Optionally highlights foundation models and prints their collective share."""
+    full = pama_fold_level(per_fold_df, metric, higher_is_better=higher_is_better)
+    n_folds = int(full["n_folds"].iloc[0]) if len(full) else 0
+    t = full[full["wins"] >= max(min_wins, 1)]
+    if t.empty:
+        return None
     fm = set(foundation_methods or [])
     n = len(t)
     # Same look as the experiment bar plots: best-first (top), green->red
@@ -881,27 +888,32 @@ def plot_pama_bars(
     # NAME, like every other figure -- not by a special bar colour.) Data is
     # reversed for barh so index[0] sits on top; colours reversed to match.
     colors = _best_to_worst_colors(n)[::-1]
-    fig, ax = plt.subplots(figsize=(max(9, 0.55 * n + 4), max(4.5, 0.42 * n + 2)))
+    fig, ax = plt.subplots(figsize=_hbar_figsize(n))
     ax.set_axisbelow(True)
     ax.barh(t.index[::-1], t["PAMA_%"][::-1], color=colors,
-            edgecolor="black", linewidth=0.8, zorder=3)
+            edgecolor="black", linewidth=EDGE_LW, zorder=3)
     nm = _pretty_metric(metric_name or metric)
+    thresh = f"; at least {min_wins} wins" if min_wins > 1 else ""
     ax.set_xlabel(f"PAMA: % of fold-level observations with the top {nm}",
                   fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(f"Probability of Achieving MAximal accuracy ({nm}, "
-                 f"n = {int(t['n_folds'].iloc[0])} folds)", fontweight="bold", fontsize=TITLE_FS)
+    ax.set_title(f"Probability of Achieving MAximal accuracy "
+                 f"({nm}, n = {n_folds} folds{thresh})",
+                 fontweight="bold", fontsize=TITLE_FS)
     # Headroom so the "(wins)" annotation stays INSIDE the axes.
     ax.set_xlim(0, t["PAMA_%"].max() * 1.20 + 1)
     for y, (v, w) in enumerate(zip(t["PAMA_%"][::-1], t["wins"][::-1])):
-        ax.text(v + 0.4, y, f"{v:.1f}%  ({w})", va="center", fontsize=10,
+        ax.text(v + 0.4, y, f"{v:.1f}%  ({w})", va="center", fontsize=VALUE_FS,
                 fontweight="bold", color="0.15")
     ax.tick_params(labelsize=TICK_FS)
     # Foundation-model names in the shared crimson, like every other figure.
     _color_foundation_ticks(ax, axis="y")
     if fm:
-        share = t.loc[t.index.isin(fm), "PAMA_%"].sum()
+        # Collective share over EVERY foundation model and ALL its winning folds
+        # -- computed from the unfiltered table, so the number is identical
+        # whatever ``min_wins`` hides from the bars.
+        share = full.loc[full.index.isin(fm), "PAMA_%"].sum()
         ax.text(0.98, 0.04, f"foundation models collectively: {share:.1f}%",
-                transform=ax.transAxes, ha="right", fontsize=11,
+                transform=ax.transAxes, ha="right", fontsize=NOTE_FS,
                 bbox=dict(boxstyle="round", fc="#ffe9e9", ec="crimson"))
     fig.tight_layout()
     return _finish(fig, out_path)
@@ -939,7 +951,7 @@ def plot_wilcoxon_wl_matrix(
                 cbar=False, annot_kws={"fontsize": 13}, ax=ax)
     ax.set_title(f"Pairwise Win/Loss of row vs column ({_pretty_metric(metric_name)})",
                  fontweight="bold", fontsize=TITLE_FS)
-    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS + 1)
+    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS)
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45); lbl.set_horizontalalignment("right")
     _color_foundation_ticks(ax, axis="x")

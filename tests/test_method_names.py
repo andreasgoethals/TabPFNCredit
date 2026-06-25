@@ -19,8 +19,8 @@ EXPECTED = {
     "mlp_plr": "MLP-PLR", "danets": "DANets", "switchtab": "SwitchTab",
     "tabnet": "TabNet", "dcn2": "DCN2", "tabm": "TabM", "tangos": "TANGOS",
     "modernNCA": "ModernNCA",
-    # Classical
-    "LogReg": "Logistic Regression", "LinearRegression": "Linear Regression",
+    # Classical (regression baselines abbreviated for dense method axes)
+    "LogReg": "log. reg", "LinearRegression": "lin. reg",
     "knn": "KNN", "RandomForest": "Random Forest", "svm": "SVM",
     "NaiveBayes": "Naive Bayes", "NCM": "NCM",
 }

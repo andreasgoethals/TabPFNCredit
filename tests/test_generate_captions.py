@@ -10,11 +10,14 @@ KNOWN = [
     "pd_box_compute_time", "pd_cost_quality_auc",
     "pd_tabpfn_v3_vs_catboost_sizetrend_auc", "pd_tabpfn_v3_vs_catboost_scatter_auc",
     "pd_learning_curve_auc", "pd_learning_curve_auc_relative_smooth",
+    "pd_learning_curve_auc_logx", "pd_learning_curve_auc_smooth_logx",
     "pd_imbalance_curve_ap_normalized", "pd_imbalance_curve_ap_normalized_smooth",
+    "pd_imbalance_curve_auc_logx",
     "pd_row_limit_0003_vehicle_loan_auc", "pd_minority_proportion_0002_taiwan_creditcard_auc",
-    "pd_pama", "pd_cd_auc", "pd_winloss", "pd_significance",
+    "pd_pama", "pd_pama_min2wins", "pd_cd_auc", "pd_winloss", "pd_significance",
     "lgd_heatmap_r2", "lgd_bar_mean_pearson_corr", "lgd_cd_rmse",
     "lgd_tabpfn_v3_vs_catboost_scatter_r2", "pd_dataset_sizes", "lgd_target_hists",
+    "pd_tabpfn_v3_vs_LogReg_scatter_auc", "lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2",
 ]
 
 
@@ -49,6 +52,28 @@ def test_matrix_views_order_by_metric_then_view():
            ("heatmap", "bar_mean", "box", "rank_matrix", "ranking", "rank_box")]
     assert auc == sorted(auc)                          # already in view order
     assert caption_for("pd_rank_box_auc")[0] < caption_for("pd_heatmap_brier")[0]
+
+
+def test_pama_min2wins_sorts_after_pama():
+    # The "at least two wins" PAMA chart is a distinct figure, listed right after
+    # the all-winners PAMA in each statistical chapter.
+    assert caption_for("pd_pama")[0] < caption_for("pd_pama_min2wins")[0]
+    assert "two" in caption_for("pd_pama_min2wins")[1].lower()
+
+
+def test_logx_curves_sort_next_to_their_linear_sibling():
+    # base < base_logx < smooth < smooth_logx < relative (so a log twin sits
+    # right after its linear counterpart), and the caption notes the log axis.
+    order = [caption_for(f"pd_learning_curve_auc{sfx}")[0] for sfx in
+             ("", "_logx", "_smooth", "_smooth_logx", "_relative")]
+    assert order == sorted(order)
+    assert "log-scaled x-axis" in caption_for("pd_imbalance_curve_auc_logx")[1]
+
+
+def test_regression_baselines_render_abbreviated():
+    # The head-to-head captions must use the abbreviated baseline labels.
+    assert "log. reg" in caption_for("pd_tabpfn_v3_vs_LogReg_scatter_auc")[1]
+    assert "lin. reg" in caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")[1]
 
 
 def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):

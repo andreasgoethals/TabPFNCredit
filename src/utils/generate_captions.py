@@ -104,8 +104,9 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
                          f"in red.")))
     R.append((rf"^(pd|lgd)_box_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["box"]),
-                         f"Distribution of {_metric(g[1])} across the {TASK_DISPLAY[g[0]]} datasets "
-                         f"(one point per dataset), one box per method, ordered by the mean.")))
+                         f"Per-method distribution of {_metric(g[1])} on the {TASK_DISPLAY[g[0]]} "
+                         f"datasets: each box spans the method's per-fold scores and each dot is one "
+                         f"dataset's fold-mean, with boxes ordered by the mean.")))
     R.append((rf"^(pd|lgd)_rank_matrix_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["rank_matrix"]),
                          f"Per-dataset rank of each method on {_metric(g[1])} (1 = best, green; worse, "
@@ -149,7 +150,7 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     # ---- foundation-vs-baseline head-to-head ----
     R.append((rf"^(pd|lgd)_(.+?)_vs_(.+?)_sizetrend_({M})$",
               lambda g: ((S_HEAD, _metric_rank(g[3]), 0),
-                         f"Per-dataset relative {_metric(g[3])} gain of {display_name(g[1])} over "
+                         f"Per-dataset {_metric(g[3])} gain of {display_name(g[1])} over "
                          f"{display_name(g[2])} (y) against dataset size in rows (x, log scale); points "
                          f"are green where {display_name(g[1])} wins and red where {display_name(g[2])} "
                          f"wins, the dashed line marks equal performance, and the solid line is the OLS "
@@ -162,9 +163,9 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
                          f"{display_name(g[1])} wins.")))
 
     # ---- pooled learning / imbalance curves ----
-    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?$",
+    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?(_logx)?$",
               lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]),
-                          (2 if g[3] else 0) + (1 if g[4] else 0)),
+                          (4 if g[3] else 0) + (2 if g[4] else 0) + (1 if g[5] else 0)),
                          _curve_caption(g))))
 
     # ---- per-dataset raw-point curves ----
@@ -183,7 +184,14 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
               lambda g: ((S_STAT, 0, 0),
                          "Share of (dataset, fold) observations on which each method achieves the "
                          "single best score (PAMA, Probability of Achieving the MAximal accuracy), one "
-                         "bar per method, ordered best-first; foundation-model names are in red.")))
+                         "bar per method that wins at least once, ordered best-first; foundation-model "
+                         "names are in red.")))
+    R.append((r"^(pd|lgd)_pama_min2wins$",
+              lambda g: ((S_STAT, 0, 1),
+                         "Share of (dataset, fold) observations on which each method achieves the "
+                         "single best score (PAMA), restricted to methods that win on at least two "
+                         "observations, one bar per method, ordered best-first; foundation-model names "
+                         "are in red.")))
     R.append((rf"^(pd|lgd)_cd_({M})$",
               lambda g: ((S_STAT, 1, _metric_rank(g[1])),
                          f"Nemenyi critical-difference diagram of the {_metric(g[1])} average ranks "
@@ -222,6 +230,8 @@ def _curve_caption(g) -> str:
         notes.append("relative to each method's own best")
     if g[4]:
         notes.append("moving average")
+    if len(g) > 5 and g[5]:
+        notes.append("log-scaled x-axis")
     notes.append("mean over datasets")
     return (f"{kind}: {_metric(g[2])} versus {xaxis}, one line per method "
             f"({'; '.join(notes)}).")
