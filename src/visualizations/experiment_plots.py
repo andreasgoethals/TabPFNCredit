@@ -565,12 +565,18 @@ def _sweep_curve(
     grp = sub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
     if logx:
         grp = grp[grp["sweep_value"] > 0]               # a log axis can't show <= 0
+    # R² has a meaningful floor at 0 (predicting the mean); a sub-0 point (e.g.
+    # lin. reg on a tiny training set) is shown AT 0 rather than dragging the
+    # whole axis negative.
+    clamp0 = str(metric).upper() == "R2"
 
     fig, ax = plt.subplots(figsize=figsize)
     palette = sns.color_palette("tab10", n_colors=grp["method"].nunique())
     for color, (method, g) in zip(palette, grp.groupby("method")):
         g = g.sort_values("sweep_value")
         y = g[mean_col]
+        if clamp0:
+            y = y.clip(lower=0.0)
         if relative:
             top = y.max()
             y = y / top if top else y
@@ -606,6 +612,8 @@ def _sweep_curve(
         note.append("log x-axis")
     note.append("mean over datasets")
     ax.set_title(f"{title} ({'; '.join(note)})", fontsize=TITLE_FS, fontweight="bold")
+    if clamp0:
+        ax.set_ylim(bottom=0.0)                          # R² axis starts at 0
     # Method legend bottom-right (the data-rich corner is usually empty here).
     ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
     plt.tight_layout()

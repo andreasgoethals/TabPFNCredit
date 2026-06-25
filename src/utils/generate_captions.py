@@ -232,6 +232,8 @@ def _curve_caption(g) -> str:
         notes.append("moving average")
     if len(g) > 5 and g[5]:
         notes.append("log-scaled x-axis")
+    if g[2] == "r2" and not g[3]:
+        notes.append("R² below 0 shown at 0")
     notes.append("mean over datasets")
     return (f"{kind}: {_metric(g[2])} versus {xaxis}, one line per method "
             f"({'; '.join(notes)}).")

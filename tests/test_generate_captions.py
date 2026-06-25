@@ -76,6 +76,15 @@ def test_regression_baselines_render_abbreviated():
     assert "lin. reg" in caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")[1]
 
 
+def test_r2_curve_caption_notes_zero_floor():
+    # Absolute R² curves are floored at 0 (sub-0 points shown at 0); the caption
+    # says so. AUC curves and the relative-% R² curve must NOT carry the note.
+    assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2")[1]
+    assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2_logx")[1]
+    assert "below 0 shown at 0" not in caption_for("pd_learning_curve_auc")[1]
+    assert "below 0 shown at 0" not in caption_for("lgd_learning_curve_r2_relative")[1]
+
+
 def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):
     # Two chapters' figures, created out of order; output must be ONE file at the
     # figures root, chapters in notebook order, figures in generation order.
