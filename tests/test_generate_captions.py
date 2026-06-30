@@ -76,6 +76,22 @@ def test_regression_baselines_render_abbreviated():
     assert "lin. reg" in caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")[1]
 
 
+def test_size_trend_captions_describe_relative_gain():
+    _, auc_cap = caption_for("pd_tabpfn_v3_vs_catboost_sizetrend_auc")
+    assert "relative AUC improvement" in auc_cap
+    assert "(y, %)" in auc_cap
+    assert "remaining unexplained variance" not in auc_cap
+
+    _, r2_cap = caption_for("lgd_tabpfn_v3_vs_catboost_sizetrend_r2")
+    assert "relative R² improvement" in r2_cap
+    assert "remaining unexplained variance" not in r2_cap
+
+    _, lin_cap = caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")
+    assert "R² difference" in lin_cap
+    assert "relative" not in lin_cap
+    assert "remaining unexplained variance" not in lin_cap
+
+
 def test_r2_curve_caption_notes_zero_floor():
     # Absolute R² curves are floored at 0 (sub-0 points shown at 0); the caption
     # says so. AUC curves and the relative-% R² curve must NOT carry the note.

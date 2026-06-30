@@ -28,8 +28,20 @@ from pathlib import Path
 from typing import Tuple, Optional
 import numpy as np
 import pandas as pd
-from src.data.dataset_preprocessing import preprocess_dataset_specific
 from src.utils.paths import find_processed_dir, processed_write_dir
+
+try:
+    from src.data.dataset_preprocessing import preprocess_dataset_specific
+except ModuleNotFoundError as exc:
+    _PRIVATE_PREPROCESSING_IMPORT_ERROR = exc
+
+    def preprocess_dataset_specific(*_args, **_kwargs):
+        raise FileNotFoundError(
+            "Missing private preprocessing module: src/data/dataset_preprocessing.py. "
+            "It is intentionally gitignored because it contains proprietary raw-dataset "
+            "schema and cleaning rules. Restore your local copy before preprocessing "
+            "raw datasets; already processed datasets can still be loaded."
+        ) from _PRIVATE_PREPROCESSING_IMPORT_ERROR
 
 logger = logging.getLogger(__name__)
 pd.set_option("future.no_silent_downcasting", True)

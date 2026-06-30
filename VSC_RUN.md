@@ -39,8 +39,8 @@ Tier-2 Mindwell is in production.
   **Genius GPU (V100)** and **Mindwell GPU** (`gpu_b200`, NVIDIA B200) are wired
   as cross-cluster **replica** targets: set `TABPFN_ALL_CLUSTERS=1` to fan the
   small-data Exp 2/3 sweeps across all of them at once (see the env table).
-  Replicas never gate the summarize job, so a reserved or unconfigured cluster
-  simply drops harmlessly — wICE always completes the run.
+  Replicas never gate the primary dependency chain, so a reserved or
+  unconfigured cluster simply drops harmlessly — wICE always completes the run.
 - **7-day CPU walltime:** the `*_long` CPU partitions allow up to 168 h (vs 72 h
   on `batch_*`); the generator targets the 72 h partitions.
 
@@ -59,6 +59,9 @@ needed:
 - **Datasets & checkpoints** are read **repo first, then project storage** —
   put them in either place. On the cluster they live under
   `$TABPFN_STAGING_ROOT/{data,checkpoints}/`.
+- `src/data/dataset_preprocessing.py` is private and gitignored because it
+  contains proprietary raw-dataset schema and cleaning rules. Keep your local
+  copy in the repo before preprocessing raw datasets on the VSC.
 - **Results & caches** are written to project storage
   (`$TABPFN_STAGING_ROOT/{results,cache}/`).
 - **Logs** always stay on `$VSC_DATA` (`<repo>/logs/<experiment>/`), never on
@@ -130,11 +133,12 @@ blocked network call.
 ## 3. Run an experiment
 
 ```bash
-tabpfncredit experiment Experiment0          # auto: preprocess -> SLURM arrays -> summarize
+tabpfncredit experiment Experiment0          # auto: preprocess -> SLURM arrays
 ```
 
-On the VSC this generates per-partition SLURM array jobs plus a dependent
-`summarize` job and submits them. To submit the whole chained benchmark
+On the VSC this generates and submits per-partition SLURM array jobs. Summary
+CSVs are rebuilt after the arrays finish with `tabpfncredit summarize` or by
+running the notebooks. To submit the whole chained benchmark
 (Experiments 0 → 1 → 2 → 3):
 
 ```bash
@@ -195,7 +199,7 @@ harmless.
 | `TABPFN_MAX_CONCURRENT` | unset | Re-adds a `%N` throttle on how many array elements run at once (none by default — SLURM fairshare governs). |
 | `TABPFN_CPU_CORES_PER_TASK` | 18 | Cores per CPU array task (half a node → two tasks pack per node). Set 36 for a whole node. |
 | `TABPFN_GPU_SPREAD` | 1 | Spill whole cells between `gpu_a100` ↔ `gpu_h100` when one queue is overloaded. Set 0 to pin work to its home partition (H100 costs ~4× the credits of A100). |
-| `TABPFN_GENIUS_GPUS` | unset | Offload (MOVE) **small-data** GPU work (Experiment 2's row-capped and Experiment 3's subsampled sweeps) to the idle Genius fleet: set to `gpu_v100`. Only points with a row cap ≤ `TABPFN_GENIUS_ROW_CAP` (default 60000) or a sampling target move; full-dataset foundation fits never do. **P100 is not usable** — the project's torch 2.8 CUDA wheels ship `sm_70+` kernels only, and Pascal is `sm_60` (a `gpu_p100` request is ignored with a warning). The summarize job cannot wait on cross-cluster arrays — re-run `tabpfncredit summarize` after they finish. |
+| `TABPFN_GENIUS_GPUS` | unset | Offload (MOVE) **small-data** GPU work (Experiment 2's row-capped and Experiment 3's subsampled sweeps) to the idle Genius fleet: set to `gpu_v100`. Only points with a row cap ≤ `TABPFN_GENIUS_ROW_CAP` (default 60000) or a sampling target move; full-dataset foundation fits never do. **P100 is not usable** — the project's torch 2.8 CUDA wheels ship `sm_70+` kernels only, and Pascal is `sm_60` (a `gpu_p100` request is ignored with a warning). Cross-cluster arrays do not gate the primary dependency chain — re-run `tabpfncredit summarize` after they finish. |
 | `TABPFN_REPLICATE_PARTITIONS` | unset | **Aggressive mode**: COPY the small-data GPU work to every listed partition (e.g. `gpu_v100,cpu`) *in addition to* its wICE home, racing all queues at once. Every point is skipped at run time if its result already exists, and replicas traverse the work from different ends, so duplicate compute stays small. CPU replicas only take points with a row cap ≤ `TABPFN_CPU_FOUNDATION_ROW_CAP` (default 10000; in-context fits on CPU are slow) with cost estimates scaled by `TABPFN_CPU_FOUNDATION_SLOWDOWN` (default 10×). Run `tabpfncredit resubmit` once more after everything finishes to mop up any points lost to cross-cluster write races on the packed Exp 2/3 files. Takes precedence over `TABPFN_GENIUS_GPUS`. |
 
 ---
@@ -233,7 +237,7 @@ tabpfncredit resubmit --all            # all four at once
 It wipes `scripts/<Exp>/_generated/` before writing new scripts, so cancel
 any still-pending arrays first (`squeue -u $USER`).
 
-### Cancel everything, update TALENT, and resubmit across all clusters
+### Cancel everything, refresh dependencies, and resubmit across all clusters
 
 The full "start clean and go maximally aggressive" recipe — scans **every**
 experiment for missing points and fans them out across wICE + Genius + Mindwell:
@@ -254,11 +258,8 @@ source tabpfncreditvenv/bin/activate
 # 4. Pull the latest benchmark code (editable install -> the pull is live).
 git pull
 
-# 5. Re-fetch your TALENT fork from GitHub into the venv. TALENT is a git
-#    dependency (see pyproject: `TALENT @ git+https://github.com/<you>/TALENT@main`),
-#    so pip thinks it's "already satisfied" and skips a new commit unless forced.
-#    --no-cache-dir forces a fresh clone of @main; --no-deps leaves torch/etc. alone.
-pip install --force-reinstall --no-deps --no-cache-dir "git+https://github.com/<you>/TALENT@main"
+# 5. Refresh TALENT in the venv without touching torch/etc.
+pip install --force-reinstall --no-deps --no-cache-dir TALENT
 
 # 6. Wipe any old summaries on PROJECT STORAGE so nothing stale lingers.
 rm -f "${TABPFN_STAGING_ROOT:-/lustre1/project/stg_00211/TabPFNCredit}"/results/summaries/*.csv

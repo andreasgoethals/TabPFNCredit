@@ -218,12 +218,11 @@ def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
     Everything maps to **wICE** partitions (``cpu`` = batch_sapphirerapids,
     ``gpu_a100``, ``gpu_h100``). We deliberately do NOT route anything to
     Genius (``gpu_p100`` / ``cpu_genius``): SLURM ``afterok`` dependencies
-    cannot cross clusters, so the auto-submitted summarize job would fail
-    if one experiment's arrays were split between Genius and wICE. Keeping
-    a whole experiment on one cluster makes the dependency chain valid and
-    the job-id bookkeeping trivial. (The Genius partition specs remain in
-    ``PARTITIONS`` for manual/advanced use, but the generator never picks
-    them.)
+    cannot cross clusters, so the primary experiment dependency chain would
+    be invalid if one experiment's arrays were split between Genius and wICE.
+    Keeping a whole experiment on one cluster makes the dependency chain valid
+    and the job-id bookkeeping trivial. (The Genius partition specs remain in
+    ``PARTITIONS`` for manual/advanced use, but the generator never picks them.)
     """
     profile = get_profile(method)
     if not profile.prefers_gpu:

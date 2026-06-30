@@ -29,10 +29,10 @@
 #   3. Wipes scripts/<Experiment>/_generated/ to drop stale SLURM scripts.
 #   4. Regenerates fresh SLURM scripts sized to each VSC partition.
 #   5. Submits every per-partition array via ``sbatch`` (with --dependency
-#      pointing at the previous experiment's final summarize job).
-#   6. Submits a one-shot summarize SLURM job that runs once all arrays
-#      finish (``--dependency=afterok:<arrays>``); its job ID becomes the
-#      "previous job" for the next experiment in the chain.
+#      pointing at the previous experiment's primary array IDs).
+#   6. Prints a colon-separated dependency string of the primary array job IDs;
+#      that string becomes the "previous job" for the next experiment. Summary
+#      CSVs are generated manually after the arrays finish.
 #
 # Each experiment's methods come from its own
 # ``scripts/<Experiment>/config/CONFIG_METHOD.yaml`` -- they are NOT
@@ -100,7 +100,7 @@ fi
 
 # ----------------------------------------------------------------------------
 # tabpfncredit's `experiment` command auto-detects "am I on VSC?" and runs
-# sbatch when on VSC. Each invocation prints "Final job id (summarize): N"
+# sbatch when on VSC. Each invocation prints "Final job id (chain): A:B:C"
 # so we can pull that out and pass to --after on the next call.
 # ----------------------------------------------------------------------------
 PREV_JOB=""
@@ -108,7 +108,7 @@ for EXP in "${EXPERIMENTS[@]}"; do
     echo "============================================================"
     echo "  Submitting ${EXP}"
     if [ -n "${PREV_JOB}" ]; then
-        echo "  Depends on previous experiment's summarize job: ${PREV_JOB}"
+        echo "  Depends on previous experiment's primary arrays: ${PREV_JOB}"
     fi
     echo "============================================================"
 
@@ -119,11 +119,11 @@ for EXP in "${EXPERIMENTS[@]}"; do
     fi
     echo "${OUTPUT}"
 
-    # Extract the final summarize job id printed by the CLI.
-    # Line looks like:  Final job id (summarize): 12345678
-    NEXT_JOB=$(echo "${OUTPUT}" | awk '/Final job id \(summarize\):/ {print $NF}' | tail -n1)
+    # Extract the final dependency string printed by the CLI.
+    # Line looks like:  Final job id (chain): 123:456
+    NEXT_JOB=$(echo "${OUTPUT}" | awk '/Final job id \(chain\):/ {print $NF}' | tail -n1)
     if [ -z "${NEXT_JOB}" ]; then
-        echo "WARNING: could not extract a summarize job ID for ${EXP};" \
+        echo "WARNING: could not extract a chain dependency ID for ${EXP};" \
              "later experiments in the chain will not block on it."
         PREV_JOB=""
     else
@@ -132,5 +132,5 @@ for EXP in "${EXPERIMENTS[@]}"; do
 done
 
 echo
-echo "All experiments submitted. Final summarize job id: ${PREV_JOB:-<none>}"
+echo "All experiments submitted. Final chain dependency id(s): ${PREV_JOB:-<none>}"
 echo "Monitor with: squeue -u \$USER  or  sacct -j <jobid>"

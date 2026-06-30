@@ -29,7 +29,7 @@ Helper commands
 ---------------
 * ``resubmit`` -- scan results and submit ONLY the not-yet-done points
 * ``summarize`` -- aggregate fold results into per-fold / per-method CSVs
-  (user-facing; also invoked by the generated SLURM summarize job)
+  after a VSC run, or synchronously at the end of a local run
 * ``list``   -- enumerate registered methods + their runtime profile
 * ``doctor`` -- environment / VSC sanity check
 
@@ -200,14 +200,15 @@ def _preprocess_if_needed(cells: Sequence[dict]) -> set:
         try:
             preprocess_dataset(task, dataset)
             console.print(f"  [green]ok[/green]   {task}/{dataset}")
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             # The RAW file genuinely isn't on this machine -- the dataset
             # cannot run anywhere, so drop its cells (with a warning).
+            msg = str(exc) or f"raw file not found under data/raw/{task}/ on this machine"
             console.print(
                 f"  [yellow]skip[/yellow] {task}/{dataset} "
-                f"-- raw file not found under data/raw/{task}/ on this machine"
+                f"-- {msg}"
             )
-            logger.warning("Skipping %s/%s: raw data file missing.", task, dataset)
+            logger.warning("Skipping %s/%s: %s", task, dataset, msg)
             unavailable.add((task, dataset))
         except Exception as exc:  # pragma: no cover -- defensive
             # The raw file EXISTS but preprocessing failed HERE -- typically a
@@ -484,8 +485,8 @@ def _run_experiment_vsc(
 ) -> Optional[str]:
     """Generate scripts under ``scripts/<exp>/_generated/`` and (optionally) submit.
 
-    Returns the job ID of the summarize step if anything was submitted,
-    else ``None``.
+    Returns a colon-separated dependency string of submitted primary array job
+    IDs if anything was submitted, else ``None``.
     """
     out_dir = _PROJECT_ROOT / "scripts" / experiment / "_generated"
 
@@ -565,7 +566,7 @@ def _run_experiment_vsc(
     # 4) Submit the per-partition arrays. wICE arrays may be chained after a
     # caller-supplied job (--after); cross-cluster arrays cannot (afterok is
     # per-cluster). We return the wICE array ids so the next experiment in a
-    # run_all chain can wait on them (no summarize job gates the chain anymore).
+    # run_all chain can wait on them (there is no separate summary gate).
     primary_cluster = PARTITIONS["cpu"].cluster
     array_dep: Optional[str] = f"afterok:{after_job_id}" if after_job_id else None
     dep_ids: List[str] = []
@@ -608,7 +609,11 @@ def cmd_experiment(
     ),
     verbose: bool = typer.Option(False, help="DEBUG-level logs."),
 ) -> None:
-    """Run one experiment end-to-end (auto-preprocess + auto-SLURM + auto-summarize)."""
+    """Run one experiment end-to-end.
+
+    Local runs summarize synchronously. VSC runs submit SLURM arrays and leave
+    summary CSV generation to ``tabpfncredit summarize`` or the notebooks.
+    """
     configure_quiet_runtime()
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
@@ -803,7 +808,7 @@ def cmd_resubmit(
 
 
 # ============================================================================
-#  `summarize` -- public helper (also called by the SLURM summarize job)
+#  `summarize` -- public helper
 # ============================================================================
 
 @app.command("summarize")

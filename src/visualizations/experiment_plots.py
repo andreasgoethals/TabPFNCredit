@@ -162,6 +162,27 @@ def _metric_floor(metric: str, values) -> Optional[float]:
     return min(base, lo)
 
 
+def _relative_metric_gain(
+    fnd,
+    base,
+    metric: str,
+    *,
+    higher_is_better: bool = True,
+):
+    """Relative head-to-head gain used by the size-trend plots.
+
+    This intentionally mirrors the PD AUC plot: percentage improvement over
+    the baseline metric value, i.e. 100 * (model - baseline) / |baseline| for
+    higher-is-better metrics.
+    """
+    fnd = np.asarray(fnd, dtype=float)
+    base = np.asarray(base, dtype=float)
+    diff = (fnd - base) if higher_is_better else (base - fnd)
+    denom = np.abs(base)
+    denom = np.where(np.abs(denom) < 1e-9, np.nan, denom)
+    return 100.0 * diff / denom
+
+
 def _heatmap_figsize(n_rows: int, n_cols: int) -> Tuple[float, float]:
     """Paper-friendly matrix size: scales with the shape but caps the width so
     a wide pilot matrix doesn't become a giant image that the notebook then
@@ -1233,10 +1254,11 @@ def foundation_vs_baseline_size_trend(
     """Per-dataset gain of ``fnd_method`` over ``base_method`` vs **dataset size**,
     with an OLS trend line — does the foundation model's edge grow on SMALL data?
 
-    y = relative gain ``100·(fnd−base)/|base|`` (%) when ``relative`` else the raw
-    difference; x = dataset rows (log). Dots are **green** where the foundation
-    model wins and red otherwise; the zero (equal-performance) line is dashed and
-    the regression slope (per decade of size) is annotated."""
+    y = relative gain (%) when ``relative`` else the raw difference. Relative
+    gain is the metric improvement divided by the baseline metric value, matching
+    the PD AUC plot. x = dataset rows (log). Dots are **green** where the
+    foundation model wins and red otherwise; the zero (equal-performance) line is
+    dashed and the regression slope (per decade of size) is annotated."""
     from src.data.dataset_inventory import row_counts
 
     fnd_disp, base_disp = _display_name(fnd_method), _display_name(base_method)
@@ -1256,8 +1278,8 @@ def foundation_vs_baseline_size_trend(
     x = np.array([sizes[d] for d in piv.index], dtype=float)
     fnd, base = piv[fnd_method].to_numpy(), piv[base_method].to_numpy()
     if relative:
-        y = 100.0 * (fnd - base) / np.where(np.abs(base) < 1e-9, np.nan, np.abs(base))
-        ylabel = f"relative {_pretty_metric(metric)} gain: {fnd_disp} vs {base_disp} (%)"
+        y = _relative_metric_gain(fnd, base, metric, higher_is_better=higher_is_better)
+        ylabel = f"Relative {_pretty_metric(metric)} improvement (%)"
     else:
         y = fnd - base
         ylabel = f"{_pretty_metric(metric)} difference ({fnd_disp} − {base_disp})"
