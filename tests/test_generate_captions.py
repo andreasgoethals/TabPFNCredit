@@ -87,8 +87,7 @@ def test_size_trend_captions_describe_relative_gain():
     assert "remaining unexplained variance" not in r2_cap
 
     _, lin_cap = caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")
-    assert "R² difference" in lin_cap
-    assert "relative" not in lin_cap
+    assert "relative R² improvement" in lin_cap
     assert "remaining unexplained variance" not in lin_cap
 
 

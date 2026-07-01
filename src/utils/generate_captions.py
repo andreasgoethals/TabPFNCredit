@@ -56,25 +56,7 @@ def _dataset(tok: str) -> str:
     return re.sub(r"^\d+[_.]", "", tok).replace("_", " ")
 
 
-def _size_trend_is_relative(g) -> bool:
-    task, _fnd, base, metric = g
-    # The LGD notebook uses a relative R2-over-size plot for the CatBoost
-    # comparison only; the linear-regression size trend remains an absolute
-    # R2-difference plot. The filename stem does not encode this flag.
-    if task == "lgd" and metric == "r2" and base == "LinearRegression":
-        return False
-    return True
-
-
 def _size_trend_caption(g) -> str:
-    if not _size_trend_is_relative(g):
-        return (
-            f"Per-dataset {_metric(g[3])} difference of {display_name(g[1])} minus "
-            f"{display_name(g[2])} (y) against dataset size in rows (x, log scale); "
-            f"points are green where {display_name(g[1])} wins and red where "
-            f"{display_name(g[2])} wins, the dashed line marks equal performance, "
-            f"and the solid line is the OLS trend."
-        )
     return (
         f"Per-dataset relative {_metric(g[3])} improvement of {display_name(g[1])} over "
         f"{display_name(g[2])} (y, %) against dataset size in rows (x, log scale); "
