@@ -168,16 +168,23 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
                          f"{display_name(g[1])} wins.")))
 
     # ---- pooled learning / imbalance curves ----
+    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined_zoom$",
+              lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]), 2),
+                         _curve_combined_caption(g, zoom=True))))
+    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined$",
+              lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]), 3),
+                         _curve_combined_caption(g, zoom=False))))
     R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?(_logx)?$",
               lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]),
-                          (4 if g[3] else 0) + (2 if g[4] else 0) + (1 if g[5] else 0)),
+                          _curve_variant_rank(g)),
                          _curve_caption(g))))
 
     # ---- per-dataset raw-point curves ----
     R.append((rf"^(pd|lgd)_row_limit_(.+)_({M})$",
               lambda g: ((S_PERDS, 0, _dataset(g[1])),
-                         f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus training-set "
-                         f"size (rows), one line per method (raw per-point values, no smoothing).")))
+                         f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus dataset size "
+                         f"(rows retained before the cross-validation split), one line per method "
+                         f"(raw per-point values, no smoothing).")))
     R.append((rf"^(pd|lgd)_minority_proportion_(.+)_({M})$",
               lambda g: ((S_PERDS, 1, _dataset(g[1])),
                          f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus the "
@@ -226,10 +233,16 @@ def _cap(s: str) -> str:
     return s[:1].upper() + s[1:] if s else s
 
 
+# In Experiment 2 the swept ``row_limit`` caps the dataset BEFORE the CV split
+# (train and test shrink together), so the x-axis is the dataset size, NOT the
+# training-set size.
+_LEARNING_XAXIS = "dataset size (rows retained before the cross-validation split)"
+
+
 def _curve_caption(g) -> str:
     learning = g[1] == "learning_curve"
     kind = "Learning curve" if learning else "Imbalance-robustness curve"
-    xaxis = "training-set size (rows)" if learning else "minority-class (default) proportion"
+    xaxis = _LEARNING_XAXIS if learning else "minority-class (default) proportion"
     notes = []
     if g[3]:
         notes.append("relative to each method's own best")
@@ -242,6 +255,41 @@ def _curve_caption(g) -> str:
     notes.append("mean over datasets")
     return (f"{kind}: {_metric(g[2])} versus {xaxis}, one line per method "
             f"({'; '.join(notes)}).")
+
+
+def _curve_combined_caption(g, *, zoom: bool) -> str:
+    learning = g[1] == "learning_curve"
+    kind = "Learning curve" if learning else "Imbalance-robustness curve"
+    xaxis = _LEARNING_XAXIS if learning else "minority-class (default) proportion"
+    region = "smallest dataset sizes" if learning else "smallest minority-class proportions"
+    notes = []
+    if g[2] == "r2":
+        notes.append(f"{_metric(g[2])} below 0 shown at 0")
+    notes.append("mean over datasets")
+    zoom_part = (
+        f", and the inset zooms the shaded band over the {region} (its y-axis "
+        f"spans the trend lines plus the central 99% of the raw dots, so a few "
+        f"extreme dots fall outside; trend lines are never clipped)"
+        if zoom else ""
+    )
+    return (
+        f"{kind}: {_metric(g[2])} versus {xaxis}, one colour per method; "
+        f"small transparent dots show every raw pooled sweep point, the bold "
+        f"line is the moving average{zoom_part} ({'; '.join(notes)})."
+    )
+
+
+def _curve_variant_rank(g) -> int:
+    """Generation order for pooled curve variants in the notebooks (combined
+    zoom/no-zoom take slots 2 and 3 via their dedicated rules)."""
+    relative = bool(g[3])
+    smooth = bool(g[4])
+    logx = bool(g[5]) if len(g) > 5 else False
+    if logx:
+        return 10 + (4 if relative else 0) + (2 if smooth else 0)
+    if relative:
+        return 4 + (1 if smooth else 0)
+    return 1 if smooth else 0
 
 
 _RULES = _rules()

@@ -1,10 +1,10 @@
 # ============================================================
 # CONFIG_METHOD.yaml -- EXPERIMENT 3 (class-imbalance sweep)
 # ============================================================
-# Per your request this experiment is narrowed to the same four methods
+# Per your request this experiment is narrowed to the same five methods
 # as Experiment 2:
 #   - tabpfn_v3 / tabicl_v2 -- newest foundation models
-#   - xgboost              -- gradient-boosting baseline
+#   - xgboost / catboost   -- gradient-boosting baselines
 #   - LogReg               -- linear baseline
 # LGD methods are all disabled (Experiment 3 is PD-only).
 # ============================================================
@@ -14,11 +14,11 @@ methods:
     # ---- enabled in Experiment 3 ----
     LogReg: true
     xgboost: true
+    catboost: true
     tabpfn_v3: true
     tabicl_v2: true
 
     # ---- explicitly disabled ----
-    catboost: false
     knn: false
     lightgbm: false
     NaiveBayes: false

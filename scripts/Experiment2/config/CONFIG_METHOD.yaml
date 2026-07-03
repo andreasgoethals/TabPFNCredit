@@ -1,10 +1,10 @@
 # ============================================================
 # CONFIG_METHOD.yaml -- EXPERIMENT 2 (learning-curve sweep)
 # ============================================================
-# Per your request this experiment is narrowed to four methods that
+# Per your request this experiment is narrowed to five methods that
 # represent the practical extremes:
 #   - tabpfn_v3 / tabicl_v2 -- newest foundation models
-#   - xgboost              -- strong gradient-boosting baseline
+#   - xgboost / catboost   -- strong gradient-boosting baselines
 #   - LogReg (PD) / LinearRegression (LGD) -- simple parametric baseline
 # Every other method is set to ``false`` to keep the sweep tractable.
 # Toggle ``true`` if you want to extend the analysis to more methods.
@@ -15,11 +15,11 @@ methods:
     # ---- enabled in Experiment 2 ----
     LogReg: true
     xgboost: true
+    catboost: true
     tabpfn_v3: true
     tabicl_v2: true
 
     # ---- explicitly disabled ----
-    catboost: false
     knn: false
     lightgbm: false
     NaiveBayes: false
@@ -75,11 +75,11 @@ methods:
     # ---- enabled in Experiment 2 ----
     LinearRegression: true
     xgboost: true
+    catboost: true
     tabpfn_v3: true
     tabicl_v2: true
 
     # ---- explicitly disabled ----
-    catboost: false
     knn: false
     lightgbm: false
     RandomForest: false

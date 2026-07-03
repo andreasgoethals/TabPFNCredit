@@ -10,9 +10,11 @@ KNOWN = [
     "pd_box_compute_time", "pd_cost_quality_auc",
     "pd_tabpfn_v3_vs_catboost_sizetrend_auc", "pd_tabpfn_v3_vs_catboost_scatter_auc",
     "pd_learning_curve_auc", "pd_learning_curve_auc_relative_smooth",
-    "pd_learning_curve_auc_logx", "pd_learning_curve_auc_smooth_logx",
+    "pd_learning_curve_auc_combined_zoom", "lgd_learning_curve_r2_combined_zoom",
+    "pd_learning_curve_auc_combined", "lgd_learning_curve_r2_combined",
     "pd_imbalance_curve_ap_normalized", "pd_imbalance_curve_ap_normalized_smooth",
-    "pd_imbalance_curve_auc_logx",
+    "pd_imbalance_curve_auc_combined_zoom", "pd_imbalance_curve_ap_normalized_combined_zoom",
+    "pd_imbalance_curve_auc_combined",
     "pd_row_limit_0003_vehicle_loan_auc", "pd_minority_proportion_0002_taiwan_creditcard_auc",
     "pd_pama", "pd_pama_min2wins", "pd_cd_auc", "pd_winloss", "pd_significance",
     "lgd_heatmap_r2", "lgd_bar_mean_pearson_corr", "lgd_cd_rmse",
@@ -61,13 +63,28 @@ def test_pama_min2wins_sorts_after_pama():
     assert "two" in caption_for("pd_pama_min2wins")[1].lower()
 
 
-def test_logx_curves_sort_next_to_their_linear_sibling():
-    # base < base_logx < smooth < smooth_logx < relative (so a log twin sits
-    # right after its linear counterpart), and the caption notes the log axis.
+def test_combined_zoom_curves_sort_after_smooth_before_relative():
+    # base < smooth < combined zoom < combined (no zoom) < relative < relative
+    # smooth, matching the analysis notebooks' pooled-curve order.
     order = [caption_for(f"pd_learning_curve_auc{sfx}")[0] for sfx in
-             ("", "_logx", "_smooth", "_smooth_logx", "_relative")]
+             ("", "_smooth", "_combined_zoom", "_combined", "_relative",
+              "_relative_smooth")]
     assert order == sorted(order)
-    assert "log-scaled x-axis" in caption_for("pd_imbalance_curve_auc_logx")[1]
+    cap = caption_for("pd_imbalance_curve_auc_combined_zoom")[1]
+    assert "transparent dots" in cap and "inset zooms" in cap
+    cap_nz = caption_for("pd_imbalance_curve_auc_combined")[1]
+    assert "transparent dots" in cap_nz and "inset" not in cap_nz
+
+
+def test_learning_curve_captions_say_dataset_size():
+    # Experiment 2's row_limit caps the dataset BEFORE the CV split, so every
+    # learning-curve caption must say "dataset size" and never "training-set".
+    for stem in ("pd_learning_curve_auc", "pd_learning_curve_auc_combined_zoom",
+                 "lgd_learning_curve_r2_combined",
+                 "pd_row_limit_0003_vehicle_loan_auc"):
+        cap = caption_for(stem)[1]
+        assert "dataset size" in cap, stem
+        assert "training-set" not in cap, stem
 
 
 def test_regression_baselines_render_abbreviated():
@@ -95,7 +112,7 @@ def test_r2_curve_caption_notes_zero_floor():
     # Absolute R² curves are floored at 0 (sub-0 points shown at 0); the caption
     # says so. AUC curves and the relative-% R² curve must NOT carry the note.
     assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2")[1]
-    assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2_logx")[1]
+    assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2_combined_zoom")[1]
     assert "below 0 shown at 0" not in caption_for("pd_learning_curve_auc")[1]
     assert "below 0 shown at 0" not in caption_for("lgd_learning_curve_r2_relative")[1]
 

@@ -267,7 +267,7 @@ records how many predictions were clipped via `n_clipped_below` /
 |---|---|---|---|---|---|
 | **0** | Pilot: does each method run end-to-end? Use the outcomes to curate Experiment 1. | 1 | NO_HPO | All 14 PD + 7 LGD. | All toggled in `CONFIG_METHOD.yaml`. |
 | **1** | Headline benchmark — drives the paper. | 5 | NO_HPO + HPO | All 14 PD + 7 LGD. | **Curated by hand** in `CONFIG_METHOD.yaml`. |
-| **2** | Learning-curve sweep: metric vs training-set size. | 5 | NO_HPO | Auto from `learning_curve.<task>.row_max`: PD ≥ 30 000, LGD ≥ 4 600. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg` / `LinearRegression`. |
+| **2** | Learning-curve sweep: metric vs dataset size (`row_limit` caps the rows **before** the CV split, so train and test shrink together). | 5 | NO_HPO | Auto from `learning_curve.<task>.row_max`: PD ≥ 30 000, LGD ≥ 4 600. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg` / `LinearRegression`. |
 | **3** | Class-imbalance sweep: minority proportion **0.15 → 0.0025**, step **0.0005**. PD only. | 5 | NO_HPO | PD with ≥ 30 000 rows **and** natural minority rate > `minority_proportion_max`. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `LogReg`. |
 
 Each experiment is driven by three YAMLs under
@@ -287,7 +287,7 @@ that ran successfully.
 
 - **Experiment 2** selects every dataset with **≥ `row_max`** rows
   (`learning_curve.<task>.row_max` in `CONFIG_EXPERIMENT.yaml`). `row_max`
-  is also the top of the training-size sweep, so the ceiling and the
+  is also the top of the dataset-size sweep, so the ceiling and the
   dataset set are a single knob (the `CONFIG_DATA.yaml` dataset blocks are
   intentionally empty).
 - **Experiment 3** keeps a PD dataset only if it passes **both** filters:
@@ -493,8 +493,8 @@ viewers:
 | `Experiment1.4-LGD` | Headline LGD benchmark, same structure as 1.1: **R²** and **Pearson correlation** in three views, **R² rank**, **HPO effect**, **time analysis**, the **TabPFN v3 vs baselines** head-to-head — relative TabPFN-3 R² improvement vs dataset size against **CatBoost** and **lin. reg**, plus absolute per-dataset `y = x` scatters for both baselines — and a summary table. |
 | `Experiment1.5-LGD-Stat` | Full all-learner statistical analysis (LGD): the same battery as 1.2, on **R²**. |
 | `Experiment1.6-LGD-FamilyStat` | **Champion-level** statistical analysis (LGD): **TabPFN-3**, **CatBoost**, **TabM**, **Linear Regression**. Same structure as 1.3; with only 7 LGD datasets the **Bayesian ROPE** result is emphasised over the (low-power) frequentist tests. |
-| `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs training-set size, in pooled views (raw points · moving average · relative to each method's own best · moving average of that relative, plus **log-x** twins of the raw and moving-average curves), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
-| `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same pooled views (including **log-x** twins of the raw and moving-average curves), per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
+| `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs **dataset size** (`row_limit` caps the rows before the CV split), in pooled views (raw points · moving average · combined raw-points + moving-average view, with and without a zoom inset on the shaded small-data region · relative to each method's own best · moving average of that relative), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
+| `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same pooled views, including the combined raw-points + moving-average view with and without a zoom inset on the most-imbalanced region, per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files. |
 
 **Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook (in folder order, with the project venv kernel), collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` (also available standalone via `python -m src.utils.generate_captions`). `Results_Checking` and `Individual_Method_Runner` are skipped. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
