@@ -270,6 +270,8 @@ def save_or_show(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
         pdf_path = Path(out_path).with_suffix(".pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(pdf_path, bbox_inches="tight", dpi=200)   # crisp on disk
+        from src.utils.generate_captions import refresh_captions_for_saved_figure
+        refresh_captions_for_saved_figure(pdf_path)
     _display_inline(fig, dpi=96)                              # small inline PNG
     plt.close(fig)
     return pdf_path

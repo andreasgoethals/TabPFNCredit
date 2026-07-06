@@ -1196,6 +1196,8 @@ def _finish(fig, out_path: Optional[Path]):
         out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out_path, bbox_inches="tight", dpi=200)   # crisp on disk
         saved = out_path
+        from src.utils.generate_captions import refresh_captions_for_saved_figure
+        refresh_captions_for_saved_figure(saved)
     try:
         from src.visualizations.data_exploration import _display_inline
         _display_inline(fig, dpi=96)                          # small inline PNG

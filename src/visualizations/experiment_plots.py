@@ -597,6 +597,131 @@ def _sweep_moving_average(y) -> np.ndarray:
     return ser.rolling(win, min_periods=1, center=True).mean().to_numpy()
 
 
+def _add_raw_sweep_zoom(
+    ax,
+    series: Sequence[dict],
+    *,
+    zoom_limit: float,
+    title: str,
+) -> None:
+    """Add a lower-right inset for raw pooled sweep curves up to ``zoom_limit``.
+
+    The inset is opaque and its y-axis spans every point shown. Its bounds are
+    chosen from lower-right candidates and expanded to the largest area that
+    stays below the main curves in that part of the axes.
+    """
+    from matplotlib.ticker import MaxNLocator
+
+    zoom_series = []
+    for s in series:
+        order = np.argsort(s["x"])
+        x = np.asarray(s["x"], dtype=float)[order]
+        y = np.asarray(s["y"], dtype=float)[order]
+        in_window = x <= zoom_limit
+        x = x[in_window]
+        y = y[in_window]
+        keep = np.isfinite(x) & np.isfinite(y)
+        if np.any(keep):
+            zoom_series.append({**s, "x": x[keep], "y": y[keep]})
+    if not zoom_series:
+        return
+
+    x_all = np.concatenate([s["x"] for s in zoom_series])
+    y_all = np.concatenate([s["y"] for s in zoom_series])
+    x_lo, x_hi = float(np.nanmin(x_all)), float(np.nanmax(x_all))
+    y_lo, y_hi = float(np.nanmin(y_all)), float(np.nanmax(y_all))
+    if not np.isfinite(x_lo + x_hi + y_lo + y_hi):
+        return
+
+    ax.axvspan(x_lo, x_hi, color="0.45", alpha=0.10, zorder=0, lw=0)
+    ax.axvline(x_hi, color="0.45", lw=1.0, ls=(0, (4, 3)), zorder=1)
+
+    # Lower-right, but not so tall or wide that it hides saturated curves. Try
+    # several lower-right boxes and keep the largest one whose top stays below
+    # the lowest visible curve in its horizontal span.
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
+    x_span_ax = max(xlim[1] - xlim[0], 1e-9)
+    y_span_ax = max(ylim[1] - ylim[0], 1e-9)
+
+    def _lowest_curve_fraction(left_frac: float, right_frac: float) -> float:
+        left = xlim[0] + left_frac * x_span_ax
+        right = xlim[0] + right_frac * x_span_ax
+        lowest = 1.0
+        for s in series:
+            x = np.asarray(s["x"], dtype=float)
+            y = np.asarray(s["y"], dtype=float)
+            keep = np.isfinite(x) & np.isfinite(y)
+            x, y = x[keep], y[keep]
+            if x.size == 0:
+                continue
+            order = np.argsort(x)
+            x, y = x[order], y[order]
+            samples = y[(x >= left) & (x <= right)]
+            if x[0] <= left <= x[-1]:
+                samples = np.append(samples, np.interp(left, x, y))
+            if x[0] <= right <= x[-1]:
+                samples = np.append(samples, np.interp(right, x, y))
+            if samples.size:
+                lowest = min(lowest, float((np.nanmin(samples) - ylim[0]) / y_span_ax))
+        return lowest
+
+    best_bounds = None
+    best_area = -np.inf
+    right_edge = 0.985
+    for x0_candidate in np.linspace(0.50, 0.68, 13):
+        width_candidate = right_edge - float(x0_candidate)
+        if width_candidate < 0.28:
+            continue
+        curve_floor = _lowest_curve_fraction(max(0.0, x0_candidate - 0.015), right_edge)
+        for y0_candidate in (0.075, 0.085, 0.095, 0.105, 0.115):
+            top = min(0.92, curve_floor - 0.045, y0_candidate + 0.47)
+            height_candidate = top - y0_candidate
+            if height_candidate < 0.22:
+                continue
+            area = width_candidate * height_candidate
+            if area > best_area:
+                best_area = area
+                best_bounds = (
+                    float(x0_candidate),
+                    float(y0_candidate),
+                    float(width_candidate),
+                    float(height_candidate),
+                )
+
+    x0, y0, width, height = best_bounds or (0.625, 0.115, 0.335, 0.24)
+    zoom_ax = ax.inset_axes([x0, y0, width, height])
+
+    for s in zoom_series:
+        zoom_ax.plot(
+            s["x"],
+            s["y"],
+            marker="o",
+            ms=max(RUN_MS + 0.8, 2.1),
+            lw=1.0,
+            color=s["color"],
+            solid_capstyle="round",
+        )
+
+    x_span = max(x_hi - x_lo, 1e-6)
+    y_span = max(y_hi - y_lo, 1e-6)
+    zoom_ax.set_xlim(x_lo - 0.03 * x_span, x_hi + 0.03 * x_span)
+    # Use the full y-range of every shown point. No percentile trimming here:
+    # if a point is in the zoom inset, it must be visible on the y-axis.
+    zoom_ax.set_ylim(y_lo - 0.06 * y_span, y_hi + 0.06 * y_span)
+    zoom_ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+    zoom_ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
+    zoom_ax.tick_params(axis="both", labelsize=TICK_FS - 1, length=2.5, pad=2)
+    zoom_ax.grid(True, alpha=0.22)
+    zoom_ax.set_facecolor("white")
+    zoom_ax.patch.set_alpha(1.0)
+    zoom_ax.set_title(title, fontsize=NOTE_FS, fontweight="bold", pad=4)
+    for sp in zoom_ax.spines.values():
+        sp.set_color("0.45")
+        sp.set_linewidth(1.1)
+    zoom_ax.set_zorder(6)
+
+
 def _sweep_curve(
     df: pd.DataFrame,
     *,
@@ -609,6 +734,9 @@ def _sweep_curve(
     plot_name: str,
     relative: bool = False,
     smooth: bool = False,
+    zoom: bool = False,
+    zoom_limit: Optional[float] = None,
+    zoom_title: Optional[str] = None,
     logx: bool = False,
 ) -> Optional[Path]:
     """ONE line per METHOD: the metric averaged over all datasets at each
@@ -632,8 +760,10 @@ def _sweep_curve(
     # whole axis negative.
     clamp0 = str(metric).upper() == "R2"
 
+    zoom_active = bool(zoom and not smooth and not relative and not logx and zoom_limit is not None)
     fig, ax = plt.subplots(figsize=figsize)
     colors = _sweep_colors(sorted(grp["method"].unique()))
+    zoom_series = []
     for method, g in grp.groupby("method"):
         g = g.sort_values("sweep_value")
         y = g[mean_col]
@@ -642,20 +772,32 @@ def _sweep_curve(
         if relative:
             top = y.max()
             y = y / top if top else y
+        x = g["sweep_value"].to_numpy(dtype=float)
         if smooth:
             # Moving average across sweep points (trend, not the raw wiggle).
             y_ma = _sweep_moving_average(y)
-            ax.plot(g["sweep_value"], y_ma, lw=CURVE_LW,
+            ax.plot(x, y_ma, lw=CURVE_LW,
                     label=_display_name(method), color=colors[method])
         else:
-            ax.plot(g["sweep_value"], y, marker="o", ms=RUN_MS, lw=1.2,
+            y_arr = y.to_numpy(dtype=float)
+            ax.plot(x, y_arr, marker="o", ms=RUN_MS, lw=1.2,
                     label=_display_name(method), color=colors[method])
+            zoom_series.append({"method": method, "color": colors[method], "x": x, "y": y_arr})
     if logx:
         ax.set_xscale("log")
     else:
         ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
     if relative:
         ax.axhline(1.0, color="0.6", lw=0.8, ls="--")
+    if clamp0:
+        ax.set_ylim(bottom=0.0)                          # R2 axis starts at 0
+    if zoom_active and zoom_series:
+        _add_raw_sweep_zoom(
+            ax,
+            zoom_series,
+            zoom_limit=float(zoom_limit),
+            title=zoom_title or f"x <= {zoom_limit:g}",
+        )
     pm = _pretty_metric(metric)
     ax.set_xlabel(xlabel, fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(f"{pm} (% of each method's own best)" if relative else pm,
@@ -667,17 +809,36 @@ def _sweep_curve(
         note.append("relative to each method's own best")
     if smooth:
         note.append("moving average")
+    if zoom_active:
+        note.append(zoom_title or f"zoomed x <= {zoom_limit:g}")
     if logx:
         note.append("log x-axis")
     note.append("mean over datasets")
-    ax.set_title(f"{title} ({'; '.join(note)})", fontsize=TITLE_FS, fontweight="bold")
-    if clamp0:
-        ax.set_ylim(bottom=0.0)                          # R² axis starts at 0
-    # Method legend bottom-right (the data-rich corner is usually empty here).
-    ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
+    ax.set_title(
+        f"{title} ({'; '.join(note)})",
+        fontsize=TITLE_FS,
+        fontweight="bold",
+        pad=34 if zoom_active else None,
+    )
+    if zoom_active:
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(
+            handles, labels,
+            loc="lower left",
+            bbox_to_anchor=(0.0, 1.005),
+            ncol=max(1, len(labels)),
+            fontsize=LEGEND_FS,
+            frameon=False,
+            handlelength=1.8,
+            borderaxespad=0.0,
+            columnspacing=1.1,
+        )
+    else:
+        # Method legend bottom-right (the data-rich corner is usually empty here).
+        ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
     plt.tight_layout()
     suffix = (("_relative" if relative else "") + ("_smooth" if smooth else "")
-              + ("_logx" if logx else ""))
+              + ("_zoom" if zoom_active else "") + ("_logx" if logx else ""))
     return _save(fig, out_dir, plot_name + suffix)
 
 
@@ -691,24 +852,14 @@ def _sweep_curve_combined(
     figsize: Tuple[int, int],
     out_dir: Optional[Path],
     plot_name: str,
-    zoom: bool = True,
-    zoom_frac: float = 0.12,
 ) -> Optional[Path]:
     """Pooled sweep curve overlaying EVERY raw point with its moving average.
 
     One colour per method: small transparent dots are the raw pooled sweep
     points (their transparency scales with the sweep density, so a 1 200-point
     sweep reads as a soft ribbon while a 300-point sweep keeps visible dots)
-    and a bold white-haloed line is the centred moving average, which stays
-    legible on top of the dot cloud.
-
-    With ``zoom=True`` the first ``zoom_frac`` of the x-range -- the small-data
-    / extreme-imbalance end, where the methods separate -- is marked by a faint
-    shaded band on the main axes and redrawn magnified in an inset placed in
-    the naturally empty lower-right corner (the curves saturate top-right). No
-    connector lines are drawn: the shared shading ties band and inset together
-    without slicing through the data. The legend sits in a frameless row ABOVE
-    the axes, so it can never cover a curve.
+    and a solid, slightly thinner line is the centred moving average. This view
+    intentionally has no zoom inset; the inset belongs to the raw curve.
     """
     from matplotlib.ticker import MaxNLocator
 
@@ -727,13 +878,6 @@ def _sweep_curve_combined(
     xvals = np.sort(grp["sweep_value"].dropna().astype(float).unique())
     if xvals.size == 0:
         return None
-    # Zoom window: the first ``zoom_frac`` of the x-RANGE, snapped up to an
-    # actual sweep point so the band edge sits on a sample.
-    x_lo, x_hi = float(xvals[0]), float(xvals[-1])
-    zoom_hi = x_lo + zoom_frac * max(x_hi - x_lo, 1e-9)
-    zoom_hi = float(xvals[min(int(np.searchsorted(xvals, zoom_hi)), xvals.size - 1)])
-    if zoom_hi <= x_lo:                     # degenerate sweep: nothing to magnify
-        zoom = False
 
     # ---- pass 1: compute every method's series ------------------------------
     # The fixed map keeps a method's colour identical in every sweep view
@@ -756,27 +900,16 @@ def _sweep_curve_combined(
     series.sort(key=lambda s: s["final"])
 
     fig, ax = plt.subplots(figsize=figsize)
-    if zoom:
-        # Faint band marks the magnified region; its dashed edge and the inset
-        # frame share one grey so the pairing is read without connector lines.
-        ax.axvspan(x_lo, zoom_hi, color="0.45", alpha=0.10, zorder=0, lw=0)
-        ax.axvline(zoom_hi, color="0.45", lw=1.0, ls=(0, (4, 3)), zorder=1)
 
-    # Two-pass halo: ALL white under-strokes first (zorder 4), then ALL colour
-    # cores (zorder 5). The halos knock out the dot clouds beneath the lines
-    # but can never slice through a sibling trend line (which a per-line
-    # path-effect stroke would).
     handles = {}
+    ma_lw = max(1.2, CURVE_LW - 0.35)
     for s in series:
         # Ink-balanced transparency: denser sweeps get fainter dots so every
         # figure carries roughly the same visual weight of raw data.
         s["alpha"] = float(np.clip(10.0 / np.sqrt(max(s["x"].size, 1)), 0.18, 0.40))
         ax.scatter(s["x"], s["y_raw"], s=7.0, alpha=s["alpha"], color=s["color"],
                    edgecolors="none", zorder=2)
-        ax.plot(s["x"], s["y_ma"], lw=CURVE_LW + 2.4, color="white",
-                zorder=4, solid_capstyle="round")
-    for s in series:
-        (ln,) = ax.plot(s["x"], s["y_ma"], lw=CURVE_LW + 0.6, color=s["color"],
+        (ln,) = ax.plot(s["x"], s["y_ma"], lw=ma_lw, color=s["color"],
                         zorder=5, label=_display_name(s["method"]),
                         solid_capstyle="round")
         handles[s["method"]] = ln
@@ -803,74 +936,8 @@ def _sweep_curve_combined(
               frameon=False, borderaxespad=0.0, handlelength=1.6,
               columnspacing=1.2)
 
-    # ---- pass 2: the inset, sized to the space the data actually leaves -----
-    if zoom:
-        # The inset lives in the lower-right corner; its TOP is capped just
-        # below the lowest trend line crossing that corner, so no curve is
-        # ever hidden behind the (opaque) inset.
-        xl, yl = ax.get_xlim(), ax.get_ylim()
-        x0, width, y0 = 0.555, 0.425, 0.085
-        span_lo = xl[0] + x0 * (xl[1] - xl[0])
-        low_frac = 1.0
-        for s in series:
-            m = s["x"] >= span_lo
-            if np.any(m):
-                low = float(np.nanmin(s["y_ma"][m]))
-                low_frac = min(low_frac, (low - yl[0]) / max(yl[1] - yl[0], 1e-9))
-        height = float(np.clip(min(0.50, low_frac - 0.07) - y0, 0.30, 0.42))
-        axins = ax.inset_axes([x0, y0, width, height])
-
-        zoom_raw: List[float] = []
-        zoom_ma: List[float] = []
-        for s in series:                     # pass 1: dots + white under-strokes
-            m = s["x"] <= zoom_hi
-            axins.scatter(s["x"][m], s["y_raw"][m], s=11.0,
-                          alpha=min(s["alpha"] + 0.10, 0.50),
-                          color=s["color"], edgecolors="none", zorder=2)
-            axins.plot(s["x"][m], s["y_ma"][m], lw=CURVE_LW + 1.6,
-                       color="white", zorder=4, solid_capstyle="round")
-            zoom_raw.extend(s["y_raw"][m].tolist())
-            zoom_ma.extend(s["y_ma"][m].tolist())
-        for s in series:                     # pass 2: colour cores on top
-            m = s["x"] <= zoom_hi
-            axins.plot(s["x"][m], s["y_ma"][m], lw=CURVE_LW + 0.2,
-                       color=s["color"], zorder=5, solid_capstyle="round")
-
-        axins.set_xlim(x_lo - 0.03 * (zoom_hi - x_lo), zoom_hi)
-        # Robust y-limits: the moving averages plus the central 1-99% of the
-        # raw dots -- one stray point cannot blow up the zoom scale (the trim
-        # is disclosed in the auto-generated caption; trend lines never clip).
-        raw_arr = np.asarray(zoom_raw, dtype=float)
-        raw_arr = raw_arr[np.isfinite(raw_arr)]
-        ma_arr = np.asarray(zoom_ma, dtype=float)
-        ma_arr = ma_arr[np.isfinite(ma_arr)]
-        if raw_arr.size and ma_arr.size:
-            qlo, qhi = np.percentile(raw_arr, [1.0, 99.0])
-            lo = float(min(ma_arr.min(), qlo))
-            hi = float(max(ma_arr.max(), qhi))
-            span = max(hi - lo, 1e-6)
-            lo_lim, hi_lim = lo - 0.10 * span, hi + 0.10 * span
-            if clamp0:
-                lo_lim = max(lo_lim, 0.0)
-            axins.set_ylim(lo_lim, hi_lim)
-        axins.xaxis.set_major_locator(MaxNLocator(nbins=4))
-        axins.yaxis.set_major_locator(MaxNLocator(nbins=4))
-        axins.tick_params(axis="both", labelsize=TICK_FS - 1, length=2.5, pad=2)
-        axins.grid(True, alpha=0.22)
-        axins.set_facecolor("white")
-        axins.patch.set_alpha(1.0)
-        for sp in axins.spines.values():
-            sp.set_color("0.45")
-            sp.set_linewidth(1.1)
-        # Label INSIDE the frame (opaque white behind it), so it can never
-        # collide with main-axes data above the inset.
-        axins.text(0.5, 0.965, "zoom on the shaded region",
-                   transform=axins.transAxes, ha="center", va="top",
-                   fontsize=NOTE_FS - 1, color="0.30", zorder=7)
-        axins.set_zorder(6)
-
     plt.tight_layout()
-    return _save(fig, out_dir, plot_name + ("_combined_zoom" if zoom else "_combined"))
+    return _save(fig, out_dir, plot_name + "_combined")
 
 
 def learning_curve(
@@ -881,6 +948,8 @@ def learning_curve(
     figsize: Tuple[int, int] = FIG_WIDE,
     relative: bool = False,
     smooth: bool = False,
+    zoom: bool = False,
+    zoom_limit: float = 1000.0,
     logx: bool = False,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
@@ -890,35 +959,33 @@ def learning_curve(
     together), so the x-axis is the total rows retained, not the training-set
     size. ``relative=True`` divides each method's curve by its own best value;
     ``smooth=True`` plots the moving average instead of the raw points;
+    ``zoom=True`` adds a lower-right inset for rows ``<= zoom_limit``;
     ``logx=True`` puts the dataset-size axis on a log scale."""
     return _sweep_curve(
         df, sweep_axis="row_limit", metric=metric,
         title=f"{task_name} learning curve: {_pretty_metric(metric)}",
         xlabel="Dataset size (rows)", figsize=figsize, out_dir=out_dir,
-        relative=relative, smooth=smooth, logx=logx,
+        relative=relative, smooth=smooth, zoom=zoom, zoom_limit=zoom_limit,
+        zoom_title=f"Rows <= {zoom_limit:g}", logx=logx,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
 
-def learning_curve_combined_zoom(
+def learning_curve_moving_average_with_dots(
     df: pd.DataFrame,
     metric: str,
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = FIG_WIDE,
-    zoom: bool = True,
-    zoom_frac: float = 0.12,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Experiment 2 combined view: every raw point + the moving average, with
-    (``zoom=True``) or without (``zoom=False``) an inset magnifying the
-    smallest dataset sizes. The x-axis is the dataset-size cap applied BEFORE
-    the CV split (see :func:`learning_curve`)."""
+    """Experiment 2 combined view: transparent raw pooled points plus a
+    centred moving-average line. The zoomed inset belongs to
+    :func:`learning_curve` with ``zoom=True``."""
     return _sweep_curve_combined(
         df, sweep_axis="row_limit", metric=metric,
         title=f"{task_name} learning curve: {_pretty_metric(metric)}",
         xlabel="Dataset size (rows)", figsize=figsize, out_dir=out_dir,
-        zoom=zoom, zoom_frac=zoom_frac,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
@@ -931,41 +998,42 @@ def imbalance_curve(
     figsize: Tuple[int, int] = FIG_WIDE,
     relative: bool = False,
     smooth: bool = False,
+    zoom: bool = False,
+    zoom_limit: float = 0.025,
     logx: bool = False,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 3: ``metric`` vs minority proportion -- one line per method,
     averaged over every included dataset. ``relative=True`` divides each
     method's curve by its own best value; ``smooth=True`` plots the moving
-    average instead of the raw points; ``logx=True`` puts the minority-proportion
-    axis on a log scale."""
+    average instead of the raw points; ``zoom=True`` adds a lower-right inset
+    for minority proportions ``<= zoom_limit``; ``logx=True`` puts the
+    minority-proportion axis on a log scale."""
     return _sweep_curve(
         df, sweep_axis="minority_proportion", metric=metric,
         title=f"{task_name} imbalance robustness: {_pretty_metric(metric)}",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
-        relative=relative, smooth=smooth, logx=logx,
+        relative=relative, smooth=smooth, zoom=zoom, zoom_limit=zoom_limit,
+        zoom_title=f"Minority <= {zoom_limit:g}", logx=logx,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
 
 
-def imbalance_curve_combined_zoom(
+def imbalance_curve_moving_average_with_dots(
     df: pd.DataFrame,
     metric: str,
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = FIG_WIDE,
-    zoom: bool = True,
-    zoom_frac: float = 0.12,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Experiment 3 combined view: every raw point + the moving average, with
-    (``zoom=True``) or without (``zoom=False``) an inset magnifying the most
-    extreme minority-class proportions."""
+    """Experiment 3 combined view: transparent raw pooled points plus a
+    centred moving-average line. The zoomed inset belongs to
+    :func:`imbalance_curve` with ``zoom=True``."""
     return _sweep_curve_combined(
         df, sweep_axis="minority_proportion", metric=metric,
         title=f"{task_name} imbalance robustness: {_pretty_metric(metric)}",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
-        zoom=zoom, zoom_frac=zoom_frac,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
 
@@ -1792,6 +1860,8 @@ def _save(fig: plt.Figure, out_dir: Optional[Path], stem: str) -> Optional[Path]
         saved = out_dir / f"{stem}.pdf"
         # Crisp on disk (vector PDF + high-dpi raster elements like heatmaps).
         fig.savefig(saved, bbox_inches="tight", dpi=200)
+        from src.utils.generate_captions import refresh_captions_for_saved_figure
+        refresh_captions_for_saved_figure(saved)
     # Inline display: a LOW-dpi PNG keeps the committed notebook small enough
     # for GitHub (the on-disk PDF stays crisp).
     from src.visualizations.data_exploration import _display_inline
@@ -1808,9 +1878,9 @@ __all__ = [
     "method_ranking_bars",
     "per_dataset_bars",
     "learning_curve",
-    "learning_curve_combined_zoom",
+    "learning_curve_moving_average_with_dots",
     "imbalance_curve",
-    "imbalance_curve_combined_zoom",
+    "imbalance_curve_moving_average_with_dots",
     "metric_boxplots",
     "metric_bars",
     "compute_time_bars",

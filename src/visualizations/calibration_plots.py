@@ -57,6 +57,8 @@ def _persist_and_display(fig: plt.Figure, out_path: Optional[Path]) -> Optional[
         saved = Path(out_path).with_suffix(".pdf")
         _ensure_dir(saved)
         fig.savefig(saved, bbox_inches="tight")
+        from src.utils.generate_captions import refresh_captions_for_saved_figure
+        refresh_captions_for_saved_figure(saved)
     from src.visualizations.data_exploration import _display_inline
     _display_inline(fig)
     plt.close(fig)

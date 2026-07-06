@@ -282,7 +282,14 @@ def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
     # kernel emits on Windows (kept alongside any filter the user already set).
     zmq_filter = "ignore::RuntimeWarning:zmq._future"
     prior = os.environ.get("PYTHONWARNINGS")
-    env = {**os.environ, "PYTHONWARNINGS": f"{zmq_filter},{prior}" if prior else zmq_filter}
+    env = {
+        **os.environ,
+        "PYTHONWARNINGS": f"{zmq_filter},{prior}" if prior else zmq_filter,
+        # Direct Jupyter/VS Code notebook runs refresh captions after each
+        # saved project figure. Here we run headlessly and refresh once below,
+        # so suppress the per-save hook to avoid repeated CAPTIONS.md writes.
+        "TABPFNCREDIT_AUTO_CAPTIONS": "0",
+    }
     if verbose:
         subprocess.run(cmd, check=True, env=env)
     else:

@@ -15,6 +15,8 @@ standard display labels (TALENT-free import, so this runs anywhere).
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 import re
 import sys
 from pathlib import Path
@@ -22,6 +24,9 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.methods.method_names import display_name  # noqa: E402
+from src.utils.paths import PROJECT_ROOT  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 #  Metric + dataset display
@@ -168,13 +173,10 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
                          f"{display_name(g[1])} wins.")))
 
     # ---- pooled learning / imbalance curves ----
-    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined_zoom$",
-              lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]), 2),
-                         _curve_combined_caption(g, zoom=True))))
     R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined$",
               lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]), 3),
-                         _curve_combined_caption(g, zoom=False))))
-    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?(_logx)?$",
+                         _curve_combined_caption(g))))
+    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?(_zoom)?(_logx)?$",
               lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]),
                           _curve_variant_rank(g)),
                          _curve_caption(g))))
@@ -248,7 +250,18 @@ def _curve_caption(g) -> str:
         notes.append("relative to each method's own best")
     if g[4]:
         notes.append("moving average")
-    if len(g) > 5 and g[5]:
+    if g[5]:
+        if learning:
+            notes.append(
+                "lower-right inset zooms the shaded rows <= 1000 region, "
+                "with a y-axis spanning all shown points"
+            )
+        else:
+            notes.append(
+                "lower-right inset zooms the shaded minority proportion <= 0.025 region, "
+                "with a y-axis spanning all shown points"
+            )
+    if len(g) > 6 and g[6]:
         notes.append("log-scaled x-axis")
     if g[2] == "r2" and not g[3]:
         notes.append("R² below 0 shown at 0")
@@ -257,39 +270,36 @@ def _curve_caption(g) -> str:
             f"({'; '.join(notes)}).")
 
 
-def _curve_combined_caption(g, *, zoom: bool) -> str:
+def _curve_combined_caption(g) -> str:
     learning = g[1] == "learning_curve"
     kind = "Learning curve" if learning else "Imbalance-robustness curve"
     xaxis = _LEARNING_XAXIS if learning else "minority-class (default) proportion"
-    region = "smallest dataset sizes" if learning else "smallest minority-class proportions"
     notes = []
     if g[2] == "r2":
         notes.append(f"{_metric(g[2])} below 0 shown at 0")
     notes.append("mean over datasets")
-    zoom_part = (
-        f", and the inset zooms the shaded band over the {region} (its y-axis "
-        f"spans the trend lines plus the central 99% of the raw dots, so a few "
-        f"extreme dots fall outside; trend lines are never clipped)"
-        if zoom else ""
-    )
     return (
         f"{kind}: {_metric(g[2])} versus {xaxis}, one colour per method; "
-        f"small transparent dots show every raw pooled sweep point, the bold "
-        f"line is the moving average{zoom_part} ({'; '.join(notes)})."
+        f"small transparent dots show every raw pooled sweep point and the "
+        f"solid line is the moving average ({'; '.join(notes)})."
     )
 
 
 def _curve_variant_rank(g) -> int:
-    """Generation order for pooled curve variants in the notebooks (combined
-    zoom/no-zoom take slots 2 and 3 via their dedicated rules)."""
+    """Generation order for pooled curve variants in the notebooks."""
     relative = bool(g[3])
     smooth = bool(g[4])
-    logx = bool(g[5]) if len(g) > 5 else False
+    zoom = bool(g[5])
+    logx = bool(g[6]) if len(g) > 6 else False
     if logx:
         return 10 + (4 if relative else 0) + (2 if smooth else 0)
     if relative:
         return 4 + (1 if smooth else 0)
-    return 1 if smooth else 0
+    if smooth:
+        return 2
+    if zoom:
+        return 1
+    return 0
 
 
 _RULES = _rules()
@@ -391,6 +401,30 @@ def generate_captions(figures_root: Path, experiments: Optional[Sequence[str]] =
     return [out]
 
 
+def refresh_captions_for_saved_figure(saved_path: Optional[Path]) -> None:
+    """Refresh ``figures/CAPTIONS.md`` after a project figure is written.
+
+    This is intentionally best-effort: figure saving should never fail because
+    the caption sidecar could not be regenerated. ``run_notebooks`` disables
+    this per-save hook and performs one consolidated refresh at the end.
+    """
+    if saved_path is None:
+        return
+    if os.environ.get("TABPFNCREDIT_AUTO_CAPTIONS", "1").lower() in {"0", "false", "no"}:
+        return
+
+    figures_root = PROJECT_ROOT / "figures"
+    try:
+        Path(saved_path).resolve().relative_to(figures_root.resolve())
+    except (OSError, ValueError):
+        return
+
+    try:
+        generate_captions(figures_root)
+    except Exception as exc:  # noqa: BLE001 -- captions are non-critical sidecars
+        logger.warning("Could not refresh figures/CAPTIONS.md after saving %s: %s", saved_path, exc)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     from src.utils.paths import PROJECT_ROOT
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -406,7 +440,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
-__all__ = ["caption_for", "generate_captions", "main", "CHAPTERS", "METRIC_DISPLAY"]
+__all__ = [
+    "caption_for",
+    "generate_captions",
+    "refresh_captions_for_saved_figure",
+    "main",
+    "CHAPTERS",
+    "METRIC_DISPLAY",
+]
 
 
 if __name__ == "__main__":

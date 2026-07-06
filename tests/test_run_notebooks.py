@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -189,3 +190,24 @@ def test_venv_python_detection(tmp_path):
     assert rn.venv_python(tmp_path) == py
     # absent
     assert rn.venv_python(tmp_path / "nope") is None
+
+
+def test_execute_notebook_disables_per_save_caption_refresh(tmp_path, monkeypatch):
+    seen = {}
+
+    def fake_run(*args, **kwargs):
+        seen["env"] = kwargs["env"]
+
+    monkeypatch.setattr(rn.subprocess, "run", fake_run)
+    nb = tmp_path / "n.ipynb"
+    nb.write_text(json.dumps(_nb()), encoding="utf-8")
+
+    rn.execute_notebook(
+        nb,
+        Path("python"),
+        timeout=-1,
+        allow_errors=False,
+        kernel_name="python3",
+    )
+
+    assert seen["env"]["TABPFNCREDIT_AUTO_CAPTIONS"] == "0"
