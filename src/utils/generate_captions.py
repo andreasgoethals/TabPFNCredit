@@ -63,11 +63,11 @@ def _dataset(tok: str) -> str:
 
 def _size_trend_caption(g) -> str:
     return (
-        f"Per-dataset relative {_metric(g[3])} improvement of {display_name(g[1])} over "
-        f"{display_name(g[2])} (y, %) against dataset size in rows (x, log scale); "
-        f"points are green where {display_name(g[1])} wins and red where "
-        f"{display_name(g[2])} wins, the dashed line marks equal performance, "
-        f"and the solid line is the OLS trend."
+        f"Relative {_metric(g[3])} gain of {display_name(g[1])} over "
+        f"{display_name(g[2])} for each dataset, plotted against dataset size "
+        f"(rows, log scale). Points above zero indicate datasets where "
+        f"{display_name(g[1])} outperforms {display_name(g[2])}; the fitted line "
+        f"summarises how the gain changes with dataset size."
     )
 
 
@@ -107,70 +107,67 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     # ---- matrix-metric views (heatmap / bar / box / rank views) ----
     R.append((rf"^(pd|lgd)_heatmap_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["heatmap"]),
-                         f"{_cap(_metric(g[1]))} of each method (columns) on every {TASK_DISPLAY[g[0]]} "
-                         f"dataset (rows), as the five-fold mean of the tuned model. Columns are "
-                         f"ordered best-first and shaded green (best) to red (worst); foundation-model "
-                         f"names are in red.")))
+                         f"Five-fold mean {_metric(g[1])} for each method on each "
+                         f"{TASK_DISPLAY[g[0]]} dataset. Rows are datasets, columns are "
+                         f"methods ordered by overall performance, and colour encodes the score.")))
     R.append((rf"^(pd|lgd)_bar_mean_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["bar_mean"]),
-                         f"Per-method mean of {_metric(g[1])} across the {TASK_DISPLAY[g[0]]} "
-                         f"datasets, ordered best-first; the value is printed above each bar and the "
-                         f"error bar is the fold-level standard deviation. Foundation-model names are "
-                         f"in red.")))
+                         f"Across-dataset mean for {_metric(g[1])} by method on the "
+                         f"{TASK_DISPLAY[g[0]]} datasets. Bars are ordered by mean performance and error bars show "
+                         f"fold-level variability.")))
     R.append((rf"^(pd|lgd)_box_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["box"]),
-                         f"Per-method distribution of {_metric(g[1])} on the {TASK_DISPLAY[g[0]]} "
-                         f"datasets: each box spans the method's per-fold scores and each dot is one "
-                         f"dataset's fold-mean, with boxes ordered by the mean.")))
+                         f"Distribution of {_metric(g[1])} by method on the "
+                         f"{TASK_DISPLAY[g[0]]} datasets. Boxes summarise fold-level scores, "
+                         f"and overlaid points show dataset-level means.")))
     R.append((rf"^(pd|lgd)_rank_matrix_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["rank_matrix"]),
-                         f"Per-dataset rank of each method on {_metric(g[1])} (1 = best, green; worse, "
-                         f"red), with columns ordered by mean rank. Foundation-model names are in "
-                         f"red.")))
+                         f"Per-dataset method ranks for {_metric(g[1])} (rank 1 = best). "
+                         f"Columns are ordered by average rank across datasets.")))
     R.append((rf"^(pd|lgd)_ranking_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["ranking"]),
-                         f"Mean {_metric(g[1])} rank per method across the {TASK_DISPLAY[g[0]]} datasets "
-                         f"(1 = best, lower is better), ordered best-first; error bars are the standard "
-                         f"deviation of the per-dataset ranks.")))
+                         f"Average method rank for {_metric(g[1])} across the "
+                         f"{TASK_DISPLAY[g[0]]} datasets (rank 1 = best). Error bars show "
+                         f"the standard deviation of per-dataset ranks.")))
     R.append((rf"^(pd|lgd)_rank_box_({M})$",
               lambda g: ((S_MATRIX, _metric_rank(g[1]), _VIEW["rank_box"]),
-                         f"Distribution of each method's per-dataset {_metric(g[1])} ranks (1 = best, at "
-                         f"the top), one box per method.")))
+                         f"Distribution of per-dataset {_metric(g[1])} ranks for each method "
+                         f"(rank 1 = best).")))
 
     # ---- HPO effect ----
     R.append((rf"^(pd|lgd)_hpo_effect_({M})$",
               lambda g: ((S_HPO, _metric_rank(g[1]), 0),
-                         f"Mean effect of hyper-parameter tuning on {_metric(g[1])} (tuned minus "
-                         f"untuned, averaged over datasets); positive (green) means tuning helps. "
-                         f"Foundation models are zero by construction, as they are not tuned.")))
+                         f"Effect of hyper-parameter tuning on {_metric(g[1])}, computed as "
+                         f"the tuned score minus the untuned score and averaged across datasets. "
+                         f"Positive values indicate that tuning improves performance.")))
 
     # ---- compute time ----
     R.append((r"^(pd|lgd)_bar_compute_time$",
               lambda g: ((S_COMPUTE, 0, 0),
-                         f"Mean compute time per method on {TASK_DISPLAY[g[0]]} (train + predict per "
-                         f"fold, seconds, log axis; for tuned methods the train time includes the "
-                         f"HPO-search cost), fastest first. Foundation-model names are in red.")))
+                         f"Mean compute time per method on {TASK_DISPLAY[g[0]]} "
+                         f"(train + prediction time per fold, seconds, log scale). For tuned "
+                         f"methods, training time includes the hyper-parameter search.")))
     R.append((r"^(pd|lgd)_box_compute_time$",
               lambda g: ((S_COMPUTE, 1, 0),
-                         f"Distribution of compute time (train + predict) per method, one point per "
-                         f"(dataset, fold), on a log axis and ordered fastest first.")))
+                         f"Distribution of per-fold compute time (train + prediction time) "
+                         f"for each method, with one observation per dataset-fold pair.")))
 
     # ---- cost / quality ----
     R.append((rf"^(pd|lgd)_cost_quality_({M})$",
               lambda g: ((S_COSTQ, _metric_rank(g[1]), 0),
-                         f"Mean {_metric(g[1])} (y) against mean compute time (x; train + predict, log "
-                         f"scale) for each method on {TASK_DISPLAY[g[0]]}; foundation models are red "
-                         f"stars, the other methods blue circles, and notable methods are labelled.")))
+                         f"Trade-off between mean {_metric(g[1])} and mean compute time "
+                         f"(train + prediction time, log scale) for each method on "
+                         f"{TASK_DISPLAY[g[0]]}.")))
 
     # ---- foundation-vs-baseline head-to-head ----
     R.append((rf"^(pd|lgd)_(.+?)_vs_(.+?)_sizetrend_({M})$",
               lambda g: ((S_HEAD, _metric_rank(g[3]), 0), _size_trend_caption(g))))
     R.append((rf"^(pd|lgd)_(.+?)_vs_(.+?)_scatter_({M})$",
               lambda g: ((S_HEAD, _metric_rank(g[3]), 1),
-                         f"Per-dataset head-to-head of {display_name(g[1])} (y) versus "
-                         f"{display_name(g[2])} (x) on {_metric(g[3])}; each point is a dataset and the "
-                         f"dashed line is y = x, so points above it are datasets where "
-                         f"{display_name(g[1])} wins.")))
+                         f"Per-dataset comparison of {display_name(g[1])} and "
+                         f"{display_name(g[2])} on {_metric(g[3])}. Each point is one "
+                         f"dataset; points above the diagonal indicate higher performance for "
+                         f"{display_name(g[1])}.")))
 
     # ---- pooled learning / imbalance curves ----
     R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined$",
@@ -182,6 +179,16 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
                          _curve_caption(g))))
 
     # ---- per-dataset raw-point curves ----
+    R.append((rf"^(pd|lgd)_row_limit_(.+)_({M})$",
+              lambda g: ((S_PERDS, 0, _dataset(g[1])),
+                         f"{TASK_DISPLAY[g[0]]} - {_dataset(g[1])}: {_metric(g[2])} as a function "
+                         f"of dataset size, where the row limit is applied before the "
+                         f"cross-validation split. Each line corresponds to one method.")))
+    R.append((rf"^(pd|lgd)_minority_proportion_(.+)_({M})$",
+              lambda g: ((S_PERDS, 1, _dataset(g[1])),
+                         f"{TASK_DISPLAY[g[0]]} - {_dataset(g[1])}: {_metric(g[2])} as a function "
+                         f"of the minority-class (default) proportion. Each line corresponds "
+                         f"to one method.")))
     R.append((rf"^(pd|lgd)_row_limit_(.+)_({M})$",
               lambda g: ((S_PERDS, 0, _dataset(g[1])),
                          f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus dataset size "
@@ -196,36 +203,28 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     # ---- statistical figures ----
     R.append((r"^(pd|lgd)_pama$",
               lambda g: ((S_STAT, 0, 0),
-                         "Share of (dataset, fold) observations on which each method achieves the "
-                         "single best score (PAMA, Probability of Achieving the MAximal accuracy), one "
-                         "bar per method that wins at least once, ordered best-first; foundation-model "
-                         "names are in red.")))
+                         "Probability of achieving the maximal accuracy (PAMA): the share of "
+                         "dataset-fold observations on which each method attains the best score.")))
     R.append((r"^(pd|lgd)_pama_min2wins$",
               lambda g: ((S_STAT, 0, 1),
-                         "Share of (dataset, fold) observations on which each method achieves the "
-                         "single best score (PAMA), restricted to methods that win on at least two "
-                         "observations, one bar per method, ordered best-first; foundation-model names "
-                         "are in red.")))
+                         "Probability of achieving the maximal accuracy (PAMA), restricted to "
+                         "methods that attain the best score on at least two dataset-fold "
+                         "observations.")))
     R.append((rf"^(pd|lgd)_cd_({M})$",
               lambda g: ((S_STAT, 1, _metric_rank(g[1])),
-                         f"Nemenyi critical-difference diagram of the {_metric(g[1])} average ranks "
-                         f"(1 = best); methods connected by a bold bar are not significantly different "
-                         f"(the bar spans one critical difference). Foundation-model names are in "
-                         f"red.")))
+                         f"Nemenyi critical-difference diagram for average {_metric(g[1])} "
+                         f"ranks (rank 1 = best). Methods connected by a horizontal bar are "
+                         f"not significantly different at the chosen significance level.")))
     R.append((r"^(pd|lgd)_winloss$",
               lambda g: ((S_STAT, 2, 0),
-                         "Pairwise win/loss matrix: each cell 'W/L' is the number of datasets on which "
-                         "the row method beats versus loses to the column method (ties omitted), "
-                         "coloured by the win-minus-loss margin (red = the row method dominates, blue = "
-                         "it is dominated). Methods are ordered by mean rank, so the strongest sit "
-                         "top-left; foundation-model names are in red.")))
+                         "Pairwise win/loss matrix across datasets. Each cell reports the number "
+                         "of datasets on which the row method outperforms versus underperforms "
+                         "the column method; ties are omitted.")))
     R.append((r"^(pd|lgd)_significance$",
               lambda g: ((S_STAT, 3, 0),
-                         "Pairwise matrix of the multiple-comparison-adjusted p-values for every pair "
-                         "of methods: each cell is green where the two methods differ significantly and "
-                         "red where they do not, with the p-value printed in the cell. The matrix is "
-                         "symmetric, methods are ordered best-first, and foundation-model names are in "
-                         "red.")))
+                         "Pairwise matrix of multiple-comparison-adjusted p-values for method "
+                         "comparisons. Cells indicate whether the corresponding pair differs "
+                         "significantly after adjustment.")))
 
     return [(re.compile(p), b) for p, b in R]
 
@@ -252,19 +251,13 @@ def _curve_caption(g) -> str:
         notes.append("moving average")
     if g[5]:
         if learning:
-            notes.append(
-                "lower-right inset zooms the shaded rows <= 1000 region, "
-                "with a y-axis spanning all shown points"
-            )
+            notes.append("inset highlights the low-data regime (rows <= 1000)")
         else:
-            notes.append(
-                "lower-right inset zooms the shaded minority proportion <= 0.025 region, "
-                "with a y-axis spanning all shown points"
-            )
+            notes.append("inset highlights the severe-imbalance regime (minority proportion <= 0.025)")
     if len(g) > 6 and g[6]:
         notes.append("log-scaled x-axis")
     if g[2] == "r2" and not g[3]:
-        notes.append("R² below 0 shown at 0")
+        notes.append("R² values below 0 are displayed at the zero baseline")
     notes.append("mean over datasets")
     return (f"{kind}: {_metric(g[2])} versus {xaxis}, one line per method "
             f"({'; '.join(notes)}).")
@@ -276,12 +269,12 @@ def _curve_combined_caption(g) -> str:
     xaxis = _LEARNING_XAXIS if learning else "minority-class (default) proportion"
     notes = []
     if g[2] == "r2":
-        notes.append(f"{_metric(g[2])} below 0 shown at 0")
+        notes.append(f"{_metric(g[2])} values below 0 are displayed at the zero baseline")
     notes.append("mean over datasets")
     return (
-        f"{kind}: {_metric(g[2])} versus {xaxis}, one colour per method; "
-        f"small transparent dots show every raw pooled sweep point and the "
-        f"solid line is the moving average ({'; '.join(notes)})."
+        f"{kind}: {_metric(g[2])} versus {xaxis}, one colour per method. "
+        f"Points show pooled sweep estimates and lines show moving-average trends "
+        f"({'; '.join(notes)})."
     )
 
 

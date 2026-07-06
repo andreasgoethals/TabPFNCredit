@@ -72,12 +72,12 @@ def test_curve_variants_sort_in_notebook_order():
               "_relative_smooth")]
     assert order == sorted(order)
     cap = caption_for("pd_imbalance_curve_auc_zoom")[1]
-    assert "lower-right inset" in cap
+    assert "inset highlights" in cap
     assert "minority proportion <= 0.025" in cap
-    assert "y-axis spanning all shown points" in cap
+    assert "y-axis spanning all shown points" not in cap
     cap = caption_for("pd_imbalance_curve_auc_combined")[1]
-    assert "transparent dots" in cap
-    assert "solid line is the moving average" in cap and "inset" not in cap
+    assert "pooled sweep estimates" in cap
+    assert "moving-average trends" in cap and "inset" not in cap
 
 
 def test_learning_curve_captions_say_dataset_size():
@@ -99,26 +99,26 @@ def test_regression_baselines_render_abbreviated():
 
 def test_size_trend_captions_describe_relative_gain():
     _, auc_cap = caption_for("pd_tabpfn_v3_vs_catboost_sizetrend_auc")
-    assert "relative AUC improvement" in auc_cap
-    assert "(y, %)" in auc_cap
+    assert "Relative AUC gain" in auc_cap
+    assert "(rows, log scale)" in auc_cap
     assert "remaining unexplained variance" not in auc_cap
 
     _, r2_cap = caption_for("lgd_tabpfn_v3_vs_catboost_sizetrend_r2")
-    assert "relative R² improvement" in r2_cap
+    assert "Relative R² gain" in r2_cap
     assert "remaining unexplained variance" not in r2_cap
 
     _, lin_cap = caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")
-    assert "relative R² improvement" in lin_cap
+    assert "Relative R² gain" in lin_cap
     assert "remaining unexplained variance" not in lin_cap
 
 
 def test_r2_curve_caption_notes_zero_floor():
     # Absolute R² curves are floored at 0 (sub-0 points shown at 0); the caption
     # says so. AUC curves and the relative-% R² curve must NOT carry the note.
-    assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2")[1]
-    assert "below 0 shown at 0" in caption_for("lgd_learning_curve_r2_zoom")[1]
-    assert "below 0 shown at 0" not in caption_for("pd_learning_curve_auc")[1]
-    assert "below 0 shown at 0" not in caption_for("lgd_learning_curve_r2_relative")[1]
+    assert "displayed at the zero baseline" in caption_for("lgd_learning_curve_r2")[1]
+    assert "displayed at the zero baseline" in caption_for("lgd_learning_curve_r2_zoom")[1]
+    assert "displayed at the zero baseline" not in caption_for("pd_learning_curve_auc")[1]
+    assert "displayed at the zero baseline" not in caption_for("lgd_learning_curve_r2_relative")[1]
 
 
 def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):
