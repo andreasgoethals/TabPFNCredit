@@ -175,7 +175,7 @@ What `experiment` does:
 1. Auto-preprocess any dataset not yet cached under
    `data/processed/<task>/<dataset>/`.
 2. **Locally**: run every selected cell in-process, then summarize.
-3. **On an HPC cluster**: regenerate fresh per-partition SLURM scripts
+3. **On an HPC cluster**: write run-specific per-partition SLURM scripts
    under `scripts/<Experiment>/_generated/`, `sbatch` them, and print the
    dependency ID string used to chain later experiments.
 
@@ -183,7 +183,7 @@ Helper commands:
 
 | Command | Purpose |
 |---|---|
-| `tabpfncredit resubmit <names...> \| --all` | Scan results for every missing (task, dataset, method, sweep/HPO) point and submit ONLY those, packed into dense fresh arrays. Wipes previously generated scripts first. Works locally (report + scripts) and on a cluster (also submits). |
+| `tabpfncredit resubmit <names...> \| --all` | Scan results for every missing (task, dataset, method, sweep/HPO) point and submit ONLY those, packed into dense fresh arrays. Generated plans are run-specific, so pending arrays cannot read a later submission's plan. Works locally (report + scripts) and on a cluster (also submits). |
 | `tabpfncredit summarize --experiment <name>` | Rebuild the per-fold + per-method CSVs. |
 | `tabpfncredit list [--show-profile]` | Print registered methods + runtime tier + target partition. |
 | `tabpfncredit doctor` | Print environment variables, torch / CUDA info, and the results root. |

@@ -19,9 +19,9 @@ What `experiment` does
    ``data/processed/<task>/<dataset>/``.
 4. **Locally** (no ``$VSC_INSTITUTE_CLUSTER``): run each cell in-process,
    then summarize. No SLURM, no scratch directories.
-5. **On the VSC** (``$VSC_INSTITUTE_CLUSTER`` set): wipe any stale
-   scripts under ``scripts/<Experiment>/_generated/``, regenerate fresh
-   SLURM scripts, and ``sbatch`` them (unless ``--no-submit``). Summaries
+5. **On the VSC** (``$VSC_INSTITUTE_CLUSTER`` set): write run-specific
+   SLURM scripts under ``scripts/<Experiment>/_generated/`` and ``sbatch``
+   them (unless ``--no-submit``). Summaries
    are NOT produced automatically: build the CSVs by opening the notebooks
    (they refresh on run) or with ``tabpfncredit summarize --experiment <name>``.
 
@@ -47,6 +47,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Sequence
 
@@ -490,9 +491,10 @@ def _run_experiment_vsc(
     """
     out_dir = _PROJECT_ROOT / "scripts" / experiment / "_generated"
 
-    # 1) Wipe stale scripts/plans so an old _generated/ directory doesn't
-    # poison the next sbatch run.
-    _wipe_generated_dir(out_dir)
+    # Generated plans must stay immutable while SLURM arrays are pending.
+    # A unique suffix lets users submit two filtered runs for the same
+    # experiment/partition without the second run overwriting the first plan.
+    run_id = f"{time.strftime('%Y%m%dT%H%M%S')}_{os.getpid()}"
 
     # 2) Expand every cell into its sweep POINTS and estimate each point's cost.
     #    The point -- not the cell -- is the scheduling unit, so a cell with
@@ -533,6 +535,7 @@ def _run_experiment_vsc(
         work_items=work_items,
         out_dir=out_dir,
         n_folds=cv,
+        run_id=run_id,
     )
     if not jobs:
         console.print("[red]No SLURM scripts were generated (no cells).[/red]")
@@ -707,8 +710,9 @@ def cmd_resubmit(
     Unlike re-running ``experiment`` (which re-shards done + missing points and
     queues slots that have nothing left to do), this packs the missing points
     into the smallest possible dense array. Works locally (reports + writes
-    scripts) and on the VSC (also submits). Previous ``_generated/`` scripts
-    and plans are wiped first so stale plans can never be picked up.
+    scripts) and on the VSC (also submits). Generated plan/script filenames are
+    unique per submission so pending arrays cannot read a later submission's
+    plan.
     """
     configure_quiet_runtime()
     if verbose:
@@ -725,12 +729,6 @@ def cmd_resubmit(
         raise typer.Exit(code=1)
 
     do_submit = submit if submit is not None else (_on_vsc() and _have_sbatch())
-    console.print(
-        "[yellow]Note:[/yellow] this wipes scripts/<Exp>/_generated/. If arrays from a "
-        "previous submission are still PENDING they would read the new plans -- "
-        "check [bold]squeue -u $USER[/bold] and scancel leftovers first.\n"
-    )
-
     # AGGRESSIVE parallelism, submit-safe. Each array element counts toward the
     # ~500 per-user submit cap (`normal` QoS). Split a ~450 budget across the
     # experiments being resubmitted and the up-to-3 partitions each can use, so
@@ -764,7 +762,7 @@ def cmd_resubmit(
             console.print(f"    {m}: {n}")
 
         out_dir = _PROJECT_ROOT / "scripts" / exp / "_generated"
-        _wipe_generated_dir(out_dir)
+        run_id = f"resubmit_{time.strftime('%Y%m%dT%H%M%S')}_{os.getpid()}"
         if not items:
             console.print("  [green]nothing to do.[/green]\n")
             continue
@@ -772,7 +770,7 @@ def cmd_resubmit(
         cv = load_config(exp)["split"]["cv_splits"]
         jobs = generate_scripts_for_experiment(
             experiment=exp, work_items=items, out_dir=out_dir, n_folds=cv,
-            max_slots=resubmit_max_slots,
+            max_slots=resubmit_max_slots, run_id=run_id,
         )
         for j in jobs:
             console.print(

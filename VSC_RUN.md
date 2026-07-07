@@ -234,8 +234,9 @@ tabpfncredit resubmit Experiment1      # one experiment
 tabpfncredit resubmit --all            # all four at once
 ```
 
-It wipes `scripts/<Exp>/_generated/` before writing new scripts, so cancel
-any still-pending arrays first (`squeue -u $USER`).
+Generated plans are run-specific, so a later resubmit cannot overwrite the plan
+read by a still-pending array. You can still cancel old arrays first with
+`squeue -u $USER` / `scancel` if you deliberately want to stop duplicate work.
 
 ### Cancel everything, refresh dependencies, and resubmit across all clusters
 

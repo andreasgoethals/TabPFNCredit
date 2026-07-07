@@ -51,6 +51,7 @@ from __future__ import annotations
 
 import math
 import os
+import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
 from textwrap import dedent
@@ -508,7 +509,7 @@ def _sbatch_header(
     return "\n".join(lines) + "\n"
 
 
-def _python_invocation(experiment: str, partition_key: str) -> str:
+def _python_invocation(experiment: str, partition_key: str, plan_path: Path) -> str:
     """The actual work line -- delegates to the Typer CLI."""
     # Results live on the shared project storage (large, non-purged); the
     # regenerable joblib cache goes to $VSC_SCRATCH (the project storage is
@@ -526,7 +527,8 @@ def _python_invocation(experiment: str, partition_key: str) -> str:
         tabpfncredit slurm-task \\
             --experiment {experiment} \\
             --partition {partition_key} \\
-            --array-id "${{SLURM_ARRAY_TASK_ID}}"
+            --array-id "${{SLURM_ARRAY_TASK_ID}}" \\
+            --plan-path {shlex.quote(str(plan_path))}
         """)
 
 
@@ -555,6 +557,7 @@ def generate_scripts_for_experiment(
     max_concurrent: Optional[int] = None,
     mail_email: str = "",
     max_slots: Optional[int] = None,
+    run_id: Optional[str] = None,
 ) -> List[GeneratedJob]:
     """Write SLURM scripts for one experiment, sharding sweep POINTS across slots.
 
@@ -584,6 +587,10 @@ def generate_scripts_for_experiment(
     max_slots : int, optional
         Per-partition array-task cap. Defaults to ``$TABPFN_MAX_ARRAY_SLOTS``
         or :data:`MAX_ARRAY_SLOTS`.
+    run_id : str, optional
+        Suffix for generated script/plan filenames. Use a unique value for
+        submitted jobs so later submissions cannot overwrite the plan that a
+        pending SLURM array will read.
 
     Returns
     -------
@@ -633,6 +640,7 @@ def generate_scripts_for_experiment(
     _spillover_gpu(by_partition, max_slots=max_slots, log=_log)
 
     generated: List[GeneratedJob] = []
+    filename_suffix = f"_{run_id}" if run_id else ""
 
     for partition_key, items in sorted(by_partition.items()):
         if partition_key not in PARTITIONS:
@@ -676,7 +684,7 @@ def generate_scripts_for_experiment(
 
         # 4) Persist the per-slot point plan as a JSON sibling so slurm-task
         #    knows what to run.
-        plan_path = out_dir / f"{experiment.lower()}_{partition_key}_plan.json"
+        plan_path = out_dir / f"{experiment.lower()}_{partition_key}{filename_suffix}_plan.json"
         _write_plan(plan_path, slots)
 
         # 5) Emit the SLURM script. NO ``%N`` concurrency throttle by default:
@@ -721,11 +729,11 @@ def generate_scripts_for_experiment(
             header,
             _prologue(cluster=spec.cluster, partition=spec.partition),
             banner,
-            _python_invocation(experiment, partition_key),
+            _python_invocation(experiment, partition_key, plan_path),
             _EPILOGUE,
         ])
 
-        script_path = out_dir / f"{job_name}.slurm"
+        script_path = out_dir / f"{job_name}{filename_suffix}.slurm"
         script_path.write_text(script, encoding="utf-8")
         script_path.chmod(0o755)
 
