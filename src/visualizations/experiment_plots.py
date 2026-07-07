@@ -586,14 +586,45 @@ def per_dataset_bars(
 #  Experiment 2 (learning curve) + Experiment 3 (imbalance curve)
 # ---------------------------------------------------------------------------
 
-def _sweep_moving_average(y) -> np.ndarray:
+_SMOOTH_WINDOW_VARIANTS = {
+    "less": 0.60,
+    "standard": 1.00,
+    "more": 1.50,
+}
+
+
+def _normalise_smooth_window(window: str) -> str:
+    window = str(window).lower()
+    if window not in _SMOOTH_WINDOW_VARIANTS:
+        raise ValueError(
+            f"Unknown smooth_window={window!r}; expected one of "
+            f"{sorted(_SMOOTH_WINDOW_VARIANTS)}"
+        )
+    return window
+
+
+def _sweep_window_size(n: int, smooth_window: str = "standard") -> int:
+    """Rolling-window size for a sweep curve.
+
+    ``standard`` is the historical ``len // 12`` rule. ``less`` averages fewer
+    neighbouring points; ``more`` uses a wider window.
+    """
+    smooth_window = _normalise_smooth_window(smooth_window)
+    base = max(3, int(n) // 12)
+    return max(3, int(round(base * _SMOOTH_WINDOW_VARIANTS[smooth_window])))
+
+
+def _smooth_suffix(prefix: str, smooth_window: str) -> str:
+    smooth_window = _normalise_smooth_window(smooth_window)
+    return prefix if smooth_window == "standard" else f"{prefix}_{smooth_window}"
+
+
+def _sweep_moving_average(y, *, smooth_window: str = "standard") -> np.ndarray:
     """Centered rolling mean used by every pooled sweep moving-average view."""
     ser = pd.Series(np.asarray(y, dtype=float))
     if ser.empty:
         return np.asarray([], dtype=float)
-    # A narrower window (~1/12 of the points) keeps more of the evolution's
-    # detail while still removing the per-point jitter.
-    win = max(3, len(ser) // 12)
+    win = _sweep_window_size(len(ser), smooth_window)
     return ser.rolling(win, min_periods=1, center=True).mean().to_numpy()
 
 
@@ -738,6 +769,7 @@ def _sweep_curve(
     zoom_limit: Optional[float] = None,
     zoom_title: Optional[str] = None,
     logx: bool = False,
+    smooth_window: str = "standard",
 ) -> Optional[Path]:
     """ONE line per METHOD: the metric averaged over all datasets at each
     sweep value. With ``relative=True`` each method's curve is divided by its
@@ -775,7 +807,7 @@ def _sweep_curve(
         x = g["sweep_value"].to_numpy(dtype=float)
         if smooth:
             # Moving average across sweep points (trend, not the raw wiggle).
-            y_ma = _sweep_moving_average(y)
+            y_ma = _sweep_moving_average(y, smooth_window=smooth_window)
             ax.plot(x, y_ma, lw=CURVE_LW,
                     label=_display_name(method), color=colors[method])
         else:
@@ -802,24 +834,8 @@ def _sweep_curve(
     ax.set_xlabel(xlabel, fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(f"{pm} (% of each method's own best)" if relative else pm,
                   fontsize=LABEL_FS, fontweight="bold")
-    # The line is averaged over folds; per equal fold counts that equals the
-    # mean over datasets, so we keep the familiar "mean over datasets" label.
-    note = []
-    if relative:
-        note.append("relative to each method's own best")
-    if smooth:
-        note.append("moving average")
-    if zoom_active:
-        note.append(zoom_title or f"zoomed x <= {zoom_limit:g}")
-    if logx:
-        note.append("log x-axis")
-    note.append("mean over datasets")
-    ax.set_title(
-        f"{title} ({'; '.join(note)})",
-        fontsize=TITLE_FS,
-        fontweight="bold",
-        pad=34 if zoom_active else None,
-    )
+    ax.set_title(title, fontsize=TITLE_FS, fontweight="bold",
+                 pad=34 if zoom_active else None)
     if zoom_active:
         handles, labels = ax.get_legend_handles_labels()
         ax.legend(
@@ -837,7 +853,8 @@ def _sweep_curve(
         # Method legend bottom-right (the data-rich corner is usually empty here).
         ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
     plt.tight_layout()
-    suffix = (("_relative" if relative else "") + ("_smooth" if smooth else "")
+    smooth_suffix = _smooth_suffix("_smooth", smooth_window) if smooth else ""
+    suffix = (("_relative" if relative else "") + smooth_suffix
               + ("_zoom" if zoom_active else "") + ("_logx" if logx else ""))
     return _save(fig, out_dir, plot_name + suffix)
 
@@ -852,6 +869,7 @@ def _sweep_curve_combined(
     figsize: Tuple[int, int],
     out_dir: Optional[Path],
     plot_name: str,
+    smooth_window: str = "standard",
 ) -> Optional[Path]:
     """Pooled sweep curve overlaying EVERY raw point with its moving average.
 
@@ -891,7 +909,7 @@ def _sweep_curve_combined(
         if clamp0:
             y = y.clip(lower=0.0)
         y_raw = y.to_numpy(dtype=float)
-        y_ma = _sweep_moving_average(y_raw)
+        y_ma = _sweep_moving_average(y_raw, smooth_window=smooth_window)
         series.append({"method": method, "color": colors[method], "x": x,
                        "y_raw": y_raw, "y_ma": y_ma,
                        "final": float(y_ma[-1]) if y_ma.size else -np.inf})
@@ -920,11 +938,8 @@ def _sweep_curve_combined(
     ax.xaxis.set_major_locator(MaxNLocator(nbins=8, steps=[1, 2, 2.5, 5, 10]))
     ax.set_xlabel(xlabel, fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
-    # Short title -- the dots-vs-line encoding is explained in the caption.
-    note = ["R² below 0 shown at 0; mean over datasets"] if clamp0 else ["mean over datasets"]
     # Extra title pad leaves room for the legend row between title and axes.
-    ax.set_title(f"{title} ({'; '.join(note)})", fontsize=TITLE_FS,
-                 fontweight="bold", pad=34)
+    ax.set_title(title, fontsize=TITLE_FS, fontweight="bold", pad=34)
     if clamp0:
         ax.set_ylim(bottom=0.0)
     # One frameless legend row above the axes -- structurally outside the data
@@ -937,7 +952,7 @@ def _sweep_curve_combined(
               columnspacing=1.2)
 
     plt.tight_layout()
-    return _save(fig, out_dir, plot_name + "_combined")
+    return _save(fig, out_dir, plot_name + _smooth_suffix("_combined", smooth_window))
 
 
 def learning_curve(
@@ -951,6 +966,7 @@ def learning_curve(
     zoom: bool = False,
     zoom_limit: float = 1000.0,
     logx: bool = False,
+    smooth_window: str = "standard",
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 2: ``metric`` vs DATASET SIZE -- one line per method,
@@ -963,10 +979,10 @@ def learning_curve(
     ``logx=True`` puts the dataset-size axis on a log scale."""
     return _sweep_curve(
         df, sweep_axis="row_limit", metric=metric,
-        title=f"{task_name} learning curve: {_pretty_metric(metric)}",
+        title=f"{task_name} learning curve",
         xlabel="Dataset size (rows)", figsize=figsize, out_dir=out_dir,
         relative=relative, smooth=smooth, zoom=zoom, zoom_limit=zoom_limit,
-        zoom_title=f"Rows <= {zoom_limit:g}", logx=logx,
+        zoom_title="Low-data range", logx=logx, smooth_window=smooth_window,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
@@ -977,6 +993,7 @@ def learning_curve_moving_average_with_dots(
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = FIG_WIDE,
+    smooth_window: str = "standard",
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 2 combined view: transparent raw pooled points plus a
@@ -984,8 +1001,9 @@ def learning_curve_moving_average_with_dots(
     :func:`learning_curve` with ``zoom=True``."""
     return _sweep_curve_combined(
         df, sweep_axis="row_limit", metric=metric,
-        title=f"{task_name} learning curve: {_pretty_metric(metric)}",
+        title=f"{task_name} learning curve",
         xlabel="Dataset size (rows)", figsize=figsize, out_dir=out_dir,
+        smooth_window=smooth_window,
         plot_name=f"{task_name.lower()}_learning_curve_{metric.lower()}",
     )
 
@@ -1001,6 +1019,7 @@ def imbalance_curve(
     zoom: bool = False,
     zoom_limit: float = 0.025,
     logx: bool = False,
+    smooth_window: str = "standard",
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 3: ``metric`` vs minority proportion -- one line per method,
@@ -1011,10 +1030,10 @@ def imbalance_curve(
     minority-proportion axis on a log scale."""
     return _sweep_curve(
         df, sweep_axis="minority_proportion", metric=metric,
-        title=f"{task_name} imbalance robustness: {_pretty_metric(metric)}",
+        title=f"{task_name} imbalance-robustness curve",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
         relative=relative, smooth=smooth, zoom=zoom, zoom_limit=zoom_limit,
-        zoom_title=f"Minority <= {zoom_limit:g}", logx=logx,
+        zoom_title="Severe-imbalance range", logx=logx, smooth_window=smooth_window,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
 
@@ -1025,6 +1044,7 @@ def imbalance_curve_moving_average_with_dots(
     *,
     task_name: str = "PD",
     figsize: Tuple[int, int] = FIG_WIDE,
+    smooth_window: str = "standard",
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
     """Experiment 3 combined view: transparent raw pooled points plus a
@@ -1032,8 +1052,9 @@ def imbalance_curve_moving_average_with_dots(
     :func:`imbalance_curve` with ``zoom=True``."""
     return _sweep_curve_combined(
         df, sweep_axis="minority_proportion", metric=metric,
-        title=f"{task_name} imbalance robustness: {_pretty_metric(metric)}",
+        title=f"{task_name} imbalance-robustness curve",
         xlabel="Minority-class proportion", figsize=figsize, out_dir=out_dir,
+        smooth_window=smooth_window,
         plot_name=f"{task_name.lower()}_imbalance_curve_{metric.lower()}",
     )
 
@@ -1063,7 +1084,16 @@ def per_dataset_sweep_curves(
     pm = _pretty_metric(metric)
     colors = _sweep_colors(sorted(sub["method"].unique()))
     paths: List[Path] = []
+    curve_kind = {
+        "row_limit": "learning curve",
+        "minority_proportion": "imbalance-robustness curve",
+    }.get(sweep_axis, "sweep curve")
     for dataset in sorted(sub["dataset"].unique()):
+        dataset_label = str(dataset).split(".")[-1]
+        first, sep, rest = dataset_label.partition("_")
+        if sep and first.isdigit():
+            dataset_label = rest
+        dataset_label = dataset_label.replace("_", " ")
         dsub = sub[sub["dataset"] == dataset]
         grp = dsub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
         fig, ax = plt.subplots(figsize=figsize)
@@ -1074,7 +1104,7 @@ def per_dataset_sweep_curves(
         ax.xaxis.set_major_locator(MaxNLocator(nbins=12))
         ax.set_xlabel(xlabel, fontsize=LABEL_FS, fontweight="bold")
         ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
-        ax.set_title(f"{task_name} — {dataset}: {pm} (raw points)",
+        ax.set_title(f"{task_name} {curve_kind} - {dataset_label}",
                      fontsize=TITLE_FS, fontweight="bold")
         ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
         plt.tight_layout()

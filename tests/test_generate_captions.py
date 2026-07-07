@@ -11,8 +11,10 @@ KNOWN = [
     "pd_box_compute_time", "pd_cost_quality_auc",
     "pd_tabpfn_v3_vs_catboost_sizetrend_auc", "pd_tabpfn_v3_vs_catboost_scatter_auc",
     "pd_learning_curve_auc", "pd_learning_curve_auc_zoom",
+    "pd_learning_curve_auc_smooth_less", "pd_learning_curve_auc_smooth_more",
     "pd_learning_curve_auc_relative_smooth", "lgd_learning_curve_r2_zoom",
-    "pd_learning_curve_auc_combined", "lgd_learning_curve_r2_combined",
+    "pd_learning_curve_auc_combined", "pd_learning_curve_auc_combined_less",
+    "pd_learning_curve_auc_combined_more", "lgd_learning_curve_r2_combined",
     "pd_imbalance_curve_ap_normalized", "pd_imbalance_curve_ap_normalized_smooth",
     "pd_imbalance_curve_auc_zoom", "pd_imbalance_curve_ap_normalized_zoom",
     "pd_imbalance_curve_auc_combined",
@@ -65,18 +67,23 @@ def test_pama_min2wins_sorts_after_pama():
 
 
 def test_curve_variants_sort_in_notebook_order():
-    # base < zoomed base < smooth < combined < relative < relative smooth,
+    # base < zoomed base < smooth variants < combined variants < relative views,
     # matching the analysis notebooks' pooled-curve order.
     order = [caption_for(f"pd_learning_curve_auc{sfx}")[0] for sfx in
-             ("", "_zoom", "_smooth", "_combined", "_relative",
+             ("", "_zoom", "_smooth_less", "_smooth", "_smooth_more",
+              "_combined_less", "_combined", "_combined_more", "_relative",
               "_relative_smooth")]
     assert order == sorted(order)
+    assert "shorter window" in caption_for("pd_learning_curve_auc_smooth_less")[1]
+    assert "standard window" in caption_for("pd_learning_curve_auc_smooth")[1]
+    assert "longer window" in caption_for("pd_learning_curve_auc_smooth_more")[1]
+    assert "shorter window" in caption_for("pd_learning_curve_auc_combined_less")[1]
     cap = caption_for("pd_imbalance_curve_auc_zoom")[1]
     assert "inset highlights" in cap
-    assert "minority proportion <= 0.025" in cap
+    assert "minority proportion <= 0.025" not in cap
     assert "y-axis spanning all shown points" not in cap
     cap = caption_for("pd_imbalance_curve_auc_combined")[1]
-    assert "pooled sweep estimates" in cap
+    assert "sweep estimates" in cap
     assert "moving-average trends" in cap and "inset" not in cap
 
 
@@ -89,6 +96,7 @@ def test_learning_curve_captions_say_dataset_size():
         cap = caption_for(stem)[1]
         assert "dataset size" in cap, stem
         assert "training-set" not in cap, stem
+        assert "cross-validation split" not in cap, stem
 
 
 def test_regression_baselines_render_abbreviated():
@@ -112,13 +120,18 @@ def test_size_trend_captions_describe_relative_gain():
     assert "remaining unexplained variance" not in lin_cap
 
 
-def test_r2_curve_caption_notes_zero_floor():
-    # Absolute R² curves are floored at 0 (sub-0 points shown at 0); the caption
-    # says so. AUC curves and the relative-% R² curve must NOT carry the note.
-    assert "displayed at the zero baseline" in caption_for("lgd_learning_curve_r2")[1]
-    assert "displayed at the zero baseline" in caption_for("lgd_learning_curve_r2_zoom")[1]
-    assert "displayed at the zero baseline" not in caption_for("pd_learning_curve_auc")[1]
-    assert "displayed at the zero baseline" not in caption_for("lgd_learning_curve_r2_relative")[1]
+def test_curve_captions_avoid_rendering_notes():
+    for stem in (
+        "lgd_learning_curve_r2",
+        "lgd_learning_curve_r2_zoom",
+        "lgd_learning_curve_r2_combined",
+        "pd_learning_curve_auc_zoom",
+        "pd_imbalance_curve_auc_zoom",
+    ):
+        cap = caption_for(stem)[1]
+        assert "displayed at the zero baseline" not in cap
+        assert "rows <= 1000" not in cap
+        assert "minority proportion <= 0.025" not in cap
 
 
 def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):

@@ -170,10 +170,11 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
                          f"{display_name(g[1])}.")))
 
     # ---- pooled learning / imbalance curves ----
-    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined$",
-              lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]), 3),
+    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})_combined(_less|_more)?$",
+              lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]),
+                          _curve_combined_variant_rank(g)),
                          _curve_combined_caption(g))))
-    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth)?(_zoom)?(_logx)?$",
+    R.append((rf"^(pd|lgd)_(learning_curve|imbalance_curve)_({M})(_relative)?(_smooth(?:_less|_more)?)?(_zoom)?(_logx)?$",
               lambda g: ((S_CURVE, 0 if g[1] == "learning_curve" else 1, _metric_rank(g[2]),
                           _curve_variant_rank(g)),
                          _curve_caption(g))))
@@ -182,23 +183,12 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     R.append((rf"^(pd|lgd)_row_limit_(.+)_({M})$",
               lambda g: ((S_PERDS, 0, _dataset(g[1])),
                          f"{TASK_DISPLAY[g[0]]} - {_dataset(g[1])}: {_metric(g[2])} as a function "
-                         f"of dataset size, where the row limit is applied before the "
-                         f"cross-validation split. Each line corresponds to one method.")))
+                         f"of dataset size. Each line represents one method.")))
     R.append((rf"^(pd|lgd)_minority_proportion_(.+)_({M})$",
               lambda g: ((S_PERDS, 1, _dataset(g[1])),
                          f"{TASK_DISPLAY[g[0]]} - {_dataset(g[1])}: {_metric(g[2])} as a function "
-                         f"of the minority-class (default) proportion. Each line corresponds "
-                         f"to one method.")))
-    R.append((rf"^(pd|lgd)_row_limit_(.+)_({M})$",
-              lambda g: ((S_PERDS, 0, _dataset(g[1])),
-                         f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus dataset size "
-                         f"(rows retained before the cross-validation split), one line per method "
-                         f"(raw per-point values, no smoothing).")))
-    R.append((rf"^(pd|lgd)_minority_proportion_(.+)_({M})$",
-              lambda g: ((S_PERDS, 1, _dataset(g[1])),
-                         f"{TASK_DISPLAY[g[0]]} — {_dataset(g[1])}: {_metric(g[2])} versus the "
-                         f"minority-class (default) proportion, one line per method (raw per-point "
-                         f"values).")))
+                         f"of the minority-class (default) proportion. Each line represents "
+                         f"one method.")))
 
     # ---- statistical figures ----
     R.append((r"^(pd|lgd)_pama$",
@@ -234,62 +224,84 @@ def _cap(s: str) -> str:
     return s[:1].upper() + s[1:] if s else s
 
 
-# In Experiment 2 the swept ``row_limit`` caps the dataset BEFORE the CV split
-# (train and test shrink together), so the x-axis is the dataset size, NOT the
-# training-set size.
-_LEARNING_XAXIS = "dataset size (rows retained before the cross-validation split)"
+_LEARNING_XAXIS = "dataset size"
+_SMOOTH_CAPTION = {
+    "less": "Lines show moving-average trends using a shorter window.",
+    "standard": "Lines show moving-average trends using the standard window.",
+    "more": "Lines show moving-average trends using a longer window.",
+}
+_COMBINED_SMOOTH_CAPTION = {
+    "less": "Moving-average lines use a shorter window.",
+    "standard": "Moving-average lines use the standard window.",
+    "more": "Moving-average lines use a longer window.",
+}
+_SMOOTH_ORDER = {"less": 0, "standard": 1, "more": 2}
+
+
+def _smooth_variant(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    token = token.lstrip("_")
+    if token == "smooth":
+        return "standard"
+    if token.startswith("smooth_"):
+        return token[len("smooth_"):]
+    if token in {"less", "more"}:
+        return token
+    return "standard"
 
 
 def _curve_caption(g) -> str:
     learning = g[1] == "learning_curve"
     kind = "Learning curve" if learning else "Imbalance-robustness curve"
     xaxis = _LEARNING_XAXIS if learning else "minority-class (default) proportion"
-    notes = []
+    notes = ["Each line represents one method, averaged across datasets."]
     if g[3]:
-        notes.append("relative to each method's own best")
-    if g[4]:
-        notes.append("moving average")
+        notes.append("Values are shown relative to each method's best observed value.")
+    smooth_variant = _smooth_variant(g[4])
+    if smooth_variant:
+        notes.append(_SMOOTH_CAPTION.get(smooth_variant, _SMOOTH_CAPTION["standard"]))
     if g[5]:
         if learning:
-            notes.append("inset highlights the low-data regime (rows <= 1000)")
+            notes.append("The inset highlights the low-data region.")
         else:
-            notes.append("inset highlights the severe-imbalance regime (minority proportion <= 0.025)")
+            notes.append("The inset highlights the severe-imbalance region.")
     if len(g) > 6 and g[6]:
-        notes.append("log-scaled x-axis")
-    if g[2] == "r2" and not g[3]:
-        notes.append("R² values below 0 are displayed at the zero baseline")
-    notes.append("mean over datasets")
-    return (f"{kind}: {_metric(g[2])} versus {xaxis}, one line per method "
-            f"({'; '.join(notes)}).")
+        notes.append("The x-axis uses a logarithmic scale.")
+    return f"{kind} showing {_metric(g[2])} as a function of {xaxis}. {' '.join(notes)}"
 
 
 def _curve_combined_caption(g) -> str:
     learning = g[1] == "learning_curve"
     kind = "Learning curve" if learning else "Imbalance-robustness curve"
     xaxis = _LEARNING_XAXIS if learning else "minority-class (default) proportion"
-    notes = []
-    if g[2] == "r2":
-        notes.append(f"{_metric(g[2])} values below 0 are displayed at the zero baseline")
-    notes.append("mean over datasets")
+    smooth_variant = _smooth_variant(g[3])
     return (
-        f"{kind}: {_metric(g[2])} versus {xaxis}, one colour per method. "
-        f"Points show pooled sweep estimates and lines show moving-average trends "
-        f"({'; '.join(notes)})."
+        f"{kind} showing {_metric(g[2])} as a function of {xaxis}. "
+        f"Points show sweep estimates and lines show moving-average trends, "
+        f"with one colour per method. "
+        f"{_COMBINED_SMOOTH_CAPTION.get(smooth_variant or 'standard')}"
     )
+
+
+def _curve_combined_variant_rank(g) -> int:
+    smooth_variant = _smooth_variant(g[3]) or "standard"
+    return 5 + _SMOOTH_ORDER.get(smooth_variant, _SMOOTH_ORDER["standard"])
 
 
 def _curve_variant_rank(g) -> int:
     """Generation order for pooled curve variants in the notebooks."""
     relative = bool(g[3])
-    smooth = bool(g[4])
+    smooth_variant = _smooth_variant(g[4])
+    smooth = smooth_variant is not None
     zoom = bool(g[5])
     logx = bool(g[6]) if len(g) > 6 else False
     if logx:
-        return 10 + (4 if relative else 0) + (2 if smooth else 0)
+        return 20 + (4 if relative else 0) + (2 if smooth else 0)
     if relative:
-        return 4 + (1 if smooth else 0)
+        return 10 + (_SMOOTH_ORDER.get(smooth_variant, 0) + 1 if smooth else 0)
     if smooth:
-        return 2
+        return 2 + _SMOOTH_ORDER.get(smooth_variant, _SMOOTH_ORDER["standard"])
     if zoom:
         return 1
     return 0
