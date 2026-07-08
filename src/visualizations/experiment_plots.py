@@ -821,8 +821,6 @@ def _sweep_curve(
         ax.xaxis.set_major_locator(MaxNLocator(nbins=14))
     if relative:
         ax.axhline(1.0, color="0.6", lw=0.8, ls="--")
-    if clamp0:
-        ax.set_ylim(bottom=0.0)                          # R2 axis starts at 0
     if zoom_active and zoom_series:
         _add_raw_sweep_zoom(
             ax,
@@ -940,8 +938,6 @@ def _sweep_curve_combined(
     ax.set_ylabel(pm, fontsize=LABEL_FS, fontweight="bold")
     # Extra title pad leaves room for the legend row between title and axes.
     ax.set_title(title, fontsize=TITLE_FS, fontweight="bold", pad=34)
-    if clamp0:
-        ax.set_ylim(bottom=0.0)
     # One frameless legend row above the axes -- structurally outside the data
     # -- ordered best-first (by each method's final moving-average value).
     best_first = sorted(series, key=lambda s: -s["final"])

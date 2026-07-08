@@ -76,6 +76,51 @@ def test_combined_r2_learning_curve_title_has_no_rendering_note(monkeypatch):
     assert "below 0" not in captured["title"]
 
 
+def test_smooth_r2_learning_curve_y_axis_uses_plotted_line(monkeypatch):
+    captured = {}
+
+    def fake_save(fig, out_dir, stem):
+        ax = fig.axes[0]
+        captured["ylim"] = ax.get_ylim()
+        captured["ydata"] = ax.lines[0].get_ydata()
+        ep.plt.close(fig)
+        return None
+
+    monkeypatch.setattr(ep, "_save", fake_save)
+    df = pd.DataFrame({
+        "method": ["m1", "m1", "m1", "m1"],
+        "sweep_axis": ["row_limit"] * 4,
+        "sweep_value": [100, 800, 1200, 2000],
+        "metric.R2": [0.42, 0.48, 0.54, 0.60],
+    })
+
+    ep.learning_curve(df, "R2", task_name="LGD", smooth=True)
+
+    assert min(captured["ydata"]) > 0.3
+    assert captured["ylim"][0] > 0.3
+
+
+def test_combined_r2_learning_curve_y_axis_uses_plotted_points(monkeypatch):
+    captured = {}
+
+    def fake_save(fig, out_dir, stem):
+        captured["ylim"] = fig.axes[0].get_ylim()
+        ep.plt.close(fig)
+        return None
+
+    monkeypatch.setattr(ep, "_save", fake_save)
+    df = pd.DataFrame({
+        "method": ["m1", "m1", "m1", "m1"],
+        "sweep_axis": ["row_limit"] * 4,
+        "sweep_value": [100, 800, 1200, 2000],
+        "metric.R2": [0.42, 0.48, 0.54, 0.60],
+    })
+
+    ep.learning_curve_moving_average_with_dots(df, "R2", task_name="LGD")
+
+    assert captured["ylim"][0] > 0.3
+
+
 def test_smooth_window_variant_changes_filename(monkeypatch):
     stems = []
 
