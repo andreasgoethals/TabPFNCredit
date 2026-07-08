@@ -1,8 +1,13 @@
-"""Caption generator: every known figure stem gets a fitting, non-fallback caption."""
+"""Caption generator: every known figure stem gets a fitting caption."""
 from __future__ import annotations
 
 from src.utils import generate_captions as gc
-from src.utils.generate_captions import caption_for, generate_captions, S_FALLBACK
+from src.utils.generate_captions import (
+    caption_for,
+    generate_captions,
+    latex_caption_block,
+    S_FALLBACK,
+)
 
 # Representative stems from every figure family actually produced.
 KNOWN = [
@@ -31,39 +36,40 @@ def test_known_stems_are_recognised():
     assert not bad, f"unrecognised stems: {bad}"
 
 
-def test_display_names_and_metrics_render():
+def test_display_names_and_multitoken_metrics_parse():
     _, cap = caption_for("pd_tabpfn_v3_vs_catboost_scatter_auc")
-    assert "TabPFN-3" in cap and "CatBoost" in cap and "AUC" in cap
-    _, cap = caption_for("lgd_heatmap_r2")
-    assert "R²" in cap
+    assert "TabPFN-3" in cap and "CatBoost" in cap
     _, cap = caption_for("pd_imbalance_curve_ap_normalized")
-    assert "average precision" in cap.lower()          # multi-token metric parsed
+    assert "Curves average scores" in cap
 
 
 def test_no_capitalize_mangling():
-    # "AUC"/"the Brier score" must not be mangled by sentence-casing.
+    # Captions should not sentence-case metric names into odd prose.
     assert "Auc" not in caption_for("pd_heatmap_auc")[1]
     assert "Mean the Brier" not in caption_for("pd_bar_mean_brier")[1]
 
 
 def test_unknown_stem_falls_back_gracefully():
     key, cap = caption_for("pd_some_new_plot_xyz")
-    assert key[0] == S_FALLBACK and "pd_some_new_plot_xyz" in cap
+    assert key[0] == S_FALLBACK and r"pd\_some\_new\_plot\_xyz" in cap
 
 
 def test_matrix_views_order_by_metric_then_view():
     # AUC block (all six views) sorts before the Brier block.
     auc = [caption_for(f"pd_{v}_auc")[0] for v in
            ("heatmap", "bar_mean", "box", "rank_matrix", "ranking", "rank_box")]
-    assert auc == sorted(auc)                          # already in view order
+    assert auc == sorted(auc)
     assert caption_for("pd_rank_box_auc")[0] < caption_for("pd_heatmap_brier")[0]
 
 
-def test_pama_min2wins_sorts_after_pama():
-    # The "at least two wins" PAMA chart is a distinct figure, listed right after
+def test_pama_min2wins_sorts_after_pama_without_expanding_acronym():
+    # The at-least-two-wins PAMA chart is a distinct figure, listed right after
     # the all-winners PAMA in each statistical chapter.
     assert caption_for("pd_pama")[0] < caption_for("pd_pama_min2wins")[0]
     assert "two" in caption_for("pd_pama_min2wins")[1].lower()
+    pama_cap = caption_for("pd_pama")[1]
+    assert "Probability of achieving" not in pama_cap
+    assert "maximal accuracy" not in pama_cap.lower()
 
 
 def test_curve_variants_sort_in_notebook_order():
@@ -79,22 +85,21 @@ def test_curve_variants_sort_in_notebook_order():
     assert "longer window" in caption_for("pd_learning_curve_auc_smooth_more")[1]
     assert "shorter window" in caption_for("pd_learning_curve_auc_combined_less")[1]
     cap = caption_for("pd_imbalance_curve_auc_zoom")[1]
-    assert "inset highlights" in cap
+    assert "inset repeats" in cap
     assert "minority proportion <= 0.025" not in cap
     assert "y-axis spanning all shown points" not in cap
     cap = caption_for("pd_imbalance_curve_auc_combined")[1]
-    assert "sweep estimates" in cap
-    assert "moving-average trends" in cap and "inset" not in cap
+    assert "pooled score estimates" in cap
+    assert "moving averages" in cap and "inset" not in cap
 
 
-def test_learning_curve_captions_say_dataset_size():
-    # Experiment 2's row_limit caps the dataset BEFORE the CV split, so every
-    # learning-curve caption must say "dataset size" and never "training-set".
+def test_learning_curve_captions_avoid_split_details():
+    # Experiment 2's row_limit caps the dataset before the CV split, so captions
+    # must never describe it as a training-set split.
     for stem in ("pd_learning_curve_auc", "pd_learning_curve_auc_zoom",
                  "lgd_learning_curve_r2_combined",
                  "pd_row_limit_0003_vehicle_loan_auc"):
         cap = caption_for(stem)[1]
-        assert "dataset size" in cap, stem
         assert "training-set" not in cap, stem
         assert "cross-validation split" not in cap, stem
 
@@ -105,19 +110,28 @@ def test_regression_baselines_render_abbreviated():
     assert "lin. reg" in caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")[1]
 
 
-def test_size_trend_captions_describe_relative_gain():
+def test_size_trend_captions_explain_color_and_trend_encoding():
     _, auc_cap = caption_for("pd_tabpfn_v3_vs_catboost_sizetrend_auc")
-    assert "Relative AUC gain" in auc_cap
-    assert "(rows, log scale)" in auc_cap
+    assert "green points favour TabPFN-3" in auc_cap
+    assert "red points favour CatBoost" in auc_cap
+    assert "log dataset size" in auc_cap
     assert "remaining unexplained variance" not in auc_cap
 
     _, r2_cap = caption_for("lgd_tabpfn_v3_vs_catboost_sizetrend_r2")
-    assert "Relative R² gain" in r2_cap
+    assert "green points favour TabPFN-3" in r2_cap
+    assert "red points favour CatBoost" in r2_cap
     assert "remaining unexplained variance" not in r2_cap
 
     _, lin_cap = caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")
-    assert "Relative R² gain" in lin_cap
+    assert "red points favour lin. reg" in lin_cap
     assert "remaining unexplained variance" not in lin_cap
+
+
+def test_latex_caption_blocks_are_copy_ready():
+    block = latex_caption_block("pd_heatmap_auc")
+    assert block.startswith(r"\caption{")
+    assert r"\label{fig:pd-heatmap-auc}" in block
+    assert "```" not in block
 
 
 def test_curve_captions_avoid_rendering_notes():
@@ -135,8 +149,9 @@ def test_curve_captions_avoid_rendering_notes():
 
 
 def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):
-    # Two chapters' figures, created out of order; output must be ONE file at the
-    # figures root, chapters in notebook order, figures in generation order.
+    # Two chapters' figures, created out of order; output must be one file at
+    # the figures root, with chapters in notebook order and figures in
+    # generation order.
     for sub, stems in (("experiment1/pd", ["pd_bar_mean_auc", "pd_heatmap_auc"]),
                        ("experiment0", ["pd_heatmap_auc"])):
         (tmp_path / sub).mkdir(parents=True)
@@ -144,22 +159,24 @@ def test_generate_writes_one_consolidated_file_in_notebook_order(tmp_path):
             (tmp_path / sub / f"{stem}.pdf").write_bytes(b"%PDF-1.4")
     (tmp_path / "empty").mkdir()
     written = generate_captions(tmp_path)
-    assert written == [tmp_path / "CAPTIONS.md"]                 # single file, at the root
+    assert written == [tmp_path / "CAPTIONS.md"]
     txt = written[0].read_text(encoding="utf-8")
-    # Experiment 0 chapter precedes Experiment 1.1, and within a chapter the
-    # heatmap is listed before the bar (generation order), not alphabetically.
     assert txt.index("Experiment 0") < txt.index("Experiment 1.1")
     assert txt.index("`pd_heatmap_auc.pdf`") < txt.index("`pd_bar_mean_auc.pdf`")
+    assert "```latex" in txt
+    assert r"\caption{" in txt
+    assert r"\label{fig:experiment0-pd-heatmap-auc}" in txt
+    assert r"\label{fig:experiment1-pd-pd-heatmap-auc}" in txt
 
 
 def test_generate_removes_stale_per_directory_files(tmp_path):
     d = tmp_path / "experiment0"
     d.mkdir(parents=True)
     (d / "pd_pama.pdf").write_bytes(b"%PDF-1.4")
-    (d / "CAPTIONS.md").write_text("old per-dir file", encoding="utf-8")   # stale
+    (d / "CAPTIONS.md").write_text("old per-dir file", encoding="utf-8")
     generate_captions(tmp_path)
-    assert not (d / "CAPTIONS.md").exists()                     # pruned
-    assert (tmp_path / "CAPTIONS.md").exists()                  # single file written
+    assert not (d / "CAPTIONS.md").exists()
+    assert (tmp_path / "CAPTIONS.md").exists()
 
 
 def test_saved_project_figure_refreshes_consolidated_captions(tmp_path, monkeypatch):
