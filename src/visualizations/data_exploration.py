@@ -19,6 +19,7 @@ Public surface
 * :func:`numeric_feature_stats`    -- per-feature stats (mean/std/min/max) per dataset
 * :func:`plot_dataset_size_bar`    -- bar chart of dataset row counts
 * :func:`plot_target_balance`      -- PD class balance plot
+* :func:`plot_processed_dataset_overview_slide` -- slide-wide rows/features/imbalance overview
 * :func:`plot_lgd_target_hists`    -- LGD target histograms (one per dataset)
 * :func:`plot_correlation_heatmap` -- per-dataset feature correlation heatmap
 * :func:`plot_pca_2d`              -- 2D PCA scatter coloured by target
@@ -247,13 +248,20 @@ def numeric_feature_stats(task: str, dataset: str) -> pd.DataFrame:
 #  Plot helpers
 # ============================================================================
 
-def save_or_show(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
+def save_or_show(
+    fig: plt.Figure,
+    out_path: Optional[Path],
+    *,
+    bbox_inches: Optional[str] = "tight",
+) -> Optional[Path]:
     """Save ``fig`` to ``<out_path>.pdf`` (PDF only) AND display it inline.
 
     Behaviour
     ---------
     * **Save**: only PDF (no PNG). The extension on ``out_path`` is
       forced to ``.pdf`` so callers can pass a path with or without one.
+      ``bbox_inches`` defaults to ``"tight"`` for compact paper figures; pass
+      ``None`` when the PDF page itself must preserve ``figsize`` exactly.
     * **Display**: encodes a PNG via ``fig.savefig`` into an in-memory
       buffer and pushes it through ``IPython.display.Image`` so the
       figure renders right at the call site in a notebook. This works
@@ -269,7 +277,7 @@ def save_or_show(fig: plt.Figure, out_path: Optional[Path]) -> Optional[Path]:
     if out_path is not None:
         pdf_path = Path(out_path).with_suffix(".pdf")
         pdf_path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(pdf_path, bbox_inches="tight", dpi=200)   # crisp on disk
+        fig.savefig(pdf_path, bbox_inches=bbox_inches, dpi=200)   # crisp on disk
         from src.utils.generate_captions import refresh_captions_for_saved_figure
         refresh_captions_for_saved_figure(pdf_path)
     _display_inline(fig, dpi=96)                              # small inline PNG
@@ -346,6 +354,156 @@ def plot_target_balance(
     ax.set_title("PD: positive-class rate per dataset (sorted ascending)")
     plt.tight_layout()
     return save_or_show(fig, out_path)
+
+
+def plot_processed_dataset_overview_slide(
+    *,
+    out_path: Optional[Path] = None,
+    figsize: Tuple[float, float] = (16.0, 9.0),
+) -> Optional[Path]:
+    """Slide-wide three-panel overview of processed dataset size and imbalance.
+
+    The output is deliberately 16:9 so the saved PDF can fill a Google Slides
+    widescreen slide without extra cropping: rows, total processed features,
+    and PD positive-class rate are shown side by side in one row.
+    """
+    from matplotlib.patches import Patch
+    from matplotlib.ticker import FuncFormatter
+
+    summaries = []
+    for task in ("pd", "lgd"):
+        df = processed_dataset_summary_table(task)
+        if not df.empty:
+            summaries.append(df)
+    if not summaries:
+        logger.warning("plot_processed_dataset_overview_slide: no processed datasets to plot")
+        return None
+    overview = pd.concat(summaries, ignore_index=True)
+
+    balance = pd_target_balance_table()
+    if balance.empty:
+        logger.warning("plot_processed_dataset_overview_slide: no PD class-balance data to plot")
+        return None
+
+    task_colors = {"pd": "#4477AA", "lgd": "#EE7733"}  # colour-blind-safe blue/orange
+
+    def _dataset_label(name: str) -> str:
+        return name.split(".", 1)[1].replace("_", " ") if "." in name else name.replace("_", " ")
+
+    def _count_tick(x: float, _pos: int) -> str:
+        if x >= 1_000_000:
+            return f"{x / 1_000_000:g}M"
+        if x >= 1_000:
+            return f"{x / 1_000:g}k"
+        return f"{x:g}"
+
+    def _count_label(value: float) -> str:
+        if value >= 1_000_000:
+            return f"{value / 1_000_000:.1f}M"
+        if value >= 10_000:
+            return f"{value / 1_000:.0f}k"
+        if value >= 1_000:
+            return f"{value / 1_000:.1f}k"
+        return f"{value:.0f}"
+
+    def _draw_count_panel(
+        ax: plt.Axes,
+        df: pd.DataFrame,
+        value_col: str,
+        title: str,
+        xlabel: str,
+    ) -> None:
+        ordered = df.sort_values(value_col, ascending=False).reset_index(drop=True)
+        y = np.arange(len(ordered))
+        colors = ordered["task"].map(task_colors).tolist()
+        ax.barh(y, ordered[value_col], color=colors, edgecolor="black", linewidth=0.35)
+        ax.set_yticks(y)
+        ax.set_yticklabels([_dataset_label(d) for d in ordered["dataset"]], fontsize=7)
+        ax.invert_yaxis()
+        ax.set_xscale("log")
+        ax.xaxis.set_major_formatter(FuncFormatter(_count_tick))
+        ax.set_xlabel(xlabel, fontweight="bold")
+        ax.set_title(title, fontweight="bold", pad=8)
+        ax.grid(axis="x", alpha=0.25)
+        ax.grid(axis="y", visible=False)
+        ax.set_axisbelow(True)
+        min_value = max(1.0, float(ordered[value_col].min()))
+        max_value = float(ordered[value_col].max())
+        left = 1.0 if min_value <= 10 else 10 ** np.floor(np.log10(min_value / 2))
+        ax.set_xlim(left=left, right=max_value * 2.2)
+        for yi, value in zip(y, ordered[value_col]):
+            ax.annotate(
+                _count_label(float(value)),
+                xy=(float(value), yi),
+                xytext=(4, 0),
+                textcoords="offset points",
+                va="center",
+                ha="left",
+                fontsize=7,
+            )
+
+    def _draw_imbalance_panel(ax: plt.Axes, df: pd.DataFrame) -> None:
+        ordered = df.sort_values("positive_rate", ascending=True).reset_index(drop=True)
+        y = np.arange(len(ordered))
+        ax.barh(
+            y,
+            ordered["positive_rate"] * 100,
+            color=task_colors["pd"],
+            edgecolor="black",
+            linewidth=0.35,
+        )
+        ax.set_yticks(y)
+        ax.set_yticklabels([_dataset_label(d) for d in ordered["dataset"]], fontsize=7)
+        ax.invert_yaxis()
+        ax.set_xlim(0, 50)
+        ax.set_xlabel("Positive-class rate (%)", fontweight="bold")
+        ax.set_title("PD Class Imbalance", fontweight="bold", pad=8)
+        ax.grid(axis="x", alpha=0.25)
+        ax.grid(axis="y", visible=False)
+        ax.set_axisbelow(True)
+        ax.axvline(50, color="0.35", linestyle="--", linewidth=1.0)
+        for yi, value in zip(y, ordered["positive_rate"] * 100):
+            ax.annotate(
+                f"{value:.1f}%",
+                xy=(float(value), yi),
+                xytext=(4, 0),
+                textcoords="offset points",
+                va="center",
+                ha="left",
+                fontsize=7,
+            )
+
+    fig, axes = plt.subplots(1, 3, figsize=figsize)
+    _draw_count_panel(
+        axes[0],
+        overview,
+        "rows",
+        "Processed Rows",
+        "Rows (log scale)",
+    )
+    _draw_count_panel(
+        axes[1],
+        overview,
+        "n_total_features",
+        "Processed Features",
+        "Features (log scale)",
+    )
+    _draw_imbalance_panel(axes[2], balance)
+
+    handles = [
+        Patch(facecolor=task_colors["pd"], edgecolor="black", label="PD"),
+        Patch(facecolor=task_colors["lgd"], edgecolor="black", label="LGD"),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="upper center",
+        ncol=2,
+        frameon=True,
+        bbox_to_anchor=(0.5, 0.925),
+    )
+    fig.suptitle("Processed Dataset Overview", fontsize=18, fontweight="bold", y=0.975)
+    fig.tight_layout(rect=(0, 0.02, 1, 0.89), w_pad=2.0)
+    return save_or_show(fig, out_path, bbox_inches=None)
 
 
 def plot_lgd_target_hists(
@@ -520,6 +678,7 @@ __all__ = [
     "pd_target_balance_table", "lgd_target_distribution_table",
     "numeric_feature_stats",
     "plot_dataset_size_bar", "plot_target_balance", "plot_lgd_target_hists",
+    "plot_processed_dataset_overview_slide",
     "plot_correlation_heatmap", "plot_pca_2d",
     "save_or_show",
 ]
