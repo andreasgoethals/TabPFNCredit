@@ -133,7 +133,7 @@ def latex_caption_block(stem: str, label_stem: Optional[str] = None) -> str:
 #  Stem -> (sort key, caption body). Each rule: (regex, builder); builder
 #  returns (sort_key_tuple, caption_body). First matching rule wins.
 # ---------------------------------------------------------------------------
-S_DATA, S_MATRIX, S_HPO, S_COMPUTE, S_COSTQ, S_HEAD, S_CURVE, S_PERDS, S_STAT, S_FALLBACK = range(10)
+S_DATA, S_MATRIX, S_HPO, S_COMPUTE, S_COSTQ, S_HEAD, S_CAL, S_CURVE, S_PERDS, S_STAT, S_FALLBACK = range(11)
 _VIEW = {"heatmap": 0, "bar_mean": 1, "box": 2, "rank_matrix": 3, "ranking": 4, "rank_box": 5}
 
 
@@ -277,13 +277,37 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: ((S_HEAD, _metric_rank(g[3]), 0), _size_trend_caption(g)),
     ))
     R.append((
-        rf"^(pd|lgd)_(.+?)_vs_(.+?)_scatter_({M})$",
+        rf"^(pd|lgd)_(.+?)_vs_(.+?)_imbalancetrend_({M})$",
         lambda g: (
             (S_HEAD, _metric_rank(g[3]), 1),
+            (
+                f"Each point is a dataset. The horizontal axis is the processed minority-class "
+                f"proportion, so lower values indicate stronger imbalance; green points favour "
+                f"{_method(g[1])}, red points favour {_method(g[2])}, and the solid line is an "
+                f"ordinary least-squares trend."
+            ),
+        ),
+    ))
+    R.append((
+        rf"^(pd|lgd)_(.+?)_vs_(.+?)_scatter_({M})$",
+        lambda g: (
+            (S_HEAD, _metric_rank(g[3]), 2),
             (
                 f"Each point is a dataset; the diagonal marks equal performance, with green points "
                 f"favouring {_method(g[1])} and red points favouring {_method(g[2])}."
             ),
+        ),
+    ))
+
+    # ---- selected-method calibration summary ----
+    R.append((
+        r"^(pd|lgd)_selected_calibration_summary$",
+        lambda g: (
+            (S_CAL, 0, g[0]),
+            "The top panels compare equal-dataset macro means and signed differences, with "
+            "one-standard-deviation whiskers. The bottom panels show the corresponding "
+            "dataset-level distributions. Positive observed-minus-predicted values indicate "
+            "underprediction.",
         ),
     ))
 

@@ -15,6 +15,8 @@ KNOWN = [
     "pd_ranking_auc", "pd_rank_box_auc", "pd_hpo_effect_auc", "pd_bar_compute_time",
     "pd_box_compute_time", "pd_cost_quality_auc",
     "pd_tabpfn_v3_vs_catboost_sizetrend_auc", "pd_tabpfn_v3_vs_catboost_scatter_auc",
+    "pd_tabpfn_v3_vs_catboost_imbalancetrend_auc",
+    "pd_selected_calibration_summary", "lgd_selected_calibration_summary",
     "pd_learning_curve_auc", "pd_learning_curve_auc_zoom",
     "pd_learning_curve_auc_smooth_less", "pd_learning_curve_auc_smooth_more",
     "pd_learning_curve_auc_relative_smooth", "lgd_learning_curve_r2_zoom",

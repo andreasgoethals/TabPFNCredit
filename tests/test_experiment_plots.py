@@ -6,6 +6,17 @@ from src.visualizations import experiment_plots as ep
 from src.visualizations.experiment_plots import _relative_metric_gain, _sweep_window_size
 
 
+def _write_pd_oof(path, y_true, y_prob):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        fold_1_y_true=np.asarray(y_true[: len(y_true) // 2]),
+        fold_1_y_prob=np.asarray(y_prob[: len(y_prob) // 2]),
+        fold_2_y_true=np.asarray(y_true[len(y_true) // 2 :]),
+        fold_2_y_prob=np.asarray(y_prob[len(y_prob) // 2 :]),
+    )
+
+
 def test_r2_relative_gain_uses_baseline_value_like_auc():
     gain = _relative_metric_gain(np.array([0.84]), np.array([0.80]), "R2")
     assert gain[0] == pytest.approx(5.0)
@@ -21,6 +32,84 @@ def test_lower_is_better_relative_gain_is_positive_when_foundation_improves():
         np.array([0.18]), np.array([0.20]), "Brier", higher_is_better=False
     )
     assert gain[0] == pytest.approx(10.0)
+
+
+def test_calibration_bias_table_pools_out_of_fold_probabilities(tmp_path):
+    result = tmp_path / "experiment1" / "pd" / "dataset_a" / "method_a__HPO.npz"
+    y_true = np.array([0, 1, 0, 0])
+    y_prob = np.column_stack([1 - np.array([0.2, 0.6, 0.1, 0.3]),
+                              np.array([0.2, 0.6, 0.1, 0.3])])
+    _write_pd_oof(result, y_true, y_prob)
+    df = pd.DataFrame({"dataset": ["dataset_a"], "method": ["method_a"]})
+
+    table = ep.calibration_bias_table(df, results_root=tmp_path, task="pd")
+
+    assert len(table) == 1
+    assert table.loc[0, "observed_mean"] == pytest.approx(0.25)
+    assert table.loc[0, "predicted_mean"] == pytest.approx(0.30)
+    assert table.loc[0, "calibration_bias"] == pytest.approx(-0.05)
+    assert table.loc[0, "n_folds"] == 2
+
+
+def test_selected_calibration_summary_has_four_panels_and_requested_order(monkeypatch):
+    methods = ["tabpfn_v3", "tabicl_v2", "catboost", "LogReg"]
+    table = pd.DataFrame({
+        "dataset": ["d1", "d2"] * 4,
+        "method": [method for method in methods for _ in range(2)],
+        "observed_mean": [0.10, 0.20] * 4,
+        "predicted_mean": [0.11, 0.19, 0.12, 0.18, 0.09, 0.21, 0.10, 0.20],
+    })
+    table["calibration_bias"] = table["observed_mean"] - table["predicted_mean"]
+    captured = {}
+
+    def fake_save(fig, out_dir, stem):
+        captured["stem"] = stem
+        captured["axes"] = len(fig.axes)
+        captured["labels"] = [tick.get_text() for tick in fig.axes[0].get_xticklabels()]
+        ep.plt.close(fig)
+        return None
+
+    monkeypatch.setattr(ep, "_save", fake_save)
+
+    ep.selected_method_calibration_summary(table, task="pd")
+
+    assert captured["stem"] == "pd_selected_calibration_summary"
+    assert captured["axes"] == 4
+    assert captured["labels"] == ["TabPFN-3", "TabICLv2", "CatBoost", "log. reg"]
+
+
+def test_imbalance_trend_uses_processed_minority_proportion(monkeypatch):
+    from src.data import dataset_inventory
+
+    proportions = {"d1": 0.05, "d2": 0.20}
+    monkeypatch.setattr(
+        dataset_inventory, "minority_proportion", lambda task, dataset: proportions[dataset]
+    )
+    captured = {}
+
+    def fake_save(fig, out_dir, stem):
+        captured["stem"] = stem
+        captured["x"] = sorted(
+            float(value)
+            for collection in fig.axes[0].collections
+            for value in collection.get_offsets()[:, 0]
+        )
+        ep.plt.close(fig)
+        return None
+
+    monkeypatch.setattr(ep, "_save", fake_save)
+    df = pd.DataFrame({
+        "dataset": ["d1", "d1", "d2", "d2"],
+        "method": ["tabpfn_v3", "catboost", "tabpfn_v3", "catboost"],
+        "metric.AUC": [0.80, 0.75, 0.76, 0.77],
+    })
+
+    ep.foundation_vs_baseline_imbalance_trend(
+        df, metric="AUC", task_name="PD"
+    )
+
+    assert captured["stem"] == "pd_tabpfn_v3_vs_catboost_imbalancetrend_auc"
+    assert captured["x"] == pytest.approx([5.0, 20.0])
 
 
 def test_sweep_window_variants_keep_standard_rule_and_bracket_it():

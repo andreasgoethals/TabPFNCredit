@@ -20,8 +20,9 @@ once the CSV summaries exist.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import matplotlib
 # Pin the non-interactive Agg backend so the module imports cleanly
@@ -454,6 +455,249 @@ def load_summary(
     if df.empty:
         raise FileNotFoundError(f"No {task}/{hpo_mode} rows in {path}")
     return df.reset_index(drop=True)
+
+
+# ---------------------------------------------------------------------------
+#  Out-of-fold prediction diagnostics (Experiment 1)
+# ---------------------------------------------------------------------------
+
+def _result_npz_path(
+    results_root: Path,
+    *,
+    experiment: str,
+    task: str,
+    dataset: str,
+    method: str,
+    hpo_mode: str,
+) -> Path:
+    suffix = "__HPO" if str(hpo_mode).upper() == "HPO" else ""
+    return (
+        Path(results_root)
+        / experiment.lower()
+        / task.lower()
+        / dataset
+        / f"{method}{suffix}.npz"
+    )
+
+
+def _load_oof_prediction_pair(path: Path, task: str) -> Tuple[np.ndarray, np.ndarray, int]:
+    """Return pooled test-fold targets and predictions from one result archive."""
+    task = task.lower()
+    pred_key = "y_prob" if task == "pd" else "y_pred"
+    y_parts: List[np.ndarray] = []
+    pred_parts: List[np.ndarray] = []
+    with np.load(path, allow_pickle=False) as archive:
+        fold_ids = sorted(
+            int(match.group(1))
+            for key in archive.files
+            if (match := re.fullmatch(r"fold_(\d+)_y_true", key))
+        )
+        for fold_id in fold_ids:
+            y_key = f"fold_{fold_id}_y_true"
+            p_key = f"fold_{fold_id}_{pred_key}"
+            if p_key not in archive.files:
+                continue
+            y_true = np.asarray(archive[y_key], dtype=float).ravel()
+            prediction = np.asarray(archive[p_key], dtype=float)
+            if task == "pd" and prediction.ndim == 2:
+                if prediction.shape[1] == 2:
+                    prediction = prediction[:, 1]
+                elif prediction.shape[1] == 1:
+                    prediction = prediction[:, 0]
+                else:
+                    raise ValueError(f"Unsupported PD probability shape {prediction.shape} in {path}")
+            prediction = prediction.ravel()
+            if len(y_true) != len(prediction):
+                raise ValueError(
+                    f"Target/prediction length mismatch in {path}, fold {fold_id}: "
+                    f"{len(y_true)} != {len(prediction)}"
+                )
+            finite = np.isfinite(y_true) & np.isfinite(prediction)
+            y_parts.append(y_true[finite])
+            pred_parts.append(prediction[finite])
+    if not y_parts:
+        raise ValueError(f"No usable out-of-fold predictions in {path}")
+    return np.concatenate(y_parts), np.concatenate(pred_parts), len(y_parts)
+
+
+def calibration_bias_table(
+    df: pd.DataFrame,
+    *,
+    results_root: Path,
+    task: str,
+    experiment: str = "experiment1",
+    hpo_mode: str = "HPO",
+    methods: Optional[Sequence[str]] = None,
+) -> pd.DataFrame:
+    """Dataset-level OOF observed means, predicted means, and signed differences."""
+    available_methods = list(dict.fromkeys(df["method"].astype(str)))
+    if methods is not None:
+        requested = set(methods)
+        available_methods = [method for method in available_methods if method in requested]
+    datasets = sorted(df["dataset"].astype(str).unique())
+    rows: List[Dict[str, object]] = []
+    for method in available_methods:
+        for dataset in datasets:
+            path = _result_npz_path(
+                results_root,
+                experiment=experiment,
+                task=task,
+                dataset=dataset,
+                method=method,
+                hpo_mode=hpo_mode,
+            )
+            if not path.exists():
+                logger.warning("Calibration summary: missing %s", path)
+                continue
+            try:
+                y_true, prediction, n_folds = _load_oof_prediction_pair(path, task)
+            except (OSError, ValueError) as exc:
+                logger.warning("Calibration summary: skipping %s (%s)", path, exc)
+                continue
+            observed_mean = float(np.mean(y_true))
+            predicted_mean = float(np.mean(prediction))
+            rows.append(
+                {
+                    "task": task.lower(),
+                    "dataset": dataset,
+                    "method": method,
+                    "observed_mean": observed_mean,
+                    "predicted_mean": predicted_mean,
+                    "calibration_bias": observed_mean - predicted_mean,
+                    "n_observations": len(y_true),
+                    "n_folds": n_folds,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
+def selected_method_calibration_summary(
+    calibration_df: pd.DataFrame,
+    *,
+    task: str,
+    methods: Optional[Sequence[str]] = None,
+    task_name: Optional[str] = None,
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Four-panel calibration summary for the requested comparison methods."""
+    task = task.lower()
+    if calibration_df.empty:
+        logger.warning("selected_method_calibration_summary: no calibration rows")
+        return None
+    if methods is None:
+        baseline = "LogReg" if task == "pd" else "LinearRegression"
+        methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
+    present = [method for method in methods if method in set(calibration_df["method"])]
+    work = calibration_df[calibration_df["method"].isin(present)].copy()
+    if work.empty:
+        logger.warning("selected_method_calibration_summary: no selected methods")
+        return None
+    task_name = task_name or task.upper()
+    stats = work.groupby("method").agg(
+        observed_mean=("observed_mean", "mean"),
+        observed_std=("observed_mean", "std"),
+        predicted_mean=("predicted_mean", "mean"),
+        predicted_std=("predicted_mean", "std"),
+        bias_mean=("calibration_bias", "mean"),
+        bias_std=("calibration_bias", "std"),
+    ).fillna(0.0).reindex(present)
+    method_colors = _sweep_colors(present)
+    x = np.arange(len(present), dtype=float)
+    fig, axes = plt.subplots(2, 2, figsize=(15.0, 10.0))
+
+    ax = axes[0, 0]
+    width = 0.34
+    ax.bar(
+        x - width / 2, 100.0 * stats["observed_mean"], width,
+        yerr=100.0 * stats["observed_std"], color="#1f77b4",
+        edgecolor="black", linewidth=EDGE_LW, capsize=4, label="Observed",
+    )
+    ax.bar(
+        x + width / 2, 100.0 * stats["predicted_mean"], width,
+        yerr=100.0 * stats["predicted_std"], color="#ff7f0e",
+        edgecolor="black", linewidth=EDGE_LW, capsize=4, label="Predicted",
+    )
+    ax.set_title("Average observed versus predicted", fontweight="bold")
+    ax.set_ylabel("Mean value across datasets (%)", fontweight="bold")
+    ax.legend(loc="best")
+
+    ax = axes[0, 1]
+    ax.bar(
+        x, 100.0 * stats["bias_mean"].to_numpy(),
+        yerr=100.0 * stats["bias_std"].to_numpy(),
+        color=[method_colors[method] for method in present], edgecolor="black",
+        linewidth=EDGE_LW, capsize=4,
+    )
+    ax.axhline(0.0, color="0.35", lw=1.2, ls="--")
+    ax.set_title("Average signed difference", fontweight="bold")
+    ax.set_ylabel("Observed - predicted (percentage points)", fontweight="bold")
+
+    ax = axes[1, 0]
+    positions, distributions, box_colors = [], [], []
+    for index, method in enumerate(present):
+        method_data = work[work["method"].eq(method)]
+        positions.extend([index - 0.18, index + 0.18])
+        distributions.extend([
+            100.0 * method_data["observed_mean"].to_numpy(dtype=float),
+            100.0 * method_data["predicted_mean"].to_numpy(dtype=float),
+        ])
+        box_colors.extend(["#1f77b4", "#ff7f0e"])
+    box = ax.boxplot(
+        distributions, positions=positions, widths=0.28, patch_artist=True,
+        showfliers=False, medianprops={"color": "black", "linewidth": 1.4},
+    )
+    for patch, color in zip(box["boxes"], box_colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.45)
+        patch.set_edgecolor("black")
+    for position, values, color in zip(positions, distributions, box_colors):
+        offsets = np.linspace(-0.045, 0.045, len(values)) if len(values) > 1 else np.zeros(len(values))
+        ax.scatter(
+            position + offsets, values, s=18, color=color, edgecolor="black",
+            linewidth=0.35, alpha=0.75, zorder=3,
+        )
+    ax.scatter([], [], color="#1f77b4", label="Observed")
+    ax.scatter([], [], color="#ff7f0e", label="Predicted")
+    ax.set_title("Distribution of dataset-level means", fontweight="bold")
+    ax.set_ylabel("Dataset-level mean (%)", fontweight="bold")
+    ax.legend(loc="best")
+
+    ax = axes[1, 1]
+    bias_distributions = [
+        100.0 * work.loc[
+            work["method"].eq(method), "calibration_bias"
+        ].to_numpy(dtype=float)
+        for method in present
+    ]
+    box = ax.boxplot(
+        bias_distributions, positions=x, widths=0.5, patch_artist=True,
+        showfliers=False, medianprops={"color": "black", "linewidth": 1.4},
+    )
+    for patch, method in zip(box["boxes"], present):
+        patch.set_facecolor(method_colors[method])
+        patch.set_alpha(0.45)
+        patch.set_edgecolor("black")
+    for position, values, method in zip(x, bias_distributions, present):
+        offsets = np.linspace(-0.09, 0.09, len(values)) if len(values) > 1 else np.zeros(len(values))
+        ax.scatter(
+            position + offsets, values, s=20, color=method_colors[method],
+            edgecolor="black", linewidth=0.35, alpha=0.8, zorder=3,
+        )
+    ax.axhline(0.0, color="0.35", lw=1.2, ls="--")
+    ax.set_title("Distribution of signed differences", fontweight="bold")
+    ax.set_ylabel("Observed - predicted (percentage points)", fontweight="bold")
+
+    for ax in axes.ravel():
+        ax.set_xticks(x)
+        ax.set_xticklabels(present, rotation=20, ha="right")
+        _color_foundation_ticks(ax, axis="x")
+        ax.grid(True, axis="y", alpha=0.25)
+    fig.suptitle(
+        f"{task_name}: observed versus predicted values across datasets",
+        fontsize=TITLE_FS, fontweight="bold",
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    return _save(fig, out_dir, f"{task}_selected_calibration_summary")
 
 
 # ---------------------------------------------------------------------------
@@ -1683,6 +1927,105 @@ def foundation_vs_baseline_size_trend(
                  f"{task_name.lower()}_{fnd_method}_vs_{base_method}_sizetrend_{metric.lower()}")
 
 
+def foundation_vs_baseline_imbalance_trend(
+    df: pd.DataFrame,
+    *,
+    metric: str,
+    fnd_method: str = "tabpfn_v3",
+    base_method: str = "catboost",
+    relative: bool = True,
+    higher_is_better: bool = True,
+    task_name: str = "PD",
+    figsize: Tuple[int, int] = FIG_WIDE,
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Per-dataset method gain versus the processed PD minority proportion.
+
+    A smaller minority proportion means stronger class imbalance. The y-axis
+    follows the same relative-improvement definition and color convention as
+    :func:`foundation_vs_baseline_size_trend`.
+    """
+    from src.data.dataset_inventory import minority_proportion
+
+    fnd_disp, base_disp = _display_name(fnd_method), _display_name(base_method)
+    mean_col = _resolve_mean_column(df, metric)
+    pivot = (
+        df[df["method"].isin([fnd_method, base_method])]
+        .groupby(["dataset", "method"])[mean_col]
+        .mean()
+        .unstack("method")
+    )
+    if fnd_method not in pivot.columns or base_method not in pivot.columns:
+        logger.warning(
+            "imbalance_trend: need both %s and %s in the data", fnd_method, base_method
+        )
+        return None
+    pivot = pivot.dropna(subset=[fnd_method, base_method])
+    proportions = {dataset: minority_proportion("pd", dataset) for dataset in pivot.index}
+    pivot = pivot[[proportions.get(dataset) is not None for dataset in pivot.index]]
+    if pivot.empty:
+        logger.warning("imbalance_trend: no datasets with a known minority proportion")
+        return None
+
+    x = 100.0 * np.array([proportions[dataset] for dataset in pivot.index], dtype=float)
+    fnd = pivot[fnd_method].to_numpy(dtype=float)
+    base = pivot[base_method].to_numpy(dtype=float)
+    if relative:
+        y = _relative_metric_gain(fnd, base, metric, higher_is_better=higher_is_better)
+        ylabel = f"Relative {_pretty_metric(metric)} improvement (%)"
+    else:
+        y = (fnd - base) if higher_is_better else (base - fnd)
+        ylabel = f"{_pretty_metric(metric)} improvement ({fnd_disp} over {base_disp})"
+    win = (fnd >= base) if higher_is_better else (fnd <= base)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.axhline(0.0, color="0.4", lw=1.3, ls="--", zorder=1)
+    ax.scatter(
+        x[win], y[win], s=PT_NORMAL, c="#2ca02c", edgecolor="black",
+        linewidth=EDGE_LW, zorder=3, label=f"{fnd_disp} better",
+    )
+    ax.scatter(
+        x[~win], y[~win], s=PT_NORMAL, c="#d62728", edgecolor="black",
+        linewidth=EDGE_LW, zorder=3, label=f"{base_disp} better",
+    )
+    finite = np.isfinite(x) & np.isfinite(y)
+    if finite.sum() >= 2:
+        coefficient = np.polyfit(x[finite], y[finite], 1)
+        x_line = np.linspace(float(np.min(x[finite])), float(np.max(x[finite])), 100)
+        ax.plot(
+            x_line, np.polyval(coefficient, x_line), color="#1f4e79",
+            lw=CURVE_LW, zorder=2,
+            label=f"OLS trend ({coefficient[0]:+.2f} per percentage point)",
+        )
+    ax.set_xlabel(
+        "Minority-class proportion (%) - lower means more imbalanced",
+        fontsize=LABEL_FS, fontweight="bold",
+    )
+    ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
+    ax.set_title(
+        f"{task_name}: does {fnd_disp}'s edge over {base_disp} grow as the minority class gets rarer?",
+        fontsize=TITLE_FS, fontweight="bold",
+    )
+    ax.legend(loc="best", fontsize=LEGEND_FS)
+    ax.grid(True, alpha=0.25)
+    ax.margins(y=0.12)
+    _declutter_labels(
+        ax,
+        [(x_value, y_value) for x_value, y_value in zip(x, y) if np.isfinite(y_value)],
+        [
+            str(dataset).split(".", 1)[-1]
+            for dataset, y_value in zip(pivot.index, y)
+            if np.isfinite(y_value)
+        ],
+    )
+    fig.tight_layout()
+    return _save(
+        fig,
+        out_dir,
+        f"{task_name.lower()}_{fnd_method}_vs_{base_method}_imbalancetrend_{metric.lower()}",
+    )
+
+
 def foundation_vs_baseline_scatter(
     df: pd.DataFrame,
     *,
@@ -1900,6 +2243,8 @@ __all__ = [
     "apply_style",
     "reset_figure_dir",
     "load_summary",
+    "calibration_bias_table",
+    "selected_method_calibration_summary",
     "performance_heatmap",
     "method_ranking_bars",
     "per_dataset_bars",
@@ -1915,6 +2260,9 @@ __all__ = [
     "rank_boxplots",
     "hpo_improvement_bars",
     "runtime_performance_scatter",
+    "foundation_vs_baseline_size_trend",
+    "foundation_vs_baseline_imbalance_trend",
+    "foundation_vs_baseline_scatter",
     "pd_summary_text",
     "lgd_summary_text",
 ]
