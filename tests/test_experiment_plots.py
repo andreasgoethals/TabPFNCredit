@@ -78,6 +78,56 @@ def test_selected_calibration_summary_has_four_panels_and_requested_order(monkey
     assert captured["labels"] == ["TabPFN-3", "TabICLv2", "CatBoost", "log. reg"]
 
 
+def test_calibration_decile_curve_bins_by_rank_and_averages(tmp_path, monkeypatch):
+    # Known preds/labels, n_bins=5 -> per-bin means are exact and checkable.
+    result = tmp_path / "experiment1" / "pd" / "d1" / "m1__HPO.npz"
+    preds = np.array([0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95])
+    y_true = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+    _write_pd_oof(result, y_true, np.column_stack([1 - preds, preds]))
+    df = pd.DataFrame({"dataset": ["d1"], "method": ["m1"]})
+    captured = {}
+
+    def fake_save(fig, out_dir, stem):
+        ax = fig.axes[0]
+        captured["stem"] = stem
+        # line 0 is the y = x diagonal; line 1 the method's decile curve.
+        captured["x"] = ax.lines[1].get_xdata()
+        captured["y"] = ax.lines[1].get_ydata()
+        ep.plt.close(fig)
+        return None
+
+    monkeypatch.setattr(ep, "_save", fake_save)
+    ep.calibration_decile_curve(df, results_root=tmp_path, task="pd",
+                                methods=("m1",), n_bins=5)
+
+    assert captured["stem"] == "pd_calibration_deciles"
+    assert captured["x"] == pytest.approx([10.0, 30.0, 50.0, 70.0, 90.0])
+    assert captured["y"] == pytest.approx([0.0, 0.0, 50.0, 100.0, 100.0])
+
+
+def test_calibration_bias_vs_default_rate_uses_log_x(monkeypatch):
+    table = pd.DataFrame({
+        "dataset": ["d1", "d2", "d1", "d2"],
+        "method": ["m1", "m1", "m2", "m2"],
+        "observed_mean": [0.03, 0.20, 0.03, 0.20],
+        "predicted_mean": [0.04, 0.18, 0.02, 0.22],
+    })
+    table["calibration_bias"] = table["observed_mean"] - table["predicted_mean"]
+    captured = {}
+
+    def fake_save(fig, out_dir, stem):
+        captured["stem"] = stem
+        captured["xscale"] = fig.axes[0].get_xscale()
+        ep.plt.close(fig)
+        return None
+
+    monkeypatch.setattr(ep, "_save", fake_save)
+    ep.calibration_bias_vs_default_rate(table, task="pd", methods=("m1", "m2"))
+
+    assert captured["stem"] == "pd_calibration_bias_vs_default_rate"
+    assert captured["xscale"] == "log"
+
+
 def test_imbalance_trend_uses_processed_minority_proportion(monkeypatch):
     from src.data import dataset_inventory
 

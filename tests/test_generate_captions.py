@@ -17,6 +17,8 @@ KNOWN = [
     "pd_tabpfn_v3_vs_catboost_sizetrend_auc", "pd_tabpfn_v3_vs_catboost_scatter_auc",
     "pd_tabpfn_v3_vs_catboost_imbalancetrend_auc",
     "pd_selected_calibration_summary", "lgd_selected_calibration_summary",
+    "pd_calibration_deciles", "lgd_calibration_deciles",
+    "pd_calibration_bias_vs_default_rate",
     "pd_learning_curve_auc", "pd_learning_curve_auc_zoom",
     "pd_learning_curve_auc_smooth_less", "pd_learning_curve_auc_smooth_more",
     "pd_learning_curve_auc_relative_smooth", "lgd_learning_curve_r2_zoom",

@@ -310,6 +310,30 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
             "underprediction.",
         ),
     ))
+    R.append((
+        r"^(pd|lgd)_calibration_deciles$",
+        lambda g: (
+            (S_CAL, 1, g[0]),
+            f"Decile calibration curve: within every dataset the pooled out-of-fold "
+            f"predictions are ranked into ten equal-count bins, and each marker is one "
+            f"bin's mean predicted versus mean observed "
+            f"{'default rate' if g[0] == 'pd' else 'LGD'}, averaged across datasets "
+            f"(equal weight per dataset). One colour per method; the dashed diagonal "
+            f"marks perfect calibration, with points above it underpredicted and "
+            f"points below it overpredicted.",
+        ),
+    ))
+    R.append((
+        r"^(pd|lgd)_calibration_bias_vs_(default_rate|mean_lgd)$",
+        lambda g: (
+            (S_CAL, 2, g[0]),
+            f"Signed calibration bias (observed minus predicted, percentage points) on "
+            f"every dataset against the dataset's "
+            f"{'default rate' if g[0] == 'pd' else 'mean observed LGD'} (log scale): "
+            f"one point per (method, dataset) with a thin per-method OLS trend line. "
+            f"Points above the dashed zero line are underpredictions.",
+        ),
+    ))
 
     # ---- pooled learning / imbalance curves ----
     R.append((

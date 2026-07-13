@@ -602,37 +602,52 @@ def selected_method_calibration_summary(
         bias_std=("calibration_bias", "std"),
     ).fillna(0.0).reindex(present)
     method_colors = _sweep_colors(present)
+    # Observed vs predicted as the project's box/strip blue pair: navy filled
+    # vs light fill with the standard black contour. The dark/light contrast
+    # survives colour blindness and cannot collide with the Okabe-Ito method
+    # colours used in the signed-difference panels.
+    obs_color, pred_color = "#1f4e79", "#cfe8ff"
     x = np.arange(len(present), dtype=float)
-    fig, axes = plt.subplots(2, 2, figsize=(15.0, 10.0))
+    # The project's only 2x2 grid: each panel close to a FIG_WIDE half.
+    fig, axes = plt.subplots(2, 2, figsize=(13.0, 9.0))
 
     ax = axes[0, 0]
     width = 0.34
     ax.bar(
         x - width / 2, 100.0 * stats["observed_mean"], width,
-        yerr=100.0 * stats["observed_std"], color="#1f77b4",
+        yerr=100.0 * stats["observed_std"], color=obs_color,
         edgecolor="black", linewidth=EDGE_LW, capsize=4, label="Observed",
+        error_kw={"ecolor": "0.25", "lw": 1.6},
     )
     ax.bar(
         x + width / 2, 100.0 * stats["predicted_mean"], width,
-        yerr=100.0 * stats["predicted_std"], color="#ff7f0e",
+        yerr=100.0 * stats["predicted_std"], color=pred_color,
         edgecolor="black", linewidth=EDGE_LW, capsize=4, label="Predicted",
+        error_kw={"ecolor": "0.25", "lw": 1.6},
     )
-    ax.set_title("Average observed versus predicted", fontweight="bold")
-    ax.set_ylabel("Mean value across datasets (%)", fontweight="bold")
-    ax.legend(loc="best")
+    ax.set_title("Average observed versus predicted",
+                 fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Mean value across datasets (%)",
+                  fontsize=LABEL_FS, fontweight="bold")
+    ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.92)
 
     ax = axes[0, 1]
     ax.bar(
         x, 100.0 * stats["bias_mean"].to_numpy(),
         yerr=100.0 * stats["bias_std"].to_numpy(),
         color=[method_colors[method] for method in present], edgecolor="black",
-        linewidth=EDGE_LW, capsize=4,
+        linewidth=EDGE_LW, capsize=4, error_kw={"ecolor": "0.25", "lw": 1.6},
     )
     ax.axhline(0.0, color="0.35", lw=1.2, ls="--")
-    ax.set_title("Average signed difference", fontweight="bold")
-    ax.set_ylabel("Observed - predicted (percentage points)", fontweight="bold")
+    ax.set_title("Average signed difference",
+                 fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Observed - predicted (percentage points)",
+                  fontsize=LABEL_FS, fontweight="bold")
 
     ax = axes[1, 0]
+    # One point per dataset, like every box+strip figure in the project; the
+    # dot size follows the shared dataset-count rule.
+    dot_size = _strip_size(int(work.groupby("method")["dataset"].nunique().max() or 1))
     positions, distributions, box_colors = [], [], []
     for index, method in enumerate(present):
         method_data = work[work["method"].eq(method)]
@@ -641,7 +656,7 @@ def selected_method_calibration_summary(
             100.0 * method_data["observed_mean"].to_numpy(dtype=float),
             100.0 * method_data["predicted_mean"].to_numpy(dtype=float),
         ])
-        box_colors.extend(["#1f77b4", "#ff7f0e"])
+        box_colors.extend([obs_color, pred_color])
     box = ax.boxplot(
         distributions, positions=positions, widths=0.28, patch_artist=True,
         showfliers=False, medianprops={"color": "black", "linewidth": 1.4},
@@ -653,14 +668,16 @@ def selected_method_calibration_summary(
     for position, values, color in zip(positions, distributions, box_colors):
         offsets = np.linspace(-0.045, 0.045, len(values)) if len(values) > 1 else np.zeros(len(values))
         ax.scatter(
-            position + offsets, values, s=18, color=color, edgecolor="black",
-            linewidth=0.35, alpha=0.75, zorder=3,
+            position + offsets, values, s=dot_size ** 2, color=color,
+            edgecolor="black", linewidth=0.35, alpha=0.75, zorder=3,
         )
-    ax.scatter([], [], color="#1f77b4", label="Observed")
-    ax.scatter([], [], color="#ff7f0e", label="Predicted")
-    ax.set_title("Distribution of dataset-level means", fontweight="bold")
-    ax.set_ylabel("Dataset-level mean (%)", fontweight="bold")
-    ax.legend(loc="best")
+    ax.scatter([], [], color=obs_color, label="Observed")
+    ax.scatter([], [], color=pred_color, edgecolor="black", linewidth=0.35,
+               label="Predicted")
+    ax.set_title("Distribution of dataset-level means",
+                 fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset-level mean (%)", fontsize=LABEL_FS, fontweight="bold")
+    ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.92)
 
     ax = axes[1, 1]
     bias_distributions = [
@@ -680,16 +697,22 @@ def selected_method_calibration_summary(
     for position, values, method in zip(x, bias_distributions, present):
         offsets = np.linspace(-0.09, 0.09, len(values)) if len(values) > 1 else np.zeros(len(values))
         ax.scatter(
-            position + offsets, values, s=20, color=method_colors[method],
-            edgecolor="black", linewidth=0.35, alpha=0.8, zorder=3,
+            position + offsets, values, s=dot_size ** 2,
+            color=method_colors[method], edgecolor="black", linewidth=0.35,
+            alpha=0.8, zorder=3,
         )
     ax.axhline(0.0, color="0.35", lw=1.2, ls="--")
-    ax.set_title("Distribution of signed differences", fontweight="bold")
-    ax.set_ylabel("Observed - predicted (percentage points)", fontweight="bold")
+    ax.set_title("Distribution of signed differences",
+                 fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Observed - predicted (percentage points)",
+                  fontsize=LABEL_FS, fontweight="bold")
 
     for ax in axes.ravel():
         ax.set_xticks(x)
-        ax.set_xticklabels(present, rotation=20, ha="right")
+        # Project method-axis convention: 45-degree right-aligned display
+        # names, foundation models in crimson.
+        ax.set_xticklabels(present, rotation=45, ha="right")
+        ax.tick_params(labelsize=TICK_FS)
         _color_foundation_ticks(ax, axis="x")
         ax.grid(True, axis="y", alpha=0.25)
     fig.suptitle(
@@ -698,6 +721,173 @@ def selected_method_calibration_summary(
     )
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     return _save(fig, out_dir, f"{task}_selected_calibration_summary")
+
+
+def _decile_curve_points(y_true: np.ndarray, prediction: np.ndarray,
+                         n_bins: int) -> Tuple[np.ndarray, np.ndarray]:
+    """Rank the predictions into ``n_bins`` equal-count bins; return the
+    per-bin (mean predicted, mean observed) pair. Rank-based splitting always
+    yields exactly ``n_bins`` bins, tie-safe."""
+    order = np.argsort(prediction, kind="stable")
+    pred_means, obs_means = [], []
+    for chunk in np.array_split(order, n_bins):
+        pred_means.append(float(prediction[chunk].mean()))
+        obs_means.append(float(y_true[chunk].mean()))
+    return np.asarray(pred_means), np.asarray(obs_means)
+
+
+def calibration_decile_curve(
+    df: pd.DataFrame,
+    *,
+    results_root: Path,
+    task: str,
+    experiment: str = "experiment1",
+    hpo_mode: str = "HPO",
+    methods: Optional[Sequence[str]] = None,
+    n_bins: int = 10,
+    task_name: Optional[str] = None,
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Decile calibration curve, the credit-risk standard reliability view.
+
+    Within EVERY dataset the pooled out-of-fold predictions are ranked into
+    ``n_bins`` equal-count bins; each bin contributes its (mean predicted,
+    mean observed) pair, and the k-th bin's pair is averaged across datasets
+    (equal weight per dataset, matching the project's mean-over-datasets
+    convention). One line+marker sequence per method in the shared sweep
+    colours; the dashed diagonal marks perfect calibration.
+    """
+    task = task.lower()
+    if methods is None:
+        baseline = "LogReg" if task == "pd" else "LinearRegression"
+        methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
+    datasets = sorted(df["dataset"].astype(str).unique())
+    present = [m for m in methods if m in set(df["method"].astype(str))]
+
+    curves: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    for method in present:
+        preds, obs = [], []
+        for dataset in datasets:
+            path = _result_npz_path(results_root, experiment=experiment,
+                                    task=task, dataset=dataset, method=method,
+                                    hpo_mode=hpo_mode)
+            if not path.exists():
+                logger.warning("Calibration deciles: missing %s", path)
+                continue
+            try:
+                y_true, prediction, _ = _load_oof_prediction_pair(path, task)
+            except (OSError, ValueError) as exc:
+                logger.warning("Calibration deciles: skipping %s (%s)", path, exc)
+                continue
+            p, o = _decile_curve_points(y_true, prediction, n_bins)
+            preds.append(p)
+            obs.append(o)
+        if preds:
+            curves[method] = (np.mean(np.stack(preds), axis=0),
+                              np.mean(np.stack(obs), axis=0))
+    if not curves:
+        logger.warning("calibration_decile_curve: no out-of-fold predictions found")
+        return None
+
+    task_name = task_name or task.upper()
+    quantity = "default rate" if task == "pd" else "LGD"
+    colors = _sweep_colors(sorted(curves))
+    fig, ax = plt.subplots(figsize=FIG_SQUARE)
+    # Shared limits + the y = x diagonal, exactly like the head-to-head scatter.
+    all_vals = np.concatenate([np.concatenate(v) for v in curves.values()]) * 100.0
+    lo, hi = float(all_vals.min()), float(all_vals.max())
+    pad = 0.04 * ((hi - lo) or 1.0)
+    lim = (max(lo - pad, 0.0), hi + pad)
+    ax.plot(lim, lim, color="0.4", lw=1.3, ls="--", zorder=1,
+            label="perfect calibration (y = x)")
+    for method in present:
+        if method not in curves:
+            continue
+        p, o = curves[method]
+        ax.plot(100.0 * p, 100.0 * o, lw=CURVE_LW, marker="o", ms=7,
+                markeredgecolor="black", markeredgewidth=0.5,
+                color=colors[method], zorder=3, label=_display_name(method))
+    ax.set_xlim(lim)
+    ax.set_ylim(lim)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xlabel(f"Mean predicted {quantity} per decile (%)",
+                  fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel(f"Mean observed {quantity} per decile (%)",
+                  fontsize=LABEL_FS, fontweight="bold")
+    ax.tick_params(labelsize=TICK_FS)
+    ax.set_title(f"{task_name}: decile calibration curve (mean over datasets)",
+                 fontsize=TITLE_FS, fontweight="bold")
+    ax.legend(loc="upper left", fontsize=LEGEND_FS, framealpha=0.92)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    return _save(fig, out_dir, f"{task}_calibration_deciles")
+
+
+def calibration_bias_vs_default_rate(
+    calibration_df: pd.DataFrame,
+    *,
+    task: str,
+    methods: Optional[Sequence[str]] = None,
+    task_name: Optional[str] = None,
+    out_dir: Optional[Path] = None,
+) -> Optional[Path]:
+    """Signed calibration bias against each dataset's base rate.
+
+    One dot per (method, dataset): x = the dataset's observed mean (the
+    default rate for PD; log scale, since the rates span decades), y = the
+    signed bias (observed minus predicted, percentage points). A thin OLS
+    trend per method shows whether miscalibration concentrates on
+    rare-default datasets. Consumes :func:`calibration_bias_table` output.
+    """
+    from matplotlib.ticker import LogLocator, NullFormatter, ScalarFormatter
+
+    task = task.lower()
+    if calibration_df.empty:
+        logger.warning("calibration_bias_vs_default_rate: no calibration rows")
+        return None
+    if methods is None:
+        baseline = "LogReg" if task == "pd" else "LinearRegression"
+        methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
+    present = [m for m in methods if m in set(calibration_df["method"])]
+    work = calibration_df[calibration_df["method"].isin(present)]
+    if work.empty:
+        logger.warning("calibration_bias_vs_default_rate: no selected methods")
+        return None
+
+    task_name = task_name or task.upper()
+    quantity = "default rate" if task == "pd" else "mean observed LGD"
+    colors = _sweep_colors(sorted(present))
+    fig, ax = plt.subplots(figsize=FIG_WIDE)
+    ax.set_xscale("log")
+    ax.axhline(0.0, color="0.35", lw=1.2, ls="--", zorder=1)
+    for method in present:
+        sub = work[work["method"].eq(method)]
+        x = 100.0 * sub["observed_mean"].to_numpy(dtype=float)
+        y = 100.0 * sub["calibration_bias"].to_numpy(dtype=float)
+        ax.scatter(x, y, s=PT_NORMAL, color=colors[method], edgecolor="black",
+                   linewidth=EDGE_LW, zorder=3, label=_display_name(method))
+        mask = np.isfinite(x) & np.isfinite(y) & (x > 0)
+        if mask.sum() >= 2:                     # per-method OLS on log10(rate)
+            lx = np.log10(x[mask])
+            coef = np.polyfit(lx, y[mask], 1)
+            xs = np.linspace(lx.min(), lx.max(), 50)
+            ax.plot(10 ** xs, np.polyval(coef, xs), color=colors[method],
+                    lw=1.8, alpha=0.9, zorder=2)
+    ax.xaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0)))
+    ax.xaxis.set_major_formatter(ScalarFormatter())
+    ax.xaxis.set_minor_formatter(NullFormatter())   # no stray 3x10^1-style labels
+    ax.set_xlabel(f"Dataset {quantity} (%, log scale)",
+                  fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Observed - predicted (percentage points)",
+                  fontsize=LABEL_FS, fontweight="bold")
+    ax.tick_params(labelsize=TICK_FS)
+    ax.set_title(f"{task_name}: calibration bias versus dataset {quantity}",
+                 fontsize=TITLE_FS, fontweight="bold")
+    ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.92)
+    ax.grid(True, which="both", alpha=0.25)
+    plt.tight_layout()
+    suffix = "default_rate" if task == "pd" else "mean_lgd"
+    return _save(fig, out_dir, f"{task}_calibration_bias_vs_{suffix}")
 
 
 # ---------------------------------------------------------------------------
@@ -2245,6 +2435,8 @@ __all__ = [
     "load_summary",
     "calibration_bias_table",
     "selected_method_calibration_summary",
+    "calibration_decile_curve",
+    "calibration_bias_vs_default_rate",
     "performance_heatmap",
     "method_ranking_bars",
     "per_dataset_bars",

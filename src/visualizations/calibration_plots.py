@@ -35,6 +35,19 @@ matplotlib.use("Agg", force=False)
 import matplotlib.pyplot as plt
 import numpy as np
 
+# One shared style for every figure in the project: font constants, bar edge
+# width, the square canvas, and the foundation-model set (crimson names) come
+# from ``experiment_plots``; method labels from the standard display-name map.
+from src.methods.method_names import display_name as _display_name
+from src.visualizations.experiment_plots import (
+    EDGE_LW, FIG_SQUARE, LABEL_FS, LEGEND_FS, TICK_FS, TITLE_FS,
+    _foundation_methods,
+)
+
+# The project's box/strip blues: bars in the light fill, point markers navy.
+_BAR_FILL = "#cfe8ff"
+_POINT_NAVY = "#1f4e79"
+
 
 def _ensure_dir(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -45,7 +58,9 @@ def _persist_and_display(fig: plt.Figure, out_path: Optional[Path]) -> Optional[
     """Save ``fig`` to ``out_path`` (forced ``.pdf``), display inline, then close.
 
     * ``out_path`` is normalised with ``.with_suffix(".pdf")`` so callers
-      can pass any extension and still get a PDF on disk.
+      can pass any extension and still get a PDF on disk. Saved at the same
+      ``dpi=200`` as every other figure in the project (``_save`` /
+      ``_finish``), so rasterised elements match across the set.
     * Inline display uses :func:`data_exploration._display_inline` which
       encodes a PNG via ``fig.savefig`` and pushes it through
       :class:`IPython.display.Image` -- working under any matplotlib
@@ -56,7 +71,7 @@ def _persist_and_display(fig: plt.Figure, out_path: Optional[Path]) -> Optional[
     if out_path is not None:
         saved = Path(out_path).with_suffix(".pdf")
         _ensure_dir(saved)
-        fig.savefig(saved, bbox_inches="tight")
+        fig.savefig(saved, bbox_inches="tight", dpi=200)
         from src.utils.generate_captions import refresh_captions_for_saved_figure
         refresh_captions_for_saved_figure(saved)
     from src.visualizations.data_exploration import _display_inline
@@ -109,17 +124,31 @@ def reliability_diagram(
 
     own_fig = ax is None
     if own_fig:
-        fig, ax = plt.subplots(figsize=(5, 5))
+        fig, ax = plt.subplots(figsize=FIG_SQUARE)
     bar_widths = (edges[1:] - edges[:-1]) * 0.9
-    ax.bar(centres, accs, width=bar_widths, alpha=0.7, label="Accuracy", edgecolor="black")
-    ax.plot([0, 1], [0, 1], "k--", linewidth=1.0, label="Ideal")
-    ax.scatter(centres, confs, marker="x", color="red", zorder=5, label="Mean confidence")
+    # Project bar style: light-blue fill with a black contour (the same pair
+    # as every box/strip figure), the equal-performance diagonal dashed in
+    # grey like the head-to-head scatters, and navy point markers.
+    mask = fracs > 0                        # only bins that actually hold data
+    ax.bar(centres[mask], accs[mask], width=bar_widths[mask], color=_BAR_FILL,
+           edgecolor="black", linewidth=EDGE_LW, label="Empirical accuracy",
+           zorder=2)
+    ax.plot([0, 1], [0, 1], color="0.4", lw=1.3, ls="--", zorder=3,
+            label="perfect calibration (y = x)")
+    ax.scatter(centres[mask], confs[mask], marker="x", s=42, color=_POINT_NAVY,
+               linewidth=1.6, zorder=5, label="Mean confidence")
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
-    ax.set_xlabel("Predicted confidence")
-    ax.set_ylabel("Empirical accuracy")
-    ax.set_title(title)
-    ax.legend(loc="upper left", fontsize=8)
+    ax.set_xlabel("Predicted confidence", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Empirical accuracy", fontsize=LABEL_FS, fontweight="bold")
+    ax.tick_params(labelsize=TICK_FS)
+    # Titles follow the project's naming convention: standard display labels,
+    # with foundation-model names in crimson + bold.
+    is_fnd = title in _foundation_methods()
+    ax.set_title(_display_name(title),
+                 fontsize=TITLE_FS if own_fig else LABEL_FS, fontweight="bold",
+                 color="crimson" if is_fnd else "black")
+    ax.legend(loc="upper left", fontsize=LEGEND_FS, framealpha=0.92)
     ax.grid(True, alpha=0.3)
 
     if own_fig:
@@ -146,14 +175,20 @@ def reliability_grid(
     nrows = (len(items) + ncols - 1) // ncols
     fig, axes = plt.subplots(nrows, ncols, figsize=(4 * ncols, 4 * nrows))
     axes_arr = np.atleast_1d(axes).ravel()
-    for ax, (method, data) in zip(axes_arr, items):
+    for i, (ax, (method, data)) in enumerate(zip(axes_arr, items)):
         reliability_diagram(
             data["y_true"], data["y_proba"],
             n_bins=n_bins, title=method, ax=ax,
         )
+        # One legend for the whole grid (the panels share their encoding);
+        # per-panel copies would only repeat it.
+        if i > 0:
+            leg = ax.get_legend()
+            if leg is not None:
+                leg.remove()
     for ax in axes_arr[len(items):]:
         ax.set_visible(False)
-    fig.suptitle(suptitle, fontsize=14)
+    fig.suptitle(suptitle, fontsize=TITLE_FS, fontweight="bold")
     plt.tight_layout()
     return _persist_and_display(fig, out_path)
 
