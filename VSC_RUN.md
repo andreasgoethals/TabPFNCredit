@@ -29,7 +29,8 @@ export TABPFN_STAGING_ROOT=/your/project/storage
 ```
 
 Add `TABPFN_SLURM_ACCOUNT` to your `~/.bashrc` so every job picks it up — if it
-is unset the generator emits a placeholder account and the job is rejected.
+is unset the generator falls back to the repo default (`lp_verbekelab`), so
+override it whenever you submit under a different project account.
 Use a **regular project account**: pilot projects are no longer valid now that
 Tier-2 Mindwell is in production.
 
@@ -106,6 +107,9 @@ internet, upload the folder, and provision it on the cluster.
 python -m src.utils.fetch_weights                 # -> ./checkpoints  (several GB)
 # or a subset:
 python -m src.utils.fetch_weights --only tabpfn_v3 tabicl_v2
+# opt-in models that are toggled off in every CONFIG_METHOD.yaml (e.g. TabFM)
+# are NOT part of the default fetch -- name them explicitly:
+python -m src.utils.fetch_weights --only tabfm
 ```
 
 **(b) Upload `checkpoints/` to the project storage on the VSC** (the repo
@@ -259,8 +263,10 @@ source tabpfncreditvenv/bin/activate
 # 4. Pull the latest benchmark code (editable install -> the pull is live).
 git pull
 
-# 5. Refresh TALENT in the venv without touching torch/etc.
-pip install --force-reinstall --no-deps --no-cache-dir TALENT
+# 5. Refresh TALENT in the venv without touching torch/etc. (a bare
+#    `pip install TALENT` would FAIL -- TALENT is not on PyPI, it is our fork)
+pip install --force-reinstall --no-deps --no-cache-dir \
+    "TALENT @ git+https://github.com/andreasgoethals/TALENT@main"
 
 # 6. Wipe any old summaries on PROJECT STORAGE so nothing stale lingers.
 rm -f "${TABPFN_STAGING_ROOT:-/lustre1/project/stg_00211/TabPFNCredit}"/results/summaries/*.csv

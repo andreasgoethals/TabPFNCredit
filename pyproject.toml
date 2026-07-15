@@ -172,7 +172,6 @@ local = [
     "torchvision>=0.23.0",
     # tabdpt needs faiss-cpu>=1.11,<1.13; 1.12.x is the latest match.
     "faiss-cpu>=1.11,<1.13",
-    "portalocker>=2.8,<3",
     # Dev tools (loose ranges -- these don't conflict with foundation models).
     "pytest>=8,<9",
     "pytest-xdist>=3,<4",
@@ -194,7 +193,6 @@ hpc = [
     # `faiss-gpu` is typically a cluster module on HPC; never pip-install.
     # Annoy is the lightweight alternative for the TabR retrieval index.
     "annoy>=1.17,<2",
-    "portalocker>=2.8,<3",
     # Dev tools (same as local).
     "pytest>=8,<9",
     "pytest-xdist>=3,<4",
@@ -204,6 +202,18 @@ hpc = [
     "pre-commit>=3.7,<4",
     "nbstripout>=0.7,<1",
     "mypy>=1.10,<2",
+]
+
+# TabFM profile add-on -- Google Research's TabFM foundation model (2026).
+# NOT part of the core dependencies on purpose:
+#   * `tabfm` requires Python >= 3.11 (the core project still supports 3.10);
+#   * the model is toggled OFF in every CONFIG_METHOD.yaml by default.
+# To enable the method: install with the extra, stage its weights
+# (`python -m src.utils.fetch_weights --only tabfm`), then flip `tabfm: true`
+# in the experiment's CONFIG_METHOD.yaml.
+#     pip install -e ".[local,tabfm]"     # or ".[hpc,tabfm]"
+tabfm = [
+    "tabfm[pytorch]>=1.0.0,<2",
 ]
 
 [project.urls]

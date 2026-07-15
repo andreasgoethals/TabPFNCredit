@@ -103,6 +103,8 @@ class ModelSpec(NamedTuple):
     url: Optional[str] = None  # for non-HF direct downloads (HyperFast)
     url_filename: Optional[str] = None
     note: str = ""
+    opt_in: bool = False       # fetched ONLY when named via --only (models that
+                               # are toggled off in every CONFIG_METHOD.yaml)
 
 
 # --- TabPFN default checkpoints --------------------------------------------
@@ -178,6 +180,21 @@ def _build_specs() -> List[ModelSpec]:
         ModelSpec("tabdpt", ("tabdpt",), "hub",
                   (HFFile("Layer6/TabDPT", "tabdpt1_1.safetensors"),),
                   note="TabDPT (Layer6)"),
+
+        # ---- TabFM (-> HF hub cache, via HF_HOME) ----
+        # OPT-IN: toggled off in every CONFIG_METHOD.yaml, so the default fetch
+        # skips it and the staged checkpoints/ stays unchanged. Before flipping
+        # `tabfm: true`, run `python -m src.utils.fetch_weights --only tabfm`
+        # and install the optional package (`pip install -e ".[local,tabfm]"`).
+        # The weights carry Google's non-commercial license.
+        ModelSpec("tabfm", ("tabfm",), "hub",
+                  (HFFile("google/tabfm-1.0.0-pytorch", "config.json"),
+                   HFFile("google/tabfm-1.0.0-pytorch", "classification/config.json"),
+                   HFFile("google/tabfm-1.0.0-pytorch", "classification/model.safetensors"),
+                   HFFile("google/tabfm-1.0.0-pytorch", "regression/config.json"),
+                   HFFile("google/tabfm-1.0.0-pytorch", "regression/model.safetensors")),
+                  note="TabFM v1.0.0 (Google Research; clf + reg; non-commercial weights)",
+                  opt_in=True),
 
         # ---- Mitra (-> talent_assets; loads from a package-internal dir) ----
         ModelSpec("mitra", ("mitra",), "asset:models_mitra/cls",
@@ -313,15 +330,21 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     checkpoints = Path(args.checkpoints_dir).resolve() if args.checkpoints_dir else _REPO_ROOT / "checkpoints"
 
-    def _selected(spec: ModelSpec) -> bool:
+    def _selected(spec: ModelSpec, *, honor_opt_in: bool = True) -> bool:
         names = {spec.key, *spec.method_names}
         if args.only and not (names & set(args.only)):
             return False
         if args.skip and (names & set(args.skip)):
             return False
+        # Opt-in models (toggled off in every CONFIG_METHOD.yaml) are fetched
+        # only when explicitly named via --only, so the default download set
+        # -- and thus the staged checkpoints/ folder -- never silently grows.
+        if honor_opt_in and spec.opt_in and not args.only:
+            return False
         return True
 
-    specs = [s for s in _build_specs() if _selected(s)]
+    # --list shows opt-in specs too (tagged), so the plan is discoverable.
+    specs = [s for s in _build_specs() if _selected(s, honor_opt_in=not args.list)]
 
     print("=" * 74)
     print(f"TabPFNCredit weight fetcher -> {checkpoints}")
@@ -332,10 +355,16 @@ def main(argv: Optional[List[str]] = None) -> int:
                    else "checkpoints/tabpfn" if s.dest == "tabpfn"
                    else "checkpoints/talent_assets/" + s.dest.split(':', 1)[1])
             srcs = [f"{f.repo_id}:{f.filename}" for f in s.hf_files] or [s.url or ""]
-            print(f"  {s.key:14s} -> {tgt:34s} {s.note}")
+            tag = "  [opt-in: fetched only via --only]" if s.opt_in else ""
+            print(f"  {s.key:14s} -> {tgt:34s} {s.note}{tag}")
             for src in srcs:
                 print(f"      {src}")
         return 0
+
+    skipped_opt_in = [s.key for s in _build_specs() if s.opt_in and not _selected(s)]
+    if skipped_opt_in:
+        print(f"  [note] opt-in model(s) not fetched by default: "
+              f"{', '.join(skipped_opt_in)} -- fetch with --only <name>.")
 
     try:
         import huggingface_hub  # noqa: F401

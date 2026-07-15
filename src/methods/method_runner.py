@@ -5,8 +5,8 @@ Built on TALENT's typed :class:`~TALENT.api.RunResult` and
 
 * Cross-validation fold assembly via :class:`~src.data.data_feeder.DataFeeder`.
 * Foundation-model val/test downsampling (TALENT's row-limit caps train only).
-* Per-fold HPO orchestration with SLURM-safe merged-config JSON via
-  :class:`~src.utils.file_lock.FileLock`.
+* Per-fold HPO orchestration via TALENT's Optuna tuner (in-process; no
+  persistent per-fold state is written -- see the temp-directory bullet).
 * A throwaway temp directory per fold for TALENT's internal scratch
   (model snapshots, logits, …). Nothing persistent: the only "save" is
   the final per-(dataset, method) JSON + npz that ``save_method``

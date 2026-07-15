@@ -18,8 +18,11 @@ import logging
 import os
 import re
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, List, Optional, Sequence, Tuple
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.methods.method_names import display_name  # noqa: E402
@@ -123,9 +126,68 @@ def _latex_label(stem: str) -> str:
     return label or "figure"
 
 
+# ---------------------------------------------------------------------------
+#  Chapter-aware caption adjustments (fold wording + stats/family qualifier)
+# ---------------------------------------------------------------------------
+# The rules are stem-only; the chapter (and thus the experiment) is known only
+# at block-assembly time via ``label_stem``. Two adjustments happen here:
+#
+# 1. FOLD WORDING. The matrix-view rules write "five-fold means" (the standard
+#    cv_splits: 5 setup). The real fold count is read from the experiment's
+#    CONFIG_DATA.yaml, so the captions can never drift from the configs: a
+#    single-split experiment (Experiment 0's pilot) gets single-split wording,
+#    and any other count replaces the "five".
+# 2. CHAPTER QUALIFIER. The *_stats and *_family chapters share identical
+#    figure stems (same rules -> same caption text); a trailing sentence tells
+#    the reader which comparison a caption belongs to.
+
+_NUM_WORDS = {2: "two", 3: "three", 4: "four", 5: "five",
+              6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten"}
+
+_SINGLE_SPLIT_REWRITES = {
+    "Cell values are five-fold means":
+        "Cell values are single-split scores (this experiment runs one fold)",
+    "whiskers show pooled fold-level standard deviations":
+        "whiskers show across-dataset standard deviations of the single-split scores",
+    "Boxes summarize fold-level scores, and overlaid points show dataset means":
+        "Boxes summarize the single-split per-dataset scores",
+}
+
+
+@lru_cache(maxsize=None)
+def _cv_splits(experiment_dir: str) -> Optional[int]:
+    """``cv_splits`` from ``scripts/<Experiment>/config/CONFIG_DATA.yaml``.
+
+    ``experiment_dir`` is the figure directory's first component (e.g.
+    ``"experiment0"``). Returns ``None`` when no matching config exists
+    (foreign figure dirs like ``data_exploration``) -- caption left as-is.
+    """
+    path = (PROJECT_ROOT / "scripts" / experiment_dir.capitalize()
+            / "config" / "CONFIG_DATA.yaml")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return int((yaml.safe_load(fh) or {})["split"]["cv_splits"])
+    except Exception:  # noqa: BLE001 -- missing/renamed config: don't touch the caption
+        return None
+
+
 def latex_caption_block(stem: str, label_stem: Optional[str] = None) -> str:
     """Return a copy-ready LaTeX caption/label block for one figure stem."""
     caption = caption_for(stem)[1]
+    parts = (label_stem or "").split("/")
+    if parts and parts[0].startswith("experiment"):
+        n_folds = _cv_splits(parts[0])
+        if n_folds == 1:
+            for old, new in _SINGLE_SPLIT_REWRITES.items():
+                caption = caption.replace(old, new)
+        elif n_folds and n_folds != 5:
+            caption = caption.replace(
+                "five-fold means", f"{_NUM_WORDS.get(n_folds, str(n_folds))}-fold means")
+    if len(parts) > 1:
+        if parts[1].endswith("_stats"):
+            caption += " Comparison across all benchmarked learners."
+        elif parts[1].endswith("_family"):
+            caption += " Champion-level comparison: one representative per model family."
     return f"\\caption{{{caption}}}\n\\label{{fig:{_latex_label(label_stem or stem)}}}"
 
 
@@ -172,6 +234,14 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_DATA, 3, g[0]),
             "PCA is computed after standardizing numerical features; at most 5,000 instances are shown.",
+        ),
+    ))
+    R.append((
+        r"^processed_dataset_overview_slide$",
+        lambda g: (
+            (S_DATA, 9, "overview"),
+            "Rows, processed feature counts, and PD positive-class rates of every "
+            "processed dataset, colour-coded by task; the 16:9 layout targets slide use.",
         ),
     ))
 

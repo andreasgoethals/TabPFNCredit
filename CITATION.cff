@@ -12,6 +12,8 @@ authors:
     orcid: "https://orcid.org/0009-0001-5203-1306"   
 repository-code: "https://github.com/andreasgoethals/TabPFNCredit"
 license: MIT
+version: 0.3.0          # keep in sync with pyproject.toml [project] version
+date-released: 2026-07-14
 keywords:
   - credit-risk
   - tabular-foundation-models

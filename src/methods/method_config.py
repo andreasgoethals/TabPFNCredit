@@ -129,7 +129,7 @@ HPO_METHODS: MethodSet = derive_method_set(supports_hpo=True)
 # by "is it a foundation model".
 _FOUNDATION_NAMES = {
     "tabpfn", "tabpfn_v2", "tabpfn_v2_5", "tabpfn_v3", "tabpfn_real",
-    "tabicl", "tabicl_v2", "mitra", "limix", "tabdpt", "hyperfast", "tabptm",
+    "tabicl", "tabicl_v2", "mitra", "limix", "tabdpt", "tabfm", "hyperfast", "tabptm",
 }
 FOUNDATION_METHODS: MethodSet = {
     name for name in METHOD_REGISTRY

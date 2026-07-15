@@ -3,8 +3,9 @@ output into one ``results/All_Results.md``.
 
 What it does
 ------------
-For every *included* notebook (all of ``notebooks/`` EXCEPT the two interactive
-tools -- ``Results_Checking`` and ``Individual_Method_Runner``), in the same
+For every *included* notebook (all of ``notebooks/`` except the per-method
+interactive tool ``Individual_Method_Runner``; ``Results_Checking`` IS re-run
+but its printed output is not collected into ``All_Results.md``), in the same
 order they appear in the folder:
 
 1. **Clear** every output + execution count (a clean slate on disk).

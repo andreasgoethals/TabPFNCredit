@@ -12,8 +12,9 @@
 </div>
 
 TabPFNCredit evaluates modern tabular foundation models (the TabPFN
-family, TabICL, TabDPT, MITRA, LimiX, HyperFast, TabPTM) against deep
-tabular networks (FT-Transformer, SAINT, RealMLP, TabM, …) and classical
+family, TabICL v1/v2, TabDPT, MITRA — with LimiX, HyperFast, TabPTM and
+Google's TabFM also wired in but toggled off by default) against deep
+tabular networks (FT-Transformer, RealMLP, TabM, T2G-Former, …) and classical
 baselines (XGBoost, CatBoost, LightGBM, RandomForest, LogisticRegression,
 …) on **14 PD (Probability of Default)** and **7 LGD (Loss Given Default)**
 datasets. It is built on top of
@@ -146,14 +147,19 @@ bash scripts/run_all_experiments.sh Experiment2 Experiment3
 | `hpc` | SLURM cluster | CUDA-12 PyTorch + annoy + dev tools. For CUDA 11.8 GPUs append `--index-url https://download.pytorch.org/whl/cu118`. |
 
 A single `pip install -e ".[local]"` (or `".[hpc]"`) installs the project,
-TALENT, and all dependencies. The build backend is
+TALENT, and all dependencies. Method-specific optional extras (currently
+only `tabfm`; needs Python ≥ 3.11) are listed in `pyproject.toml` and
+install the same way, e.g. `pip install -e ".[local,tabfm]"`. The build
+backend is
 [hatchling](https://hatch.pypa.io/latest/), so no `*.egg-info/` is dropped
 into the source tree.
 
 ### 1.4 Adapting to a non-VSC cluster
 
-The generated SLURM scripts target the VSC partitions (Genius P100, wICE
-A100, wICE H100) by default. On a different SLURM cluster, edit the
+The generated SLURM scripts target the VSC wICE partitions
+(`batch_sapphirerapids` CPU, A100, H100) by default; the Genius specs stay
+in the table for manual use but are never picked automatically (torch 2.8
+dropped Pascal/P100 support). On a different SLURM cluster, edit the
 `PARTITIONS` table in `src/utils/slurm_generator.py` to match your
 cluster's CPU / memory / GPU caps and wall-time limits.
 
@@ -185,7 +191,7 @@ Helper commands:
 |---|---|
 | `tabpfncredit resubmit <names...> \| --all` | Scan results for every missing (task, dataset, method, sweep/HPO) point and submit ONLY those, packed into dense fresh arrays. Generated plans are run-specific, so pending arrays cannot read a later submission's plan. Works locally (report + scripts) and on a cluster (also submits). |
 | `tabpfncredit summarize --experiment <name>` | Rebuild the per-fold + per-method CSVs. |
-| `tabpfncredit list [--show-profile]` | Print registered methods + runtime tier + target partition. |
+| `tabpfncredit list [--architecture deep\|classical] [--hardware cpu\|gpu] [--show-profile]` | Print registered methods, optionally filtered; `--show-profile` adds runtime tier + target partition. |
 | `tabpfncredit doctor` | Print environment variables, torch / CUDA info, and the results root. |
 
 Re-running `tabpfncredit experiment <name>` is always safe: completed points
@@ -218,12 +224,24 @@ ones accept `--dry-run` to preview first.
 | **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, AP / AP_normalized, Expected_Loss_Normalized |
 | **LGD** (Loss Given Default) | Regression on `[0, 1]` | 7 | R², RMSE, MAE, Pearson_Corr, Spearman_Corr |
 
-The ~55 enabled methods cover **foundation models** (TabPFN family,
-TabICL v1/v2, TabDPT, MITRA, LimiX, HyperFast, TabPTM),
-**transformers** (FT-Transformer, SAINT, AutoInt, T2G-Former, TROMPT, …),
-**MLP / ResNet** (RealMLP, MLP_PLR, TabM, …), **tree-mimic** (TabNet,
-NODE, GrowNet, GRANDE), and **classical** baselines (XGBoost, CatBoost,
-LightGBM, RandomForest, LogisticRegression, KNN, SVM).
+The headline benchmark enables 37 distinct methods (60 (task, method)
+combinations across PD + LGD): **foundation models** (TabPFN family,
+TabICL v1/v2, TabDPT, MITRA), **transformers** (FT-Transformer, AutoInt,
+ExcelFormer, T2G-Former, …), **MLP / ResNet** (RealMLP, MLP-PLR, TabM, …),
+**tree-mimic** (TabNet, DCN2, …), and **classical** baselines (XGBoost,
+CatBoost, LightGBM, RandomForest, LogisticRegression, KNN, SVM). Further
+registered methods (LimiX, HyperFast, TabPTM, Google's TabFM, SAINT,
+TROMPT, NODE, GrowNet, …) ship toggled off and can be enabled per
+experiment.
+
+Enabling a disabled method needs no special treatment: flip its toggle in
+the experiment's `CONFIG_METHOD.yaml` and re-send the experiment —
+completed (dataset, method) points already have their result file and are
+skipped, so `tabpfncredit resubmit <ExperimentName>` queues only the newly
+enabled method's missing points. Foundation models additionally need their
+weights staged once (`python -m src.utils.fetch_weights --only <method>`;
+see `VSC_RUN.md`); any extra install requirement is noted next to the
+method's toggle in `CONFIG_METHOD.yaml` and in `pyproject.toml`.
 
 Each method's behaviour (categorical policy, normalisation, GPU/CPU
 placement, in-context row limit, HPO support) comes from TALENT's
@@ -393,10 +411,8 @@ TabPFNCredit/
 │   │   ├── generate_captions.py        # auto-write the single figures/CAPTIONS.md
 │   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
 │   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
-│   │   └── file_lock.py                # cross-platform FileLock
 │   └── visualizations/
 │       ├── experiment_plots.py         # heatmaps, ranking bars, learning/imbalance curves
-│       ├── calibration_plots.py        # reliability diagrams
 │       └── data_exploration.py         # backs the Data_Exploration notebook
 │
 ├── scripts/
@@ -407,6 +423,8 @@ TabPFNCredit/
 │   └── setup_vsc_checkpoints.sh        # provision uploaded checkpoints/ on the VSC
 │
 ├── notebooks/                          # thin viewers calling src.visualizations
+│   ├── CONFIG_NOTEBOOKS.yaml           # per-task method filters for the notebooks
+│   │                                   #   (exclude lists + champion-stat inclusion lists)
 │   ├── Data_Exploration.ipynb
 │   ├── Experiment0.ipynb               # pilot coverage + quick overview
 │   ├── Experiment1.1-PD.ipynb          # PD headline benchmark
@@ -424,7 +442,8 @@ TabPFNCredit/
 ├── tests/                              # pytest suite
 │
 ├── data/                               # raw + processed datasets               (gitignored)
-├── results/                            # per-(dataset, method) JSON + summaries  (gitignored)
+├── results/                            # per-(dataset, method) JSON + summaries  (gitignored,
+│                                       #   except the committed All_Results.md text dump)
 ├── figures/                            # generated PDFs + CAPTIONS.md            (gitignored)
 └── checkpoints/                        # downloaded model weights               (gitignored)
 ```
@@ -481,23 +500,30 @@ and new figures.
 ### Analysis notebooks
 
 All plotting / statistics code lives under `src/` — the notebooks are thin
-viewers:
+viewers. Which methods they **show** is governed by one file,
+[`notebooks/CONFIG_NOTEBOOKS.yaml`](notebooks/CONFIG_NOTEBOOKS.yaml): a per-task
+`exclude` list hides those methods' results from every analysis notebook
+except `Experiment0`'s pilot (applied centrally in `load_summary`, and
+announced in the notebook output whenever it drops anything), and a per-task
+`champions` list selects the methods the champion-level notebooks (1.3 / 1.6)
+include. It is display-only — it never changes what the experiments run or
+what is stored on disk.
 
 | Notebook | What it shows |
 |---|---|
 | `Data_Exploration` | Dataset inventory, class balance, LGD target shapes, per-dataset structure. |
 | `Experiment0` | Pilot coverage + quick performance / cost overview. |
-| `Experiment1.1-PD` | Headline PD benchmark. Each matrix metric (**AUC**, **Brier**, **F1**) in three views — heatmap, per-method bar, across-dataset box (box = per-fold spread, dot = per-dataset mean) — with the **AUC rank** kept next to AUC; then the **HPO effect**, a **time analysis** (train + predict + HPO; tunable methods' train time × `n_trials`) with the cost/quality frontier, a **TabPFN v3 vs baselines** head-to-head — against **CatBoost** and **log. reg** (relative AUC-gain-vs-size trend + per-dataset `y = x` scatter) — and a summary table. |
+| `Experiment1.1-PD` | Headline PD benchmark. Each matrix metric (**AUC**, **Brier**, **F1**) in three views — heatmap, per-method bar, across-dataset box (box = per-fold spread, dot = per-dataset mean) — with the **AUC rank** kept next to AUC; then the **HPO effect**, a **time analysis** (train + predict + HPO; tunable methods' train time × `n_trials`) with the cost/quality frontier, a **TabPFN v3 vs baselines** head-to-head — against **CatBoost** and **log. reg** (relative AUC-gain-vs-size trend + per-dataset `y = x` scatter) — a **prediction-calibration analysis** (observed-vs-predicted summary, decile reliability curves, bias vs default rate), and a summary table. |
 | `Experiment1.2-PD-Stat` | Full **all-learner** statistical analysis (PD): PAMA (two charts — all winners, and only methods winning ≥ 2 folds), Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams** (compact, paper-ready), Win/Loss matrix, Holm-corrected significant pairs (Wilcoxon **and** paired t-test), all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian signed-rank ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
-| `Experiment1.3-PD-FamilyStat` | **Champion-level** statistical analysis (PD): one champion per family — **TabPFN-3**, **CatBoost**, **T2G-Former**, **Logistic Regression** — with a **TabPFN-3-as-control** test (Bonferroni–Dunn) plus the same omnibus / CD / Win-Loss / Holm / **Bayesian ROPE** battery and a copy-paste report. Higher power and a cleaner answer to "is the foundation model competitive with each established family?"; the complete all-learner version stays in 1.2. |
-| `Experiment1.4-LGD` | Headline LGD benchmark, same structure as 1.1: **R²** and **Pearson correlation** in three views, **R² rank**, **HPO effect**, **time analysis**, the **TabPFN v3 vs baselines** head-to-head — relative TabPFN-3 R² improvement vs dataset size against **CatBoost** and **lin. reg**, plus absolute per-dataset `y = x` scatters for both baselines — and a summary table. |
+| `Experiment1.3-PD-FamilyStat` | **Champion-level** statistical analysis (PD): one champion per family (the `champions` list in `notebooks/CONFIG_NOTEBOOKS.yaml`; default **TabPFN-3**, **CatBoost**, **T2G-Former**, **Logistic Regression**) — with a **TabPFN-3-as-control** test (Bonferroni–Dunn) plus the same omnibus / CD / Win-Loss / Holm / **Bayesian ROPE** battery and a copy-paste report. Higher power and a cleaner answer to "is the foundation model competitive with each established family?"; the complete all-learner version stays in 1.2. |
+| `Experiment1.4-LGD` | Headline LGD benchmark, same structure as 1.1: **R²** and **Pearson correlation** in three views, **R² rank**, **HPO effect**, **time analysis**, the **TabPFN v3 vs baselines** head-to-head — relative TabPFN-3 R² improvement vs dataset size against **CatBoost** and **lin. reg**, plus absolute per-dataset `y = x` scatters for both baselines — a **prediction-calibration analysis** (observed-vs-predicted summary, decile reliability curves, bias vs mean LGD), and a summary table. |
 | `Experiment1.5-LGD-Stat` | Full all-learner statistical analysis (LGD): the same battery as 1.2, on **R²**. |
-| `Experiment1.6-LGD-FamilyStat` | **Champion-level** statistical analysis (LGD): **TabPFN-3**, **CatBoost**, **TabM**, **Linear Regression**. Same structure as 1.3; with only 7 LGD datasets the **Bayesian ROPE** result is emphasised over the (low-power) frequentist tests. |
+| `Experiment1.6-LGD-FamilyStat` | **Champion-level** statistical analysis (LGD): **TabPFN-3**, **CatBoost**, **TabM**, **Linear Regression** (the `champions` list in `notebooks/CONFIG_NOTEBOOKS.yaml`). Same structure as 1.3; with only 7 LGD datasets the **Bayesian ROPE** result is emphasised over the (low-power) frequentist tests. |
 | `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs **dataset size** (`row_limit` caps the rows before the CV split), in four pooled views (raw curve · raw curve with a lower-right inset zooming the shaded `rows <= 1000` region · moving average · moving average over transparent raw points), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
 | `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same four pooled views, with the lower-right inset zooming the shaded `minority proportion <= 0.025` region, plus per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files. |
 
-**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook (in folder order, with the project venv kernel), collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` once after a successful run. Direct VS Code/Jupyter notebook runs refresh `figures/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Results_Checking` and `Individual_Method_Runner` are skipped. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
+**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook (in folder order, with the project venv kernel), collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` once after a successful run. Direct VS Code/Jupyter notebook runs refresh `figures/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Individual_Method_Runner` is skipped entirely; `Results_Checking` is re-run as a QA pass but its output is not collected into `All_Results.md`. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
 
 ---
 
@@ -510,7 +536,7 @@ pytest tests/ -m "not gpu"    # CI invocation -- auto-skips GPU-only tests
 ```
 
 Coverage includes the registry-derived method sets, the PD / LGD metric
-helpers, file locking, calibration plots, sweep-suffix round-trips, and
+helpers, sweep-suffix round-trips, and
 the JSON+npz `save_method` round-trip.
 
 ## 9. Citation

@@ -3,7 +3,7 @@
 # =============================================================================
 # Purpose: how robust are the best methods to severe class imbalance?
 # Constraint: no HPO. PD task only (LGD is regression).
-# Methods enabled (in CONFIG_METHOD.yaml): tabpfn_v3, tabicl_v2, xgboost, LogReg.
+# Methods enabled (in CONFIG_METHOD.yaml): tabpfn_v3, tabicl_v2, xgboost, catboost, LogReg.
 # =============================================================================
 
 # -----------------------------------------------------------------------------

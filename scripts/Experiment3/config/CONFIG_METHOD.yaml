@@ -33,6 +33,7 @@ methods:
     tabpfn_real: false
     tabicl: false
     tabdpt: false
+    tabfm: false
     tabptm: false
     mitra: false
     hyperfast: false
@@ -84,6 +85,7 @@ methods:
     tabpfn_v3: false
     tabicl_v2: false
     tabdpt: false
+    tabfm: false
     tabptm: false
     mitra: false
     ftt: false

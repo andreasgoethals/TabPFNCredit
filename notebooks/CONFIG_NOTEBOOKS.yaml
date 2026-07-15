@@ -1,0 +1,41 @@
+# ============================================================
+# CONFIG_NOTEBOOKS.yaml -- analysis-notebook method filters
+# ============================================================
+# Controls which methods' RESULTS the analysis notebooks show. This file only
+# affects the notebooks (figures, statistics, printed summaries) -- it never
+# changes what the experiments RUN (that is scripts/*/config/CONFIG_METHOD.yaml)
+# and it never deletes anything from disk.
+#
+# exclude   -- methods DROPPED from every analysis notebook EXCEPT Experiment0
+#              (the pilot notebook always shows everything that ran). One flat
+#              list per task -- no per-method true/false dials. A method listed
+#              here may well have results on disk; the notebooks simply skip
+#              those rows. Applied centrally in
+#              src/visualizations/experiment_plots.py::load_summary, so every
+#              notebook picks it up automatically.
+# champions -- the methods the champion-level statistical notebooks
+#              (Experiment1.3-PD-FamilyStat / Experiment1.6-LGD-FamilyStat)
+#              INCLUDE: one representative per model family. The inverse of
+#              `exclude` -- everything NOT listed stays out of those two
+#              notebooks. The `exclude` list still applies on top (an excluded
+#              method cannot be a champion).
+#
+# Method names are TALENT's canonical keys, exactly as in CONFIG_METHOD.yaml.
+
+exclude:
+  pd:
+    - tabfm             # Google's TabFM (2026) -- not part of the current analyses
+  lgd:
+    - tabfm
+
+champions:
+  pd:
+    - tabpfn_v3         # foundation-model champion (also the control method)
+    - catboost          # gradient-boosting champion
+    - t2gformer         # deep-tabular champion
+    - LogReg            # classical champion
+  lgd:
+    - tabpfn_v3         # foundation-model champion (also the control method)
+    - catboost          # gradient-boosting champion
+    - tabm              # deep-tabular champion
+    - LinearRegression  # classical champion

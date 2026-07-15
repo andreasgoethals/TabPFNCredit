@@ -25,7 +25,7 @@ methods:
     svm: true             # Support Vector Machine
     xgboost: true         # Extreme Gradient Boosting
     NCM: true             # Nearest Class Mean
-    dummy: false          # removed: no longer used as a baseline
+    dummy: false          # disabled: constant baseline, not part of the benchmark
 
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
@@ -41,6 +41,7 @@ methods:
     tabicl: true          # TabICL v1
     tabicl_v2: true       # TabICL v2 (ICML 2026; supports classification + regression)
     tabdpt: true          # TabDPT (Layer 6 AI; ICL + retrieval)
+    tabfm: false          # TabFM (Google 2026; zero-shot ICL; clf <= 10 classes; needs the `tabfm` pip extra + staged weights)
     tabptm: false         # TabPTM
     mitra: true           # MITRA
     hyperfast: false       # HyperFast
@@ -111,6 +112,7 @@ methods:
     tabpfn_v3: true        # TabPFN v3 (supports regression)
     tabicl_v2: true        # TabICL v2 (regression support added in ICML 2026)
     tabdpt: true           # TabDPT (supports regression)
+    tabfm: false           # TabFM (Google 2026; zero-shot ICL; supports regression; needs the `tabfm` pip extra + staged weights)
     tabptm: false          # TabPTM
     mitra: true            # MITRA
 

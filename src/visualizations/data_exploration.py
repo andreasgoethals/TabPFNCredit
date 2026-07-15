@@ -290,7 +290,7 @@ def _display_inline(fig: plt.Figure, *, dpi: int = 96) -> None:
 
     Works with the Agg backend (no GUI required) and is a harmless no-op
     when IPython is not installed. Kept separate so other modules (e.g.
-    ``experiment_plots`` and ``calibration_plots``) can re-use the same
+    ``experiment_plots``) can re-use the same
     code path. ``dpi`` is kept modest so the PNG embedded in the committed
     notebook stays small (the on-disk PDF is saved crisp separately).
     """

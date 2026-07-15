@@ -4,7 +4,7 @@
 # Purpose: how do the best methods' metrics scale with training-set size?
 # Constraint: no HPO (defaults only).
 # Methods enabled (in CONFIG_METHOD.yaml): tabpfn_v3, tabicl_v2, xgboost,
-#                                          LogReg (PD), LinearRegression (LGD).
+#                                          catboost, LogReg (PD) / LinearRegression (LGD).
 # =============================================================================
 
 # -----------------------------------------------------------------------------

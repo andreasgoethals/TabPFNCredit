@@ -30,6 +30,7 @@ METHOD_DISPLAY_NAMES: dict[str, str] = {
     "tabicl": "TabICL",
     "tabicl_v2": "TabICLv2",
     "tabdpt": "TabDPT",
+    "tabfm": "TabFM",
     "mitra": "Mitra",
     "limix": "LimiX",
     "hyperfast": "HyperFast",

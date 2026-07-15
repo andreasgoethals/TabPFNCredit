@@ -21,8 +21,11 @@ from __future__ import annotations
 
 import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+import yaml
 
 import matplotlib
 # Pin the non-interactive Agg backend so the module imports cleanly
@@ -397,6 +400,44 @@ def reset_figure_dir(figures_dir: Path) -> Path:
 _SUMMARIZED_THIS_SESSION: set = set()
 
 
+# ---------------------------------------------------------------------------
+#  Notebook-level method filters -- notebooks/CONFIG_NOTEBOOKS.yaml
+# ---------------------------------------------------------------------------
+# One flat exclusion list per task hides methods from EVERY analysis notebook
+# except Experiment 0's pilot (enforced inside load_summary, the single door
+# all notebooks load their data through); a champions inclusion list feeds the
+# two champion-level statistical notebooks. Display-only: nothing here changes
+# what the experiments run or what is stored on disk.
+
+def _notebook_config_path() -> Path:
+    from src.utils.paths import PROJECT_ROOT
+    return PROJECT_ROOT / "notebooks" / "CONFIG_NOTEBOOKS.yaml"
+
+
+@lru_cache(maxsize=1)
+def _notebook_method_filters() -> dict:
+    """Parsed ``notebooks/CONFIG_NOTEBOOKS.yaml`` (``{}`` when absent)."""
+    try:
+        with open(_notebook_config_path(), encoding="utf-8") as fh:
+            return yaml.safe_load(fh) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def excluded_methods(task: str) -> List[str]:
+    """Methods the analysis notebooks hide for ``task`` (``exclude.<task>``)."""
+    block = _notebook_method_filters().get("exclude") or {}
+    return [str(m) for m in (block.get(task.lower()) or [])]
+
+
+def champion_methods(task: str) -> List[str]:
+    """The champion-level notebooks' inclusion list (``champions.<task>``),
+    minus anything in the task's ``exclude`` list."""
+    block = _notebook_method_filters().get("champions") or {}
+    hidden = set(excluded_methods(task))
+    return [str(m) for m in (block.get(task.lower()) or []) if str(m) not in hidden]
+
+
 def load_summary(
     summary_dir: Path,
     *,
@@ -452,6 +493,15 @@ def load_summary(
         df = df[df["task"] == task]
     if hpo_mode is not None and "hpo_mode" in df.columns:
         df = df[df["hpo_mode"] == hpo_mode]
+    # Notebook-level exclusions (notebooks/CONFIG_NOTEBOOKS.yaml): hide these
+    # methods from every analysis notebook EXCEPT Experiment 0's pilot, which
+    # must show everything that ran. The print keeps the omission visible in
+    # the notebook output (and thus in results/All_Results.md).
+    if exp != "experiment0" and "method" in df.columns:
+        dropped = sorted(set(df["method"].astype(str)) & set(excluded_methods(task)))
+        if dropped:
+            df = df[~df["method"].astype(str).isin(dropped)]
+            print(f"[CONFIG_NOTEBOOKS.yaml] excluded from this analysis: {', '.join(dropped)}")
     if df.empty:
         raise FileNotFoundError(f"No {task}/{hpo_mode} rows in {path}")
     return df.reset_index(drop=True)
@@ -2332,6 +2382,44 @@ def lgd_summary_text(df: pd.DataFrame, *, task_name: str = "LGD",
                          sort_by=sort_by, higher_is_better=higher_is_better)
 
 
+def calibration_summary_text(bias_table: pd.DataFrame, *, task_name: str = "PD") -> str:
+    """Copy-pasteable text version of the calibration analysis, printed like
+    the metric summaries so ``run_notebooks`` collects it into
+    ``results/All_Results.md`` (the calibration figures alone leave no trace
+    there).
+
+    ``bias_table`` is the output of :func:`calibration_bias_table`: one row
+    per (method, dataset) with pooled out-of-fold observed/predicted means.
+    Positive bias (observed − predicted) means the method UNDERPREDICTS.
+    Prints (a) a per-method summary (equal weight per dataset) sorted by mean
+    absolute bias — best-calibrated first — and (b) the per-dataset signed
+    bias pivot behind the figures.
+    """
+    if bias_table is None or bias_table.empty:
+        text = f"{task_name} calibration: no out-of-fold predictions found."
+        print(text)
+        return text
+    grouped = bias_table.groupby("method")
+    summary = pd.DataFrame({
+        "observed_mean": grouped["observed_mean"].mean(),
+        "predicted_mean": grouped["predicted_mean"].mean(),
+        "bias_mean (obs-pred)": grouped["calibration_bias"].mean(),
+        "bias_std": grouped["calibration_bias"].std(ddof=0),
+        "abs_bias_mean": grouped["calibration_bias"].apply(lambda s: float(s.abs().mean())),
+        "datasets": grouped["dataset"].nunique(),
+    }).sort_values("abs_bias_mean")
+    pivot = bias_table.pivot_table(index="dataset", columns="method",
+                                   values="calibration_bias", aggfunc="mean")
+    header = (f"{task_name} — calibration: observed vs predicted target means per method "
+              f"(equal weight per dataset; positive bias = underprediction)")
+    text = (header + "\n" + "=" * max(len(header), 64) + "\n"
+            + summary.round(4).to_string()
+            + "\n\nPer-dataset signed bias (observed - predicted):\n"
+            + pivot.round(4).to_string())
+    print(text)
+    return text
+
+
 # ---------------------------------------------------------------------------
 #  Helpers
 # ---------------------------------------------------------------------------
@@ -2433,6 +2521,8 @@ __all__ = [
     "apply_style",
     "reset_figure_dir",
     "load_summary",
+    "excluded_methods",
+    "champion_methods",
     "calibration_bias_table",
     "selected_method_calibration_summary",
     "calibration_decile_curve",
