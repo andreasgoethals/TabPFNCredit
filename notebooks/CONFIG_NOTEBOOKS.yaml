@@ -23,10 +23,8 @@
 # Method names are TALENT's canonical keys, exactly as in CONFIG_METHOD.yaml.
 
 exclude:
-  pd:
-    - tabfm             # Google's TabFM (2026) -- not part of the current analyses
-  lgd:
-    - tabfm
+  pd: []                # e.g. [tabfm] to hide a method from every PD analysis notebook
+  lgd: []
 
 champions:
   pd:

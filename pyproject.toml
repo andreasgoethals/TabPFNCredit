@@ -214,6 +214,10 @@ hpc = [
 #     pip install -e ".[local,tabfm]"     # or ".[hpc,tabfm]"
 tabfm = [
     "tabfm[pytorch]>=1.0.0,<2",
+    # tabfm 1.0.0 imports sklearn's `validate_data` (added in scikit-learn 1.6)
+    # but forgets to declare the floor in its metadata -- pin it here so the
+    # extra installs a working combination (core deps only require >=1.4.2).
+    "scikit-learn>=1.6",
 ]
 
 [project.urls]

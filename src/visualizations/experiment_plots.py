@@ -20,6 +20,7 @@ once the CSV summaries exist.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from functools import lru_cache
 from pathlib import Path
@@ -474,7 +475,15 @@ def load_summary(
         # files are present -- so simply RUNNING a notebook rebuilds the summaries
         # from the latest results (old CSVs are deleted first in summarize_to_csv).
         # A CSV-only download (no result files locally) just reads the CSV as-is.
-        if results_present and exp not in _SUMMARIZED_THIS_SESSION:
+        # run_notebooks sets TABPFNCREDIT_SKIP_AUTO_SUMMARIZE after building the
+        # CSVs itself ONCE up front: notebooks then skip this refresh, which both
+        # removes redundant re-summarizing (six experiment1 notebooks = six
+        # rebuilds) and makes parallel notebook execution race-free. The
+        # missing-CSV fallback below stays active as a safety net.
+        skip_refresh = os.environ.get(
+            "TABPFNCREDIT_SKIP_AUTO_SUMMARIZE", ""
+        ).lower() in {"1", "true", "yes"}
+        if results_present and exp not in _SUMMARIZED_THIS_SESSION and not skip_refresh:
             from src.utils.result_summary import summarize_to_csv
             logger.info("Refreshing %s summaries from %s ...", exp, results_root)
             summarize_to_csv(base=results_root, experiment=exp, out_dir=summary_dir)

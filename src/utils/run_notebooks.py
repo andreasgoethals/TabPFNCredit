@@ -18,6 +18,17 @@ order they appear in the folder:
    the notebooks folder; re-running a notebook deletes and rewrites only its own
    section, leaving the others untouched.
 
+Notebooks run **in parallel** (``-j``, default ``min(4, CPUs)``): each one is an
+independent nbconvert subprocess with its own kernel, its own figure directory,
+and its own All_Results.md section, so nothing they write overlaps. The one
+shared artifact -- the per-experiment summary CSVs that every notebook refreshes
+on kernel start -- is built ONCE up front by this controller instead
+(``TABPFNCREDIT_SKIP_AUTO_SUMMARIZE`` tells the kernels to skip their own
+refresh), which removes both the write race and the redundant re-summarizing
+that made even sequential runs slow (six experiment1 notebooks used to mean six
+identical rebuilds). ``-j 1`` restores strictly sequential runs; ``-v`` implies
+it (live-streamed kernel output cannot be interleaved).
+
 The kernel is bound to the project venv (default ``<repo>/tabpfncreditvenv``):
 the notebooks are executed by *that* interpreter regardless of which Python runs
 this script, because we shell out to ``<venv>/python -m nbconvert`` with
@@ -34,6 +45,8 @@ CLI
     python -m src.utils.run_notebooks Experiment1.2-PD-Stat Experiment2.1-PD
 
     python -m src.utils.run_notebooks --list           # show run order, do nothing
+    python -m src.utils.run_notebooks -j 6             # more parallel kernels
+    python -m src.utils.run_notebooks -j 1             # strictly sequential
     python -m src.utils.run_notebooks --md-only        # only (re)collect output -> md
     python -m src.utils.run_notebooks --clear-only     # only clear outputs
     python -m src.utils.run_notebooks --no-md          # run but don't touch the md
@@ -49,9 +62,11 @@ import os
 import re
 import subprocess
 import sys
+import time
+from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.utils.paths import PROJECT_ROOT, results_root  # noqa: E402
@@ -266,12 +281,14 @@ def _check_nbconvert(py: Path) -> None:
 
 
 def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
-                     kernel_name: str, verbose: bool = False) -> None:
+                     kernel_name: str, verbose: bool = False,
+                     extra_env: Optional[Dict[str, str]] = None) -> None:
     """Restart-and-run ``path`` in place with a fresh venv kernel (raises on failure).
 
     Quiet by default: nbconvert's own chatter and the harmless Windows
     ``zmq`` ``add_reader`` RuntimeWarning are captured (shown only on failure).
-    ``verbose=True`` streams everything live for debugging."""
+    ``verbose=True`` streams everything live for debugging. ``extra_env`` adds
+    variables to the kernel's environment (e.g. the skip-auto-summarize flag)."""
     cmd = [str(py), "-m", "nbconvert", "--to", "notebook", "--execute", "--inplace",
            "--log-level", "WARN",
            f"--ExecutePreprocessor.timeout={timeout}",
@@ -290,11 +307,70 @@ def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
         # saved project figure. Here we run headlessly and refresh once below,
         # so suppress the per-save hook to avoid repeated CAPTIONS.md writes.
         "TABPFNCREDIT_AUTO_CAPTIONS": "0",
+        **(extra_env or {}),
     }
     if verbose:
         subprocess.run(cmd, check=True, env=env)
     else:
         subprocess.run(cmd, check=True, env=env, capture_output=True, text=True)
+
+
+# ============================================================================
+#  Up-front summary build (once per experiment, instead of once per kernel)
+# ============================================================================
+
+_EXP_STEM_RE = re.compile(r"^Experiment(\d+)", re.IGNORECASE)
+
+
+def _experiments_of(targets: Sequence[Path]) -> List[str]:
+    """The ``experimentN`` result folders the target notebooks read from."""
+    return sorted({f"experiment{m.group(1)}"
+                   for p in targets if (m := _EXP_STEM_RE.match(p.stem))})
+
+
+def presummarize_experiments(py: Path, targets: Sequence[Path], *,
+                             jobs: int = 1, verbose: bool = False) -> bool:
+    """Build each target experiment's summary CSVs ONCE, before any kernel starts.
+
+    Every notebook otherwise refreshes its experiment's CSVs on kernel start
+    (``load_summary(auto_summarize=True)``): on a full run that is six identical
+    experiment1 rebuilds, and under parallel execution it is a write race on the
+    shared CSVs. Building them here (in venv subprocesses, so this controller
+    stays stdlib-only) and setting ``TABPFNCREDIT_SKIP_AUTO_SUMMARIZE`` for the
+    kernels fixes both. Experiments with no local result files are skipped (a
+    CSV-only download reads the existing CSVs as-is). Returns True when the
+    pass ran (even if some experiment failed -- failures are reported loudly and
+    the kernels' missing-CSV fallback still applies).
+    """
+    root = results_root()
+    todo = [exp for exp in _experiments_of(targets)
+            if (root / exp).is_dir() and next((root / exp).rglob("*.json"), None) is not None]
+    if not todo:
+        return False
+    code = ("import sys; from src.utils.result_summary import summarize_to_csv; "
+            "from src.utils.paths import results_root; base = results_root(); "
+            "summarize_to_csv(base=base, experiment=sys.argv[1], out_dir=base / 'summaries')")
+
+    def _one(exp: str) -> None:
+        subprocess.run([str(py), "-c", code, exp], check=True, cwd=str(PROJECT_ROOT),
+                       capture_output=not verbose, text=True)
+
+    t0 = time.perf_counter()
+    failures: List[str] = []
+    with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(todo)))) as pool:
+        futs = {pool.submit(_one, exp): exp for exp in todo}
+        for fut in as_completed(futs):
+            try:
+                fut.result()
+            except subprocess.CalledProcessError as exc:
+                failures.append(futs[fut])
+                tail = ((exc.stderr or "") + (exc.stdout or "")).strip().splitlines()[-4:]
+                print(f"   [warn] pre-summarize failed for {futs[fut]}: " + " | ".join(tail))
+    kept = [e for e in todo if e not in failures]
+    print(f"summaries: rebuilt {', '.join(kept) or '(none)'} once up front "
+          f"({time.perf_counter() - t0:.1f}s)"
+          + (f" -- FAILED: {', '.join(failures)}" if failures else ""))
+    return True
 
 
 def _print_error_tail(exc: subprocess.CalledProcessError, n: int = 18) -> None:
@@ -311,22 +387,57 @@ def _print_error_tail(exc: subprocess.CalledProcessError, n: int = 18) -> None:
 #  Orchestration
 # ============================================================================
 
+def _process_notebook(nb_path: Path, *, py: Optional[Path], do_clear: bool,
+                      do_execute: bool, do_md: bool, is_collected: bool,
+                      timeout: int, allow_errors: bool, kernel_name: str,
+                      verbose: bool, include_results: bool, stamp: str,
+                      extra_env: Optional[Dict[str, str]]) -> Tuple[List[str], Optional[str], float]:
+    """Clear + execute + harvest ONE notebook (the unit of parallel work).
+
+    Everything here touches only this notebook's own files (its .ipynb, its
+    figure directory); the shared All_Results.md is assembled by the caller.
+    Returns ``(step descriptions, md block or None, seconds)``; raises on failure.
+    """
+    t0 = time.perf_counter()
+    steps: List[str] = []
+    block: Optional[str] = None
+    if do_clear:
+        clear_notebook(nb_path)
+        steps.append("cleared")
+    if do_execute:
+        execute_notebook(nb_path, py, timeout=timeout, allow_errors=allow_errors,
+                         kernel_name=kernel_name, verbose=verbose, extra_env=extra_env)
+        steps.append("ran")
+    if do_md and is_collected:
+        nb = json.loads(nb_path.read_text(encoding="utf-8"))
+        body = harvest_stdout(nb, include_results=include_results)
+        block = render_block(nb_path.stem, notebook_title(nb, nb_path.stem),
+                             nb_path.name, body, stamp)
+        steps.append(f"{len(body):,} chars")
+    elif do_md:
+        steps.append("not collected")
+    return steps, block, time.perf_counter() - t0
+
+
 def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: bool,
         do_md: bool, md_path: Path, timeout: int, allow_errors: bool,
         kernel_name: str, continue_on_error: bool, include_results: bool,
-        verbose: bool = False, do_captions: bool = True) -> int:
+        verbose: bool = False, do_captions: bool = True, jobs: int = 1) -> int:
     """Drive clear/execute/collect across ``targets``. Returns a process exit code.
 
     One concise line per notebook: ``[i/N] <name> … ✓  12.3s  (cleared, ran, 5,512 chars)``.
     On failure the tail of nbconvert's output is shown so the error is visible.
+    ``jobs > 1`` runs that many notebooks concurrently (each is its own kernel
+    subprocess); completion lines then appear in finish order, and on a failure
+    without ``--continue-on-error`` the queued notebooks are cancelled while the
+    already-running ones finish.
     """
-    import time
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     # Folder-order list of the notebooks that DO get an All_Results.md section
     # (Results_Checking is run but excluded here, so it isn't collected).
     included_order = [p.stem for p in discover_notebooks() if p.stem not in NO_COLLECT]
     fresh: Dict[str, str] = {}
-    ok, failed = [], []
+    ok, failed, cancelled = [], [], []
     n = len(targets)
     width = max((len(p.stem) for p in targets), default=10)
     # Status glyphs degrade to ASCII on a non-UTF-8 console (Windows cp1252)
@@ -334,45 +445,89 @@ def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: 
     _uni = "utf" in (getattr(sys.stdout, "encoding", "") or "").lower()
     M_OK, M_FAIL = ("✓", "✗") if _uni else ("ok", "FAIL")
 
-    for i, nb_path in enumerate(targets, 1):
-        stem = nb_path.stem
-        is_collected = stem in included_order  # exempt notebooks run but aren't collected
-        tag = "" if is_collected else " (run-only)"
-        print(f"[{i}/{n}] {stem:<{width}}{tag} ... ", end="\n" if verbose else "", flush=True)
-        t0 = time.perf_counter()
-        try:
-            steps: List[str] = []
-            if do_clear:
-                clear_notebook(nb_path)
-                steps.append("cleared")
-            if do_execute:
-                execute_notebook(nb_path, py, timeout=timeout, allow_errors=allow_errors,
-                                 kernel_name=kernel_name, verbose=verbose)
-                steps.append("ran")
-            if do_md and is_collected:
-                nb = json.loads(nb_path.read_text(encoding="utf-8"))
-                body = harvest_stdout(nb, include_results=include_results)
-                fresh[stem] = render_block(stem, notebook_title(nb, stem), nb_path.name, body, stamp)
-                steps.append(f"{len(body):,} chars")
-            elif do_md and not is_collected:
-                steps.append("not collected")
-            dt = time.perf_counter() - t0
-            print(f"{M_OK} {dt:5.1f}s  ({', '.join(steps) or 'ok'})")
-            ok.append(stem)
-        except subprocess.CalledProcessError as exc:
-            dt = time.perf_counter() - t0
-            print(f"{M_FAIL}  {dt:.1f}s  (exit {exc.returncode})")
-            failed.append(stem)
-            if not verbose:                         # in verbose the tail already streamed
-                _print_error_tail(exc)
-            if not continue_on_error:
-                print("        stopped -- fix the error, or pass --continue-on-error.")
-                break
-        except Exception as exc:  # noqa: BLE001
-            print(f"{M_FAIL}  {type(exc).__name__}: {exc}")
-            failed.append(stem)
-            if not continue_on_error:
-                break
+    # Build each target experiment's summary CSVs once, up front, and tell the
+    # kernels to skip their own per-session refresh (see presummarize_experiments).
+    extra_env: Dict[str, str] = {}
+    if do_execute and py is not None:
+        if presummarize_experiments(py, targets, jobs=max(1, jobs), verbose=verbose):
+            extra_env["TABPFNCREDIT_SKIP_AUTO_SUMMARIZE"] = "1"
+
+    def _kwargs(nb_path: Path) -> dict:
+        return dict(py=py, do_clear=do_clear, do_execute=do_execute, do_md=do_md,
+                    is_collected=nb_path.stem in included_order, timeout=timeout,
+                    allow_errors=allow_errors, kernel_name=kernel_name, verbose=verbose,
+                    include_results=include_results, stamp=stamp, extra_env=extra_env)
+
+    def _tag(nb_path: Path) -> str:
+        return "" if nb_path.stem in included_order else " (run-only)"
+
+    t_all = time.perf_counter()
+    if jobs <= 1:
+        for i, nb_path in enumerate(targets, 1):
+            stem = nb_path.stem
+            print(f"[{i}/{n}] {stem:<{width}}{_tag(nb_path)} ... ",
+                  end="\n" if verbose else "", flush=True)
+            try:
+                steps, block, dt = _process_notebook(nb_path, **_kwargs(nb_path))
+                if block is not None:
+                    fresh[stem] = block
+                print(f"{M_OK} {dt:5.1f}s  ({', '.join(steps) or 'ok'})")
+                ok.append(stem)
+            except subprocess.CalledProcessError as exc:
+                print(f"{M_FAIL}  (exit {exc.returncode})")
+                failed.append(stem)
+                if not verbose:                     # in verbose the tail already streamed
+                    _print_error_tail(exc)
+                if not continue_on_error:
+                    print("        stopped -- fix the error, or pass --continue-on-error.")
+                    break
+            except Exception as exc:  # noqa: BLE001
+                print(f"{M_FAIL}  {type(exc).__name__}: {exc}")
+                failed.append(stem)
+                if not continue_on_error:
+                    break
+    else:
+        # Submit in folder order; print in completion order (prefixed by name, so
+        # interleaving is unambiguous). All printing happens on this thread.
+        stopping = False
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            futs = {pool.submit(_process_notebook, p, **_kwargs(p)): p for p in targets}
+            done_count = 0
+            for fut in as_completed(futs):
+                nb_path = futs[fut]
+                stem = nb_path.stem
+                done_count += 1
+                prefix = f"[{done_count}/{n}] {stem:<{width}}{_tag(nb_path)} ... "
+                try:
+                    steps, block, dt = fut.result()
+                except CancelledError:
+                    cancelled.append(stem)
+                    print(f"{prefix}-- cancelled (earlier failure)")
+                    continue
+                except subprocess.CalledProcessError as exc:
+                    print(f"{prefix}{M_FAIL}  (exit {exc.returncode})")
+                    failed.append(stem)
+                    _print_error_tail(exc)
+                    if not continue_on_error and not stopping:
+                        stopping = True
+                        n_cancelled = sum(f.cancel() for f in futs)
+                        if n_cancelled:
+                            print(f"        cancelling {n_cancelled} queued notebook(s); "
+                                  "already-running ones finish. "
+                                  "(--continue-on-error disables this.)")
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    print(f"{prefix}{M_FAIL}  {type(exc).__name__}: {exc}")
+                    failed.append(stem)
+                    if not continue_on_error and not stopping:
+                        stopping = True
+                        for f in futs:
+                            f.cancel()
+                    continue
+                if block is not None:
+                    fresh[stem] = block
+                print(f"{prefix}{M_OK} {dt:5.1f}s  ({', '.join(steps) or 'ok'})")
+                ok.append(stem)
 
     if do_md and fresh:
         update_all_results_md(md_path, fresh, included_order, stamp=stamp)
@@ -387,9 +542,11 @@ def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: 
         except Exception as exc:  # noqa: BLE001 -- captions are non-critical
             print(f"(caption regeneration skipped: {type(exc).__name__}: {exc})")
 
-    summary = f"\nDone: {len(ok)}/{n} ok"
+    summary = f"\nDone: {len(ok)}/{n} ok in {time.perf_counter() - t_all:.0f}s"
     if failed:
         summary += f", {len(failed)} FAILED: {', '.join(failed)}"
+    if cancelled:
+        summary += f", {len(cancelled)} cancelled"
     print(summary)
     return 1 if failed else 0
 
@@ -418,8 +575,11 @@ def main(argv: Optional[List[str]] = None) -> int:
                     help="keep processing the remaining notebooks if one fails")
     ap.add_argument("--include-results", action="store_true",
                     help="also collect text/plain Out[] results, not just printed stdout")
+    ap.add_argument("-j", "--jobs", type=int, default=0,
+                    help="notebooks to run concurrently, each in its own kernel process "
+                         "(default: 0 = auto, min(4, CPUs); 1 = strictly sequential)")
     ap.add_argument("-v", "--verbose", action="store_true",
-                    help="stream raw nbconvert/kernel output live (default: quiet, shown only on failure)")
+                    help="stream raw nbconvert/kernel output live (default: quiet, shown only on failure; implies -j 1)")
     ap.add_argument("--no-captions", action="store_true",
                     help="don't regenerate figures/CAPTIONS.md after running")
     ap.add_argument("--venv", type=Path, default=DEFAULT_VENV,
@@ -455,21 +615,32 @@ def main(argv: Optional[List[str]] = None) -> int:
                 f"Pass --venv <dir> or --python <path>.")
         _check_nbconvert(Path(py))
 
+    # Parallelism: auto = min(4, CPUs) kernels. Verbose streams raw kernel
+    # output, which cannot be interleaved -> forced sequential. Non-execute
+    # passes (md-only / clear-only) are I/O-trivial -> sequential too.
+    jobs = args.jobs if args.jobs > 0 else min(4, os.cpu_count() or 2)
+    jobs = max(1, min(jobs, len(targets)))
+    if args.verbose and jobs > 1:
+        print("(-v streams kernel output live; forcing -j 1)")
+        jobs = 1
+    if not do_execute:
+        jobs = 1
+
     steps = "+".join(s for s, on in (("clear", do_clear), ("run", do_execute), ("collect", do_md)) if on)
     print(f"{len(targets)} notebook(s) | {steps} | kernel: {py.name if py else '(none)'} "
-          f"| md: {md_path.name if do_md else 'skipped'}")
+          f"| jobs: {jobs} | md: {md_path.name if do_md else 'skipped'}")
 
     return run(targets, py=py, do_clear=do_clear, do_execute=do_execute, do_md=do_md,
                md_path=md_path, timeout=args.timeout, allow_errors=args.allow_errors,
                kernel_name=args.kernel_name, continue_on_error=args.continue_on_error,
                include_results=args.include_results, verbose=args.verbose,
-               do_captions=not args.no_captions)
+               do_captions=not args.no_captions, jobs=jobs)
 
 
 __all__ = [
     "discover_notebooks", "resolve_targets", "clear_notebook", "harvest_stdout",
     "notebook_title", "render_block", "parse_existing_blocks", "update_all_results_md",
-    "venv_python", "execute_notebook", "run", "main",
+    "venv_python", "execute_notebook", "presummarize_experiments", "run", "main",
     "RUN_SKIP", "NO_COLLECT", "EXEMPT_STEMS", "DEFAULT_VENV", "RESULTS_MD_NAME",
 ]
 
