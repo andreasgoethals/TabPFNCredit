@@ -187,6 +187,9 @@ def _build_specs() -> List[ModelSpec]:
         # `tabfm: true`, run `python -m src.utils.fetch_weights --only tabfm`
         # and install the optional package (`pip install -e ".[local,tabfm]"`).
         # The weights carry Google's non-commercial license.
+        # NB: tabfm 1.0.0's loader reads ONLY `<model_type>/pytorch_model.bin`
+        # (plain torch.load) while the repo ships ONLY safetensors, so this
+        # fetch auto-converts after download (see _convert_tabfm_safetensors).
         ModelSpec("tabfm", ("tabfm",), "hub",
                   (HFFile("google/tabfm-1.0.0-pytorch", "config.json"),
                    HFFile("google/tabfm-1.0.0-pytorch", "classification/config.json"),
@@ -286,6 +289,34 @@ def _url_download(url: str, out_path: Path, *, attempts: int = 6, backoff: float
         f"Download it manually from:\n        {url}\n"
         f"      and place it at:\n        {out_path}"
     )
+
+
+def _convert_tabfm_safetensors(checkpoints: Path) -> None:
+    """Write the `pytorch_model.bin` files tabfm 1.0.0's loader actually reads.
+
+    Google's `tabfm` 1.0.0 PyTorch loader hardcodes
+    ``<snapshot>/<model_type>/pytorch_model.bin`` + ``torch.load`` and never
+    looks at safetensors -- but the HF repo ships ONLY ``model.safetensors``,
+    so the stock package cannot load its own published weights. Converting
+    once here (next to the safetensors, inside the snapshot) makes the cache
+    work as-is, including on offline compute nodes. Idempotent.
+    """
+    import torch
+    from safetensors.torch import load_file
+
+    root = checkpoints / "huggingface" / "hub" / "models--google--tabfm-1.0.0-pytorch"
+    found = sorted(root.glob("snapshots/*/*/model.safetensors"))
+    if not found:
+        print("  [warn] no tabfm safetensors found to convert -- loader will fail offline.")
+        return
+    for st in found:
+        out = st.parent / "pytorch_model.bin"
+        if out.exists() and out.stat().st_size > 0:
+            print(f"  [skip] {st.parent.name}/pytorch_model.bin already present")
+            continue
+        print(f"  converting {st.parent.name}/model.safetensors -> pytorch_model.bin ...")
+        torch.save(load_file(str(st)), str(out))
+        print(f"  [ok] {out.parent.name}/pytorch_model.bin  ({_human(out.stat().st_size)})")
 
 
 def _human(n: int) -> str:
@@ -388,6 +419,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             for f in spec.hf_files:
                 dest_path = _hf_download(f, dest=spec.dest, checkpoints=checkpoints, token=args.hf_token)
                 print(f"  [ok] {f.repo_id}:{f.filename}  ({_human(dest_path.stat().st_size)})")
+            if spec.key == "tabfm":
+                # tabfm 1.0.0's loader only reads pytorch_model.bin (see above).
+                _convert_tabfm_safetensors(checkpoints)
             ok.append(spec.key)
         except Exception as exc:  # noqa: BLE001
             print(f"  [FAIL] {spec.key}: {type(exc).__name__}: {exc}")

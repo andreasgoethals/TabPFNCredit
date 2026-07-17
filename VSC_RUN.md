@@ -112,6 +112,14 @@ python -m src.utils.fetch_weights --only tabpfn_v3 tabicl_v2
 python -m src.utils.fetch_weights --only tabfm
 ```
 
+> **Fetching on the VSC login node?** Pass
+> `--checkpoints-dir /lustre1/project/stg_00211/TabPFNCredit/checkpoints` so the
+> weights land straight on project storage. Never MOVE an HF hub cache with
+> copy-then-delete: the visible `snapshots/...` filenames are symlinks into
+> `blobs/`, so `rsync -a` + `rm -rf` of the source leaves dangling links and
+> "weights not found" errors. Fetch into the final directory, or copy with
+> `rsync -aL` (materialises the links into real files).
+
 **(b) Upload `checkpoints/` to the project storage on the VSC** (the repo
 root works too — both are found automatically):
 
