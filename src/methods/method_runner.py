@@ -335,6 +335,24 @@ def _build_talent_args(
     if method == "lightgbm" and isinstance(getattr(args, "config", None), dict):
         args.config.setdefault("model", {}).setdefault("verbose", -1)
 
+    # TabFM speed knobs. TabFM is an in-context learner, so its cost scales with
+    # the in-context row count AND the test-inference batch size. Its shipped
+    # TALENT defaults leave the context UNCAPPED (max_num_rows=None -> it attends
+    # over the whole train split, e.g. ~96k rows on GMSC) and set batch_size=1
+    # (one test row per forward pass), which together make a single fold take
+    # many hours on the large credit datasets -- a 23 h H100 slot timed out
+    # before finishing even the first dataset. Every OTHER foundation model in
+    # the registry bounds its context (tabicl=500k, mitra=10k, ...); TabFM was
+    # the only uncapped one. We cap it to TabFM's own native per-member row
+    # sampler (max_num_rows) and batch the test inference. Both are read by the
+    # TALENT TabFM wrapper's construct_model() and forwarded to TabFMClassifier /
+    # TabFMRegressor. Tune max_num_rows up if you want TabFM to use more context.
+    if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
+        gen = args.config.setdefault("general", {})
+        gen.setdefault("max_num_rows", 10_000)   # in-context rows sampled per ensemble member
+        if gen.get("batch_size", 1) <= 1:
+            gen["batch_size"] = 512              # test rows per forward pass (was 1)
+
     return args
 
 
