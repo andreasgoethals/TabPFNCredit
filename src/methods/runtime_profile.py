@@ -149,7 +149,15 @@ _PROFILES: Dict[str, Profile] = {
     "tabicl":          Profile(Tier.FOUNDATION, 300,  prefers_gpu=True, needs_foundation_gpu=True),
     "tabicl_v2":       Profile(Tier.FOUNDATION, 900,  prefers_gpu=True, needs_foundation_gpu=True),
     "tabdpt":          Profile(Tier.FOUNDATION, 600,  prefers_gpu=True, needs_foundation_gpu=True),
-    "tabfm":           Profile(Tier.FOUNDATION, 900,  prefers_gpu=True, needs_foundation_gpu=True),
+    # High per-fold estimate on purpose: TabFM keeps its FULL in-context set (no
+    # row cap) and ensembles 32 members, so a fold on a large dataset (e.g. GMSC
+    # ~96k train rows) is genuinely hours. With one dataset per array task
+    # (TABPFN_MAX_CELLS_PER_SLOT=1) the slot walltime is derived from a SINGLE
+    # dataset's estimate, so this must be large enough to request ~the full H100
+    # wall (23 h) for the big datasets -- a low estimate got them killed at ~1.6h.
+    # Overestimating only over-requests walltime (the job exits early when done)
+    # and is skip-if-done-safe.
+    "tabfm":           Profile(Tier.FOUNDATION, 14000, prefers_gpu=True, needs_foundation_gpu=True),
     "mitra":           Profile(Tier.FOUNDATION, 600,  prefers_gpu=True, needs_foundation_gpu=True),
     "limix":           Profile(Tier.FOUNDATION, 1800, prefers_gpu=True, needs_foundation_gpu=True),
     "hyperfast":       Profile(Tier.FOUNDATION, 60,   prefers_gpu=True),

@@ -339,18 +339,25 @@ def _build_talent_args(
     # ``batch_size=1`` -- it scores the test set ONE ROW AT A TIME, re-attending
     # over the whole in-context train set for every single test row (x32 ensemble
     # members). On the large credit datasets that is ~1e6 forward passes per fold
-    # and a 23 h H100 slot timed out on the first dataset. ``batch_size`` is a
-    # pure INFERENCE-THROUGHPUT knob: predictions are per-row-independent given
-    # the context, so batching test rows changes nothing about the results or the
-    # model's context -- it just amortises the context pass. We do NOT cap
-    # ``max_num_rows`` (TabFM is designed for large in-context sets; capping it
-    # would understate the model); its full context is preserved. Read by the
-    # TALENT TabFM wrapper's construct_model() and forwarded to the classifier /
-    # regressor. Lower this only if a run OOMs on the biggest test folds.
+    # and a 23 h H100 slot timed out. ``batch_size`` is a pure INFERENCE-
+    # THROUGHPUT knob: predictions are per-row-independent given the context, so
+    # batching test rows changes NOTHING about the results or the model's context
+    # -- it just amortises the context pass. We do NOT cap ``max_num_rows``
+    # (TabFM is built for large in-context sets; capping it would understate the
+    # model); its full context is preserved.
+    #
+    # Memory: the test-attention allocation scales ~linearly with batch_size AND
+    # with the in-context row count, so on the biggest datasets (e.g. GMSC ~96k
+    # train rows) batch_size=64 tried to allocate ~115 GiB and OOM'd the 80 GiB
+    # H100. batch_size=8 keeps that worst-case allocation to ~14 GiB (fits with
+    # margin alongside the ~36 GiB context) while still being 8x fewer forward
+    # passes than the stock batch_size=1. Raise it for small-context datasets or
+    # lower it further if a giant dataset still OOMs. Read by the TALENT TabFM
+    # wrapper's construct_model() and forwarded to the classifier / regressor.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
         if gen.get("batch_size", 1) <= 1:
-            gen["batch_size"] = 64
+            gen["batch_size"] = 8
 
     return args
 
