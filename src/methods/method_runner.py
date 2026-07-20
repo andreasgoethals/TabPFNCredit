@@ -335,23 +335,22 @@ def _build_talent_args(
     if method == "lightgbm" and isinstance(getattr(args, "config", None), dict):
         args.config.setdefault("model", {}).setdefault("verbose", -1)
 
-    # TabFM speed knobs. TabFM is an in-context learner, so its cost scales with
-    # the in-context row count AND the test-inference batch size. Its shipped
-    # TALENT defaults leave the context UNCAPPED (max_num_rows=None -> it attends
-    # over the whole train split, e.g. ~96k rows on GMSC) and set batch_size=1
-    # (one test row per forward pass), which together make a single fold take
-    # many hours on the large credit datasets -- a 23 h H100 slot timed out
-    # before finishing even the first dataset. Every OTHER foundation model in
-    # the registry bounds its context (tabicl=500k, mitra=10k, ...); TabFM was
-    # the only uncapped one. We cap it to TabFM's own native per-member row
-    # sampler (max_num_rows) and batch the test inference. Both are read by the
-    # TALENT TabFM wrapper's construct_model() and forwarded to TabFMClassifier /
-    # TabFMRegressor. Tune max_num_rows up if you want TabFM to use more context.
+    # TabFM inference throughput. TabFM's shipped TALENT default is
+    # ``batch_size=1`` -- it scores the test set ONE ROW AT A TIME, re-attending
+    # over the whole in-context train set for every single test row (x32 ensemble
+    # members). On the large credit datasets that is ~1e6 forward passes per fold
+    # and a 23 h H100 slot timed out on the first dataset. ``batch_size`` is a
+    # pure INFERENCE-THROUGHPUT knob: predictions are per-row-independent given
+    # the context, so batching test rows changes nothing about the results or the
+    # model's context -- it just amortises the context pass. We do NOT cap
+    # ``max_num_rows`` (TabFM is designed for large in-context sets; capping it
+    # would understate the model); its full context is preserved. Read by the
+    # TALENT TabFM wrapper's construct_model() and forwarded to the classifier /
+    # regressor. Lower this only if a run OOMs on the biggest test folds.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
-        gen.setdefault("max_num_rows", 10_000)   # in-context rows sampled per ensemble member
         if gen.get("batch_size", 1) <= 1:
-            gen["batch_size"] = 512              # test rows per forward pass (was 1)
+            gen["batch_size"] = 64
 
     return args
 

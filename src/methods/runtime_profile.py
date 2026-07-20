@@ -149,7 +149,7 @@ _PROFILES: Dict[str, Profile] = {
     "tabicl":          Profile(Tier.FOUNDATION, 300,  prefers_gpu=True, needs_foundation_gpu=True),
     "tabicl_v2":       Profile(Tier.FOUNDATION, 900,  prefers_gpu=True, needs_foundation_gpu=True),
     "tabdpt":          Profile(Tier.FOUNDATION, 600,  prefers_gpu=True, needs_foundation_gpu=True),
-    "tabfm":           Profile(Tier.FOUNDATION, 1500, prefers_gpu=True, needs_foundation_gpu=True),
+    "tabfm":           Profile(Tier.FOUNDATION, 900,  prefers_gpu=True, needs_foundation_gpu=True),
     "mitra":           Profile(Tier.FOUNDATION, 600,  prefers_gpu=True, needs_foundation_gpu=True),
     "limix":           Profile(Tier.FOUNDATION, 1800, prefers_gpu=True, needs_foundation_gpu=True),
     "hyperfast":       Profile(Tier.FOUNDATION, 60,   prefers_gpu=True),

@@ -295,6 +295,7 @@ def pack_work_items(
     cap_seconds: int,
     max_slots: int = MAX_ARRAY_SLOTS,
     split_cells: bool = False,
+    max_cells_per_slot: Optional[int] = None,
 ) -> tuple[List[List[dict]], int]:
     """Greedy LPT bin-pack work items into ``<= max_slots`` slots.
 
@@ -315,6 +316,16 @@ def pack_work_items(
     ``clamp(ceil(total / cap_seconds), 1, max_slots)`` so the per-slot load
     targets ``cap_seconds`` (~95% of the wall) but never produces more tasks
     than the submit limit allows.
+
+    ``max_cells_per_slot`` (default: unbounded) forces finer parallelism than
+    the pure time-packing would choose: no slot gets more than this many cells,
+    so e.g. ``max_cells_per_slot=1`` runs every (task, dataset, method) cell as
+    its OWN array task -- one dataset per GPU, each with the full walltime. This
+    is what you want for an expensive in-context method (e.g. TabFM) whose
+    per-dataset cost is hard to estimate: isolate each dataset so a slow one
+    can't drag the others past the wall. Honoured on a best-effort basis -- if
+    ``max_slots`` is too small to give every cell its own slot, the leftover
+    cells pack into the least-loaded slots.
 
     Returns ``(slots, max_slot_seconds)``. ``max_slot_seconds`` lets the caller
     detect when the work could not be squeezed under ``cap_seconds`` (i.e. it
@@ -346,14 +357,25 @@ def pack_work_items(
 
     total = sum(group_est)
     needed = max(1, math.ceil(total / max(1, cap_seconds)))
+    cap_cells = max_cells_per_slot if (max_cells_per_slot and max_cells_per_slot > 0) else None
+    if cap_cells is not None:
+        # Need at least this many slots to keep every slot within the cell cap.
+        needed = max(needed, math.ceil(len(group_list) / cap_cells))
     n_slots = max(1, min(needed, max_slots, len(group_list)))
 
     slots: List[List[dict]] = [[] for _ in range(n_slots)]
     loads = [0] * n_slots
+    counts = [0] * n_slots
     for gi in sorted(range(len(group_list)), key=lambda j: group_est[j], reverse=True):
-        k = min(range(n_slots), key=lambda j: loads[j])
+        # Prefer slots still under the per-slot cell cap; if every slot is at the
+        # cap (max_slots too small to honour it), fall back to the least loaded.
+        candidates = [j for j in range(n_slots) if cap_cells is None or counts[j] < cap_cells]
+        if not candidates:
+            candidates = list(range(n_slots))
+        k = min(candidates, key=lambda j: loads[j])
         slots[k].extend(group_list[gi])
         loads[k] += group_est[gi]
+        counts[k] += 1
     return [s for s in slots if s], (max(loads) if loads else 0)
 
 
@@ -557,6 +579,7 @@ def generate_scripts_for_experiment(
     max_concurrent: Optional[int] = None,
     mail_email: str = "",
     max_slots: Optional[int] = None,
+    max_cells_per_slot: Optional[int] = None,
     run_id: Optional[str] = None,
 ) -> List[GeneratedJob]:
     """Write SLURM scripts for one experiment, sharding sweep POINTS across slots.
@@ -604,6 +627,14 @@ def generate_scripts_for_experiment(
 
     if max_slots is None:
         max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", MAX_ARRAY_SLOTS))
+
+    # Optional per-slot cell cap -> finer parallelism than time-packing alone.
+    # e.g. TABPFN_MAX_CELLS_PER_SLOT=1 runs one (dataset, method) cell per array
+    # task (one dataset per GPU), so a slow dataset can't drag others past the
+    # wall. Unset = pure time-packing (unchanged default behaviour).
+    if max_cells_per_slot is None:
+        _mcps_env = os.environ.get("TABPFN_MAX_CELLS_PER_SLOT")
+        max_cells_per_slot = int(_mcps_env) if _mcps_env else None
 
     # Experiment 2/3 pack a cell's sweep points into per-task shard files, so a
     # big cell's points may be split across array tasks (intra-cell parallelism).
@@ -654,7 +685,7 @@ def generate_scripts_for_experiment(
         cap_seconds = int(0.95 * spec.max_walltime_hours * 3600)
         slots, max_slot_seconds = pack_work_items(
             items, cap_seconds=cap_seconds, max_slots=max_slots,
-            split_cells=split_cells,
+            split_cells=split_cells, max_cells_per_slot=max_cells_per_slot,
         )
         if not slots:
             continue
