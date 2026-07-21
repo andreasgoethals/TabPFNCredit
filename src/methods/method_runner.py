@@ -335,29 +335,33 @@ def _build_talent_args(
     if method == "lightgbm" and isinstance(getattr(args, "config", None), dict):
         args.config.setdefault("model", {}).setdefault("verbose", -1)
 
-    # TabFM inference throughput. TabFM's shipped TALENT default is
-    # ``batch_size=1`` -- it scores the test set ONE ROW AT A TIME, re-attending
-    # over the whole in-context train set for every single test row (x32 ensemble
-    # members). On the large credit datasets that is ~1e6 forward passes per fold
-    # and a 23 h H100 slot timed out. ``batch_size`` is a pure INFERENCE-
-    # THROUGHPUT knob: predictions are per-row-independent given the context, so
-    # batching test rows changes NOTHING about the results or the model's context
-    # -- it just amortises the context pass. We do NOT cap ``max_num_rows``
-    # (TabFM is built for large in-context sets; capping it would understate the
-    # model); its full context is preserved.
+    # TabFM memory + throughput knobs, calibrated from measured H100-80GB runs.
     #
-    # Memory: the test-attention allocation scales ~linearly with batch_size AND
-    # with the in-context row count, so on the biggest datasets (e.g. GMSC ~96k
-    # train rows) batch_size=64 tried to allocate ~115 GiB and OOM'd the 80 GiB
-    # H100. batch_size=8 keeps that worst-case allocation to ~14 GiB (fits with
-    # margin alongside the ~36 GiB context) while still being 8x fewer forward
-    # passes than the stock batch_size=1. Raise it for small-context datasets or
-    # lower it further if a giant dataset still OOMs. Read by the TALENT TabFM
-    # wrapper's construct_model() and forwarded to the classifier / regressor.
+    # ``max_num_rows`` (TabFM's OWN per-ensemble-member row subsampler): the OOM
+    # in ``model(X_t, y_t, ...)`` is dominated by attention over the in-context
+    # TRAIN rows -- shrinking the test batch 64 -> 8 left the largest allocation
+    # unchanged (115 -> 134 GiB attempted on GMSC's ~108k-row context), so full
+    # context is PHYSICALLY infeasible on any available GPU for the big credit
+    # datasets. Measured feasibility boundary on H100-80GB (job 61509047,
+    # batch=8, 32 members, AMP): every dataset with fold context <= ~11.5k rows
+    # completed; every one >= ~21.6k OOM'd. We therefore set the authors' own
+    # knob to 10k rows per member -- with margin under the boundary, and equal to
+    # the registry caps already used for Mitra / TabPFN v2. NOTE this is NOT a
+    # single 10k subset: each of the 32 ensemble members draws its OWN seeded
+    # 10k sample, so the ensemble collectively covers up to ~320k distinct rows.
+    # Disclose alongside the other foundation-model context caps in the paper.
+    #
+    # ``batch_size`` (test rows per forward pass; stock default 1): purely
+    # mechanical slicing of the test set -- identical predictions, fewer context
+    # passes. With the context bounded at 10k the batch contributes negligibly
+    # to the attention size, so 64 is memory-safe and keeps the huge-TEST-set
+    # datasets (hackerearth: ~106k test rows/fold x 32 members) inside one 23 h
+    # slot. If a dataset still OOMs, lower batch_size first, then max_num_rows.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
+        gen.setdefault("max_num_rows", 10_000)
         if gen.get("batch_size", 1) <= 1:
-            gen["batch_size"] = 8
+            gen["batch_size"] = 64
 
     return args
 
