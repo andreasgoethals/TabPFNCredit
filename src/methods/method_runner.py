@@ -335,33 +335,31 @@ def _build_talent_args(
     if method == "lightgbm" and isinstance(getattr(args, "config", None), dict):
         args.config.setdefault("model", {}).setdefault("verbose", -1)
 
-    # TabFM memory + throughput knobs, calibrated from measured H100-80GB runs.
+    # TabFM context cap, calibrated from measured H100-80GB runs.
     #
-    # ``max_num_rows`` (TabFM's OWN per-ensemble-member row subsampler): the OOM
-    # in ``model(X_t, y_t, ...)`` is dominated by attention over the in-context
-    # TRAIN rows -- shrinking the test batch 64 -> 8 left the largest allocation
-    # unchanged (115 -> 134 GiB attempted on GMSC's ~108k-row context), so full
-    # context is PHYSICALLY infeasible on any available GPU for the big credit
-    # datasets. Measured feasibility boundary on H100-80GB (job 61509047,
-    # batch=8, 32 members, AMP): every dataset with fold context <= ~11.5k rows
-    # completed; every one >= ~21.6k OOM'd. We therefore set the authors' own
-    # knob to 10k rows per member -- with margin under the boundary, and equal to
-    # the registry caps already used for Mitra / TabPFN v2. NOTE this is NOT a
-    # single 10k subset: each of the 32 ensemble members draws its OWN seeded
-    # 10k sample, so the ensemble collectively covers up to ~320k distinct rows.
-    # Disclose alongside the other foundation-model context caps in the paper.
+    # HOW TABFM BATCHES (from tabfm 1.0.0 `_batch_forward`): one "batch element"
+    # is one ENSEMBLE MEMBER's whole sequence = its in-context train rows + the
+    # ENTIRE test split (`Xs: (n_members, train+test, features)`);
+    # ``general.batch_size`` is how many members go through one forward pass.
+    # Memory therefore scales ~ batch_size x (context + test) rows. The stock
+    # ``batch_size=1`` is the right setting here and is left untouched: a single
+    # member's sequence up to ~138k rows (GMSC full context + test) is PROVEN to
+    # fit in 80 GB (job 61479726 ran it without OOM). Raising batch_size just
+    # multiplies whole sequences per forward and OOM'd twice (batch 64: 115 GiB
+    # ask on full ctx; batch 8: 134 GiB; batch 64 + 10k ctx: 81 GiB).
     #
-    # ``batch_size`` (test rows per forward pass; stock default 1): purely
-    # mechanical slicing of the test set -- identical predictions, fewer context
-    # passes. With the context bounded at 10k the batch contributes negligibly
-    # to the attention size, so 64 is memory-safe and keeps the huge-TEST-set
-    # datasets (hackerearth: ~106k test rows/fold x 32 members) inside one 23 h
-    # slot. If a dataset still OOMs, lower batch_size first, then max_num_rows.
+    # ``max_num_rows`` (TabFM's OWN per-ensemble-member row subsampler) is what
+    # makes the big datasets tractable: full context made a single fold so slow
+    # that 23 h covered ~1 dataset. 10k per member keeps every dataset's member
+    # sequence (10k + largest test split ~106k rows) inside the proven-fit
+    # envelope, and each of the 32 members draws its OWN seeded 10k sample, so
+    # the ensemble collectively covers up to ~320k distinct rows. Same cap size
+    # as the Mitra / TabPFN-v2 registry caps -- disclose alongside them in the
+    # paper. If a dataset still OOMs, lower max_num_rows; do NOT raise
+    # batch_size on the big datasets.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
         gen.setdefault("max_num_rows", 10_000)
-        if gen.get("batch_size", 1) <= 1:
-            gen["batch_size"] = 64
 
     return args
 
