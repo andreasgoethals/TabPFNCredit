@@ -328,7 +328,9 @@ _DIGIT_EM = 0.636
 
 
 def _cell_annot_fontsize(cell_width_in: float, n_chars: int, *,
-                         fill: float = 0.78, cap: float = 30.0) -> float:
+                         fill: float = 0.86, cap: float = 30.0) -> float:
+    # ``fill`` is always passed explicitly by _matrix_geometry (reference fill
+    # for the layout decision, display fill for the rendered size).
     """Font size at which ``n_chars`` digits fill ``fill`` of a cell's width.
 
     This is "the numbers should occupy as much of the cell as possible" stated
@@ -346,6 +348,16 @@ def _cell_annot_fontsize(cell_width_in: float, n_chars: int, *,
     return float(min(size, cap))
 
 
+#: Fill fraction the WIDTH BUDGET is chosen at. Pinned so a cosmetic change to
+#: :data:`_DISPLAY_FILL` cannot re-flow a figure between the 160 mm and 247 mm
+#: budgets -- raising the fill from 0.78 to 0.86 did exactly that to the LGD
+#: win/loss matrix before these were split apart.
+_LAYOUT_REFERENCE_FILL = 0.78
+
+#: Fill fraction the cell text is actually RENDERED at: how much of a cell's
+#: width the digits occupy. Raise for chunkier numbers, lower for more air.
+_DISPLAY_FILL = 0.86
+
 #: Smallest printed font we accept for per-cell text in the paper.
 _MIN_PRINTED_PT = 6.5
 
@@ -357,7 +369,8 @@ _MATRIX_AXES_FRACTION_CBAR = 0.86
 
 #: Minimum row pitch as a multiple of the tick font size, so horizontal row
 #: labels can never collide. 1.0 would have them touching; 1.65 leaves the
-#: normal single-spaced gap.
+#: normal single-spaced gap. Matters whenever rows outnumber what square cells
+#: would give room for.
 _MIN_ROW_PITCH = 1.65
 
 #: Column pitch a 45-degree rotated tick label needs, per point of font size.
@@ -377,10 +390,15 @@ _MIN_LABEL_PT = 7.5
 
 def _matrix_geometry(k: int, *, n_chars: int = 4, n_rows: Optional[int] = None,
                      cbar: bool = False, label_chars: int = 14) -> dict:
-    """Size a ``k``-column matrix figure for A4, in TRUE PRINTED units.
+    """Size a PAIRWISE ``k`` x ``k`` method matrix for A4, in TRUE PRINTED units.
+
+    Used by the all-learner win/loss and adjusted-p-value matrices only. The
+    dataset x method heatmaps deliberately keep :func:`_heatmap_figsize` /
+    :func:`_annot_fontsize` -- they read fine at that size and were never the
+    problem.
 
     The figure is built at the width it will be printed at, so a nominal point
-    size *is* the size a reader sees. That is the whole fix: the old matrices
+    size *is* the size a reader sees. That is the whole fix: these matrices
     were 520 mm wide, so ``\\includegraphics[width=\\textwidth]`` shrank them to
     31% and a nominal 16 pt title printed at 4.9 pt.
 
@@ -398,28 +416,43 @@ def _matrix_geometry(k: int, *, n_chars: int = 4, n_rows: Optional[int] = None,
     n_rows = k if n_rows is None else n_rows
     frac = _MATRIX_AXES_FRACTION_CBAR if cbar else _MATRIX_AXES_FRACTION
     budgets = (A4_TEXT_WIDTH_MM, A4_TEXT_HEIGHT_MM)
+
+    def _fonts(cell_in: float, fill: float):
+        """(cell font, tick font) for a given cell width and fill fraction.
+
+        Ticks carry method names, read left-to-right rather than scanned, so
+        they can run a little larger than the in-cell digits -- but never larger
+        than the COLUMN PITCH allows, or the 45-degree labels collide.
+        """
+        annot = _cell_annot_fontsize(cell_in, n_chars, fill=fill)
+        tick = min(max(annot * 1.05, _MIN_PRINTED_PT), 11.0,
+                   cell_in * 72.0 / _LABEL_PITCH_PER_PT)
+        return annot, tick
+
+    # WIDTH BUDGET: decided at a FIXED reference fill, deliberately not at the
+    # display fill. Otherwise nudging the cell font by a few percent silently
+    # re-flows a figure between the two budgets -- which happened once and moved
+    # the LGD win/loss matrix from 247 mm to 160 mm as a side effect of making
+    # its digits bigger. Layout and type size are separate decisions.
     for target_mm in budgets:
         width_in = target_mm / _MM_PER_IN
         cell_in = width_in * frac / max(k, 1)
-        annot_fs = _cell_annot_fontsize(cell_in, n_chars)
-        # Ticks carry method names, read left-to-right rather than scanned, so
-        # they can run a little larger than the in-cell digits -- but never
-        # larger than the COLUMN PITCH allows, or the 45-degree labels collide.
-        tick_fs = min(max(annot_fs * 1.05, _MIN_PRINTED_PT), 11.0,
-                      cell_in * 72.0 / _LABEL_PITCH_PER_PT)
-        if (annot_fs >= _MIN_PRINTED_PT and tick_fs >= _MIN_LABEL_PT) \
+        probe_annot, probe_tick = _fonts(cell_in, _LAYOUT_REFERENCE_FILL)
+        if (probe_annot >= _MIN_PRINTED_PT and probe_tick >= _MIN_LABEL_PT) \
                 or target_mm == budgets[-1]:
             break
     axes_w_in = width_in * frac
+    # TYPE SIZE: at the display fill, still bounded by the column pitch so the
+    # bigger font cannot reintroduce label collisions.
+    annot_fs, tick_fs = _fonts(cell_in, _DISPLAY_FILL)
     tick_fs = round(tick_fs, 1)
     # Title larger again, and floored so a dense matrix still has a readable
     # title -- the specific complaint being fixed here.
     title_fs = round(min(max(annot_fs * 1.8, 10.0), 15.0), 1)
     # Row height: square cells, but never tighter than the ROW LABELS need.
-    # A dataset x method matrix is 14 x 33, so square cells would give 2.4 mm
-    # rows and the dataset names would sit on top of each other -- which is
-    # exactly what happened before this floor existed. Non-square cells are fine
-    # for a labelled heatmap; illegible labels are not.
+    # For a wide, few-row matrix square cells collapse the rows and the labels
+    # sit on top of each other, so the pitch floor wins. Non-square cells are
+    # fine on a labelled matrix; illegible labels are not.
     row_h_in = max(axes_w_in / max(k, 1), _MIN_ROW_PITCH * tick_fs / 72.0)
     # Room for the 45-degree column labels, the axis titles and the title. Being
     # GENEROUS is free: ``_save``/``_finish`` write with ``bbox_inches="tight"``,
@@ -446,10 +479,19 @@ def _matrix_geometry(k: int, *, n_chars: int = 4, n_rows: Optional[int] = None,
 MATRIX_CBAR_KW = {"pad": 0.012, "fraction": 0.028, "aspect": 34}
 
 
-def _longest_method_label(methods) -> int:
-    """Longest DISPLAY name among ``methods`` -- drives the vertical room the
-    45-degree column labels need in :func:`_matrix_geometry`."""
-    return max((len(_display_name(m)) for m in methods), default=10)
+def _heatmap_figsize(n_rows: int, n_cols: int) -> Tuple[float, float]:
+    """Paper-friendly matrix size: scales with the shape but caps the width so
+    a wide pilot matrix doesn't become a giant image that the notebook then
+    shrinks to an unreadable thumbnail."""
+    return (min(0.55 * n_cols + 3, 19.0), min(0.5 * n_rows + 2.5, 12.0))
+
+
+def _annot_fontsize(n_cols: int) -> int:
+    """Largest annotation font that still fits a cell at the capped width.
+    Sized up for print legibility."""
+    return 14 if n_cols <= 14 else 12 if n_cols <= 20 else 11 if n_cols <= 30 else 9
+
+
 
 
 def _foundation_methods() -> set:
@@ -1606,16 +1648,13 @@ def performance_heatmap(
     n_rows, n_cols = pivot.shape
     if fmt is None:  # fewer decimals when the matrix is wide, so digits fit
         fmt = ".3f" if n_cols <= 30 else ".2f"
-    # A4-true sizing (see _matrix_geometry). ``.3f`` renders as "0.764" -> 5
-    # characters, ``.2f`` as "0.76" -> 4.
-    geo = _matrix_geometry(n_cols, n_chars=int(fmt[1]) + 2, n_rows=n_rows,
-                           cbar=True, label_chars=_longest_method_label(pivot.columns))
-    fig, ax = plt.subplots(figsize=figsize or geo["figsize"])
+    fig, ax = plt.subplots(figsize=figsize or _heatmap_figsize(n_rows, n_cols))
     pm = _pretty_metric(metric)
     common = dict(annot=True, fmt=fmt, cmap=cmap, linewidths=0.5, ax=ax,
-                  annot_kws={"size": geo["annot_fs"]},
-                  # xticklabels="auto" (seaborn default) DROPS labels when
-                  # space is tight; every method must stay named.
+                  annot_kws={"size": _annot_fontsize(n_cols)},
+                  # xticklabels="auto" (seaborn default) DROPS labels once space
+                  # gets tight; every method must stay named. No visual change at
+                  # this width -- it is a guard, not a restyle.
                   xticklabels=True, yticklabels=True,
                   cbar_kws={"label": pm, **MATRIX_CBAR_KW})
     if metric.upper() in {"R2"}:  # diverging, centred on zero
@@ -1625,10 +1664,9 @@ def performance_heatmap(
         sns.heatmap(pivot, vmin=float(np.nanmin(pivot.values)),
                     vmax=float(np.nanmax(pivot.values)), **common)
     ax.set_title(f"{task_name} performance: {pm} (datasets x methods)",
-                 fontsize=geo["title_fs"], fontweight="bold", pad=10)
-    ax.set_xlabel("Method", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
-    ax.tick_params(labelsize=geo["tick_fs"])
+                 fontsize=TITLE_FS, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
     _style_method_axis(ax)
     _style_dataset_axis(ax, "y")           # rows are datasets -> registry labels
     ax.tick_params(axis="y", rotation=0)
@@ -2487,23 +2525,18 @@ def rank_heatmap(
     Auto-sizes to the matrix shape for legible cells and labels."""
     ranks = _rank_pivot(df, metric, higher_is_better)
     n_rows, n_cols = ranks.shape
-    # A4-true sizing: ranks are 1-2 digits, so the cells stay legible at the
-    # text-block width (see _matrix_geometry).
-    geo = _matrix_geometry(n_cols, n_chars=len(str(n_cols)), n_rows=n_rows,
-                           cbar=True, label_chars=_longest_method_label(ranks.columns))
-    fig, ax = plt.subplots(figsize=figsize or geo["figsize"])
+    fig, ax = plt.subplots(figsize=figsize or _heatmap_figsize(n_rows, n_cols))
     pm = _pretty_metric(metric)
     sns.heatmap(ranks, annot=True, fmt=".0f", cmap="RdYlGn_r",
-                vmin=1, vmax=n_cols, annot_kws={"size": geo["annot_fs"]},
+                vmin=1, vmax=n_cols, annot_kws={"size": _annot_fontsize(n_cols) + 1},
                 cbar_kws={"label": f"rank by {pm} (1 = best)", **MATRIX_CBAR_KW},
                 # see metric_heatmap: never let seaborn drop a method label
                 xticklabels=True, yticklabels=True,
                 linewidths=0.5, ax=ax)
     ax.set_title(f"{task_name} rank matrix by {pm} (1 = best; best mean rank left)",
-                 fontsize=geo["title_fs"], fontweight="bold", pad=10)
-    ax.set_xlabel("Method", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
-    ax.tick_params(labelsize=geo["tick_fs"])
+                 fontsize=TITLE_FS, fontweight="bold", pad=20)
+    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
     _style_method_axis(ax)
     _style_dataset_axis(ax, "y")           # rows are datasets -> registry labels
     ax.tick_params(axis="y", rotation=0)

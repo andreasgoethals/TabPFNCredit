@@ -309,14 +309,19 @@ def test_rows_per_page_argument_is_late_bound(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-#  A4 figure geometry (matrices + bar charts)
+#  A4 figure geometry (pairwise matrices + bar charts)
 # ---------------------------------------------------------------------------
 #
+# _matrix_geometry drives the PAIRWISE k x k matrices only (all-learner win/loss
+# and adjusted p-values). The dataset x method heatmaps keep _heatmap_figsize /
+# _annot_fontsize on purpose -- they read well at that size.
+#
 # These pin the fixes for three concrete paper defects:
-#   * matrices were built 440-520 mm wide, so \includegraphics[width=\textwidth]
-#     shrank them to ~31% and a nominal 16 pt title printed at 4.9 pt;
-#   * square cells on a 14 x 33 dataset x method matrix left 2.4 mm rows, so the
-#     dataset names overlapped;
+#   * the pairwise matrices were built 440-520 mm wide, so
+#     \includegraphics[width=\textwidth] shrank them to ~31% and a nominal 16 pt
+#     title printed at 4.9 pt;
+#   * square cells on a wide, few-row matrix collapse the rows and the row
+#     labels overlap;
 #   * per-method bar charts carried matplotlib's default 5% category margin,
 #     i.e. ~1.7 empty bar widths before the first bar and after the last.
 
@@ -393,6 +398,17 @@ class TestMatrixGeometry:
                 f"{needed:.1f}pt of perpendicular room, pitch gives "
                 f"{clearance:.1f}pt"
             )
+
+    def test_layout_budget_is_independent_of_the_display_fill(self):
+        """Nudging the rendered cell font must not re-flow a figure between the
+        160 mm and 247 mm budgets. Raising the fill from 0.78 to 0.86 once moved
+        the LGD win/loss matrix off the landscape budget as a side effect."""
+        assert ep._LAYOUT_REFERENCE_FILL != ep._DISPLAY_FILL, (
+            "if these are ever equal the split has been undone by accident"
+        )
+        for k, n_chars in ((20, 4), (33, 4), (33, 5)):
+            assert ep._matrix_geometry(k, n_chars=n_chars)["target_width_mm"] \
+                == ep.A4_TEXT_HEIGHT_MM
 
     def test_pitch_ratio_exceeds_the_theoretical_floor(self):
         """1.2 / sin(45) = 1.70 is the exact floor; at exactly that value the
