@@ -283,6 +283,7 @@ def _build_talent_args(
     early_stopping_patience: int,
     evaluate_option: str,
     user_overrides: Dict[str, Any],
+    seed_num: int = 1,
 ):
     """Build the TALENT args object for a method via ``TALENT.build_args``."""
     spec = get_method_spec(method)
@@ -293,6 +294,16 @@ def _build_talent_args(
     overrides.setdefault("seed", seed)
     overrides.setdefault("tune", tune)
     overrides.setdefault("n_trials", n_trials)
+    # Model-seed repeats per fold. MUST be set explicitly: TALENT's
+    # ``build_args`` layers its packaged ``deep_configs.json`` /
+    # ``classical_configs.json`` over its own baked-in defaults, and those
+    # packaged files carry ``seed_num: 15``. Left alone, every method is
+    # therefore refit 15x per fold while ``RunResult.predictions`` /
+    # ``.predict_proba`` / ``.metrics`` only ever carry the LAST seed -- and
+    # those are exactly the fields this repo consumes (see
+    # ``enrich_pd_metrics`` / ``enrich_lgd_metrics``). Nothing reads
+    # ``metrics_mean`` / ``per_seed``, so 14 of the 15 fits were pure waste.
+    overrides.setdefault("seed_num", max(1, int(seed_num)))
     overrides.setdefault("evaluate_option", evaluate_option)
     # Tune PD on AUC and LGD on R2 (see _resolve_hpo_metric). Forwarded to
     # TALENT as ``args.tune_metric``; older TALENT builds simply ignore it.
@@ -348,15 +359,22 @@ def _build_talent_args(
     # multiplies whole sequences per forward and OOM'd twice (batch 64: 115 GiB
     # ask on full ctx; batch 8: 134 GiB; batch 64 + 10k ctx: 81 GiB).
     #
-    # ``max_num_rows`` (TabFM's OWN per-ensemble-member row subsampler) is what
-    # makes the big datasets tractable: full context made a single fold so slow
-    # that 23 h covered ~1 dataset. 10k per member keeps every dataset's member
-    # sequence (10k + largest test split ~106k rows) inside the proven-fit
-    # envelope, and each of the 32 members draws its OWN seeded 10k sample, so
-    # the ensemble collectively covers up to ~320k distinct rows. Same cap size
-    # as the Mitra / TabPFN-v2 registry caps -- disclose alongside them in the
-    # paper. If a dataset still OOMs, lower max_num_rows; do NOT raise
-    # batch_size on the big datasets.
+    # ``max_num_rows`` (TabFM's OWN per-ensemble-member row subsampler) caps the
+    # CONTEXT half of that sequence. 10k per member keeps the context cost flat
+    # across datasets, and each of the 32 members draws its OWN seeded 10k
+    # sample, so the ensemble collectively covers up to ~320k distinct rows.
+    # Same cap size as the Mitra / TabPFN-v2 registry caps -- disclose alongside
+    # them in the paper.
+    #
+    # It does NOT cap the test half, which is what actually decided life or
+    # death on job 61519948: with a 10k context, splits of 106k x 35 / 61k x 120
+    # / 32k x 500 features each OOM'd (17-27 GiB short) while every split of
+    # <= 30k rows completed. That is handled where it belongs -- TALENT's TabFM
+    # wrapper scores the split in one pass by default and, on CUDA OOM, halves
+    # the chunk and retries (test rows are conditionally independent given the
+    # context, so chunking is equivalent). Set
+    # ``general.predict_chunk_size`` there to force a chunk size up front and
+    # skip the probe. Do NOT raise ``batch_size`` on the big datasets.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
         gen.setdefault("max_num_rows", 10_000)
@@ -435,6 +453,7 @@ def _run_one_fold(
     evaluate_option: str,
     user_overrides: Dict[str, Any],
     checkpoint_dir: Path,
+    seed_num: int = 1,
 ) -> _FoldResult:
     spec = get_method_spec(method)
     args = _build_talent_args(
@@ -450,6 +469,7 @@ def _run_one_fold(
         early_stopping_patience=early_stopping_patience,
         evaluate_option=evaluate_option,
         user_overrides=user_overrides,
+        seed_num=seed_num,
     )
 
     set_seeds(seed)
@@ -558,6 +578,7 @@ def run_talent_method(
     early_stopping: bool = True,
     early_stopping_patience: int = 16,
     evaluate_option: str = "best-val",
+    seed_num: int = 1,
     model_config: Optional[dict] = None,
     fit_config: Optional[dict] = None,
     config_base_dir: Optional[Path] = None,
@@ -565,6 +586,13 @@ def run_talent_method(
     clean_temp_dir: bool = True,
 ) -> Dict[int, Dict[str, Any]]:
     """Run a TALENT method across CV folds with credit-risk metric enrichment.
+
+    Parameters
+    ----------
+    seed_num : int, default 1
+        Model-seed repeats per fold. Only the last repeat's predictions are
+        reported, so anything above 1 multiplies the cost of a fold without
+        changing what is recorded -- see ``_build_talent_args``.
 
     Returns
     -------
@@ -594,9 +622,9 @@ def run_talent_method(
         train_row_limit = None
 
     logger.info(
-        "[%s] %s on %s (task=%s, fold_count=%d, tune=%s, n_trials=%d)",
+        "[%s] %s on %s (task=%s, fold_count=%d, tune=%s, n_trials=%d, seed_num=%d)",
         method, "tuning" if tune else "training", dataset, task, cv_splits,
-        tune, n_trials if tune else 0,
+        tune, n_trials if tune else 0, seed_num,
     )
 
     folds = _prepare_folds_cached(
@@ -703,6 +731,7 @@ def run_talent_method(
                 evaluate_option=evaluate_option,
                 user_overrides=user_overrides,
                 checkpoint_dir=scratch_root,
+                seed_num=seed_num,
             )
             results[fold_id] = fr.to_dict()
         except Exception:

@@ -51,7 +51,7 @@ def test_calibration_bias_table_pools_out_of_fold_probabilities(tmp_path):
     assert table.loc[0, "n_folds"] == 2
 
 
-def test_selected_calibration_summary_has_four_panels_and_requested_order(monkeypatch):
+def test_selected_calibration_summary_has_two_panels_and_requested_order(monkeypatch):
     methods = ["tabpfn_v3", "tabicl_v2", "catboost", "LogReg"]
     table = pd.DataFrame({
         "dataset": ["d1", "d2"] * 4,
@@ -74,7 +74,10 @@ def test_selected_calibration_summary_has_four_panels_and_requested_order(monkey
     ep.selected_method_calibration_summary(table, task="pd")
 
     assert captured["stem"] == "pd_selected_calibration_summary"
-    assert captured["axes"] == 4
+    # TWO distribution panels (the macro-mean bar row was dropped: the boxes
+    # already carry it, and the exact numbers are printed by
+    # calibration_summary_text into All_Results.md).
+    assert captured["axes"] == 2
     assert captured["labels"] == ["TabPFN-3", "TabICLv2", "CatBoost", "log. reg"]
 
 
@@ -103,29 +106,6 @@ def test_calibration_decile_curve_bins_by_rank_and_averages(tmp_path, monkeypatc
     assert captured["stem"] == "pd_calibration_deciles"
     assert captured["x"] == pytest.approx([10.0, 30.0, 50.0, 70.0, 90.0])
     assert captured["y"] == pytest.approx([0.0, 0.0, 50.0, 100.0, 100.0])
-
-
-def test_calibration_bias_vs_default_rate_uses_log_x(monkeypatch):
-    table = pd.DataFrame({
-        "dataset": ["d1", "d2", "d1", "d2"],
-        "method": ["m1", "m1", "m2", "m2"],
-        "observed_mean": [0.03, 0.20, 0.03, 0.20],
-        "predicted_mean": [0.04, 0.18, 0.02, 0.22],
-    })
-    table["calibration_bias"] = table["observed_mean"] - table["predicted_mean"]
-    captured = {}
-
-    def fake_save(fig, out_dir, stem):
-        captured["stem"] = stem
-        captured["xscale"] = fig.axes[0].get_xscale()
-        ep.plt.close(fig)
-        return None
-
-    monkeypatch.setattr(ep, "_save", fake_save)
-    ep.calibration_bias_vs_default_rate(table, task="pd", methods=("m1", "m2"))
-
-    assert captured["stem"] == "pd_calibration_bias_vs_default_rate"
-    assert captured["xscale"] == "log"
 
 
 def test_imbalance_trend_uses_processed_minority_proportion(monkeypatch):
@@ -287,3 +267,42 @@ def test_smooth_window_variant_changes_filename(monkeypatch):
         "pd_learning_curve_auc_smooth_more",
         "pd_learning_curve_auc_combined_more",
     ]
+
+
+# ---------------------------------------------------------------------------
+#  Per-dataset figure paging (A4 fit)
+# ---------------------------------------------------------------------------
+
+def test_page_sizes_respect_the_a4_row_cap_and_avoid_orphans():
+    """Rows per page must never exceed the A4-filling cap, must account for
+    every dataset, and must not leave a near-empty final page.
+
+    The cap comes from measured geometry: at 4 method columns these figures are
+    ~1.39 (grid) / ~1.35 (density) tall relative to their width, so 6 rows fill
+    ~97% of an A4 text block and 7 rows overflow it.
+    """
+    cap = ep._PER_DATASET_ROWS_PER_PAGE
+    assert cap == 6, "the A4 measurement in the module docstring implies 6 rows"
+    for n in range(1, 31):
+        sizes = ep._page_sizes(n, cap)
+        assert sum(sizes) == n, f"{n}: lost or duplicated rows -> {sizes}"
+        assert max(sizes) <= cap, f"{n}: a page exceeds the A4 cap -> {sizes}"
+        if n > cap:                       # multi-page: no orphan final page
+            assert min(sizes) >= ep._MIN_ROWS_LAST_PAGE, f"{n}: orphan page -> {sizes}"
+        assert max(sizes) - min(sizes) <= cap, f"{n}: wildly uneven -> {sizes}"
+
+
+def test_page_sizes_known_splits():
+    cap = ep._PER_DATASET_ROWS_PER_PAGE
+    assert ep._page_sizes(6, cap) == [6]          # exactly one full page
+    assert ep._page_sizes(7, cap) == [4, 3]       # 6+1 would orphan a lone row
+    assert ep._page_sizes(12, cap) == [6, 6]      # two full pages, no rebalance
+    assert ep._page_sizes(14, cap) == [6, 6, 2]   # fill first, half-page last
+
+
+def test_rows_per_page_argument_is_late_bound(monkeypatch):
+    """The per-page count must be resolved at CALL time, so callers (and the
+    module constant) can change it -- a default argument would freeze it."""
+    monkeypatch.setattr(ep, "_PER_DATASET_ROWS_PER_PAGE", 3)
+    assert [len(chunk) for _i, _n, chunk in ep._paged(list("abcdefg"))] == [3, 2, 2]
+    assert [len(chunk) for _i, _n, chunk in ep._paged(list("abcdefg"), 7)] == [7]

@@ -47,7 +47,7 @@ import matplotlib.pyplot as plt
 from src.visualizations.experiment_plots import (  # noqa: E402
     TICK_FS, LABEL_FS, TITLE_FS, LEGEND_FS, VALUE_FS, NOTE_FS, EDGE_LW,
     _pretty_metric, _color_foundation_ticks, _foundation_methods, _best_to_worst_colors,
-    _hbar_figsize,
+    _hbar_figsize, method_class_colors, method_class_legend,
 )
 from src.methods.method_names import display_name as _display_name  # noqa: E402
 
@@ -80,6 +80,10 @@ def metric_matrix(
     if hpo_mode is not None and "hpo_mode" in df.columns:
         sub = df[df["hpo_mode"] == hpo_mode]
     mat = sub.pivot_table(index="dataset", columns="method", values=col, aggfunc="mean")
+    # Dataset rows in PAPER order (public alphabetical, then proprietary). The
+    # tests themselves are row-order invariant, but this matrix is also printed.
+    from src.data.dataset_names import sort_key as _ds_sort_key
+    mat = mat.reindex(sorted(mat.index, key=_ds_sort_key))
     incomplete = mat.columns[mat.isna().any()].tolist()
     if incomplete:
         print(f"[stat] dropping methods with missing datasets: {incomplete}")
@@ -544,7 +548,7 @@ def pama_fold_level(
     *,
     higher_is_better: bool = True,
 ) -> pd.DataFrame:
-    """PAMA -- Probability of Achieving MAximal accuracy (Fernandez-Delgado
+    """PAMA -- Probability of Achieving Maximal Accuracy (Fernandez-Delgado
     et al., 2014): the relative frequency with which a learner achieves the
     TOP score across all fold-level observations (every (dataset, fold) pair).
 
@@ -838,10 +842,11 @@ def plot_percent_of_max_bars(
     t = percent_of_max(matrix, higher_is_better=higher_is_better)
     nm = _pretty_metric(metric_name)
     n = len(t)
-    # Same look as the experiment bar plots: best-first (top), green->red
-    # gradient + black border. Data reversed for barh (so index[0] sits on top),
-    # colours reversed to match (green = best stays at the top).
-    colors = _best_to_worst_colors(n)[::-1]
+    # Same look as the experiment bar plots: best-first (top), bars coloured by
+    # MODEL CLASS + black border (the percentage is printed on every bar, so a
+    # value gradient would be redundant). Data reversed for barh so index[0]
+    # sits on top; colours reversed with it to stay aligned.
+    colors = method_class_colors(t.index)[::-1]
     fig, ax = plt.subplots(figsize=_hbar_figsize(n))
     ax.set_axisbelow(True)
     ax.barh(t.index[::-1], t["PctOfMax_%"][::-1], color=colors,
@@ -857,6 +862,7 @@ def plot_percent_of_max_bars(
     for y, v in enumerate(t["PctOfMax_%"][::-1]):
         ax.text(v + 0.4, y, f"{v:.1f}", va="center", fontsize=VALUE_FS,
                 fontweight="bold", color="0.15")
+    method_class_legend(ax, t.index, loc="lower left")   # bar colour = model class
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -883,11 +889,12 @@ def plot_pama_bars(
         return None
     fm = set(foundation_methods or [])
     n = len(t)
-    # Same look as the experiment bar plots: best-first (top), green->red
-    # gradient + black border. (Foundation models are flagged by their crimson
-    # NAME, like every other figure -- not by a special bar colour.) Data is
-    # reversed for barh so index[0] sits on top; colours reversed to match.
-    colors = _best_to_worst_colors(n)[::-1]
+    # Same look as the experiment bar plots: best-first (top), bars coloured by
+    # MODEL CLASS + black border (the percentage is printed on every bar, so a
+    # value gradient would be redundant ink). Foundation models are ALSO flagged
+    # by their crimson NAME, as in every other figure. Data is reversed for barh
+    # so index[0] sits on top; colours reversed with it to stay aligned.
+    colors = method_class_colors(t.index)[::-1]
     fig, ax = plt.subplots(figsize=_hbar_figsize(n))
     ax.set_axisbelow(True)
     ax.barh(t.index[::-1], t["PAMA_%"][::-1], color=colors,
@@ -896,7 +903,7 @@ def plot_pama_bars(
     thresh = f"; at least {min_wins} wins" if min_wins > 1 else ""
     ax.set_xlabel(f"PAMA: % of fold-level observations with the top {nm}",
                   fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(f"Probability of Achieving MAximal accuracy "
+    ax.set_title(f"Probability of Achieving Maximal Accuracy "
                  f"({nm}, n = {n_folds} folds{thresh})",
                  fontweight="bold", fontsize=TITLE_FS)
     # Headroom so the "(wins)" annotation stays INSIDE the axes.
@@ -907,6 +914,7 @@ def plot_pama_bars(
     ax.tick_params(labelsize=TICK_FS)
     # Foundation-model names in the shared crimson, like every other figure.
     _color_foundation_ticks(ax, axis="y")
+    method_class_legend(ax, t.index, loc="center right")  # bar colour = model class
     if fm:
         # Collective share over EVERY foundation model and ALL its winning folds
         # -- computed from the unfiltered table, so the number is identical

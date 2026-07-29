@@ -330,7 +330,8 @@ def coverage_matrix(audit: Audit, task: str) -> pd.DataFrame:
             continue
         got_by_cell[(d, base_method(n))] = got_by_cell.get((d, base_method(n)), 0) + 1
 
-    datasets = sorted({d for (d, _m) in exp_by_cell} | {d for (d, _m) in got_by_cell})
+    from src.data.dataset_names import sort_datasets as _ds_sorted
+    datasets = _ds_sorted({d for (d, _m) in exp_by_cell} | {d for (d, _m) in got_by_cell})
     methods = sorted({m for (_d, m) in exp_by_cell} | {m for (_d, m) in got_by_cell})
     mat = pd.DataFrame(index=datasets, columns=methods, dtype=float)
     for d in datasets:

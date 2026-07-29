@@ -254,6 +254,11 @@ def _base_config(
             "batch_size": experiment_config["batch_size"],
             "early_stopping": experiment_config["early_stopping"],
             "early_stopping_patience": experiment_config["early_stopping_patience"],
+            # Optional: TALENT's packaged defaults would otherwise refit every
+            # model 15x per fold and report only the last fit. Absent from a
+            # config file => 1 (fit once), which is what every downstream
+            # consumer in this repo assumes.
+            "seed_num": int(experiment_config.get("seed_num", 1)),
         },
         "tuning": {
             "n_trials": experiment_config["n_trials"],

@@ -90,4 +90,77 @@ def display_name(method) -> str:
     return METHOD_DISPLAY_NAMES.get(str(method), str(method))
 
 
-__all__ = ["METHOD_DISPLAY_NAMES", "display_name"]
+# ---------------------------------------------------------------------------
+#  Method CLASSES -- the bar colour code for every many-method figure
+# ---------------------------------------------------------------------------
+# Bar charts that show ~30 methods used to be coloured by a green->red value
+# gradient, which duplicated information already printed on each bar. Colouring
+# by MODEL CLASS instead makes the family structure readable at a glance ("do
+# the foundation models cluster at the top?"), which is the actual question
+# those figures answer. Foundation models keep their crimson NAME on the tick
+# axis, so the two codes complement rather than compete.
+
+FOUNDATION = "Foundation model"
+BOOSTING = "Gradient boosting"
+DEEP = "Deep tabular"
+CLASSICAL = "Classical ML"
+
+#: Class ORDER for legends (most to least "modern"); also the colour order.
+METHOD_CLASS_ORDER = (FOUNDATION, BOOSTING, DEEP, CLASSICAL)
+
+#: Okabe-Ito-derived, colour-blind-safe, and deliberately distinct from both
+#: the crimson foundation-name highlight and the observed/predicted blues.
+METHOD_CLASS_COLORS: dict[str, str] = {
+    FOUNDATION: "#0072B2",   # blue
+    BOOSTING: "#E69F00",     # orange
+    DEEP: "#009E73",         # green
+    CLASSICAL: "#999999",    # grey
+}
+
+_METHOD_CLASSES: dict[str, str] = {
+    # ---- Foundation models / in-context learners --------------------------
+    **{m: FOUNDATION for m in (
+        "tabpfn", "tabpfn_v2", "tabpfn_v2_5", "tabpfn_v3", "tabpfn_real",
+        "tabicl", "tabicl_v2", "tabdpt", "mitra", "limix", "hyperfast",
+        "tabptm", "tabfm",
+    )},
+    # ---- Gradient boosting (the credit-risk industry baselines) -----------
+    **{m: BOOSTING for m in ("xgboost", "catboost", "lightgbm")},
+    # ---- Deep tabular networks (transformers, MLPs, tree-mimics, ...) -----
+    **{m: DEEP for m in (
+        "ftt", "autoint", "excelformer", "amformer", "t2gformer", "ptarl",
+        "saint", "tabtransformer", "trompt",
+        "mlp", "resnet", "snn", "realmlp", "mlp_plr", "danets", "switchtab",
+        "tabnet", "dcn2", "tabm", "node", "grownet", "grande",
+        "tangos", "modernNCA", "tabcaps", "bishop", "protogate", "tabr",
+        "dnnr", "tabautopnpnet",
+    )},
+    # ---- Classical ML ------------------------------------------------------
+    **{m: CLASSICAL for m in (
+        "LogReg", "LinearRegression", "knn", "RandomForest", "svm",
+        "NaiveBayes", "NCM", "dummy", "rfm", "xrfm",
+    )},
+}
+
+
+def method_class(method) -> str:
+    """Model class of ``method`` (unknown methods -> ``"Classical ML"``).
+
+    The fallback is deliberate: an unmapped method is far more likely to be a
+    newly added baseline than a foundation model, and mislabelling something as
+    a foundation model would misrepresent a figure.
+    """
+    return _METHOD_CLASSES.get(str(method), CLASSICAL)
+
+
+def method_class_color(method) -> str:
+    """Bar colour for ``method``, by model class."""
+    return METHOD_CLASS_COLORS[method_class(method)]
+
+
+__all__ = [
+    "METHOD_DISPLAY_NAMES", "display_name",
+    "FOUNDATION", "BOOSTING", "DEEP", "CLASSICAL",
+    "METHOD_CLASS_ORDER", "METHOD_CLASS_COLORS",
+    "method_class", "method_class_color",
+]

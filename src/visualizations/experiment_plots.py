@@ -20,6 +20,7 @@ once the CSV summaries exist.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from functools import lru_cache
@@ -35,12 +36,31 @@ import matplotlib
 # through ``IPython.display.Image`` -- see ``_save`` below.
 matplotlib.use("Agg", force=False)
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
 import seaborn as sns
 
 # Standard, consistent figure labels (TALENT-free import: safe everywhere).
-from src.methods.method_names import display_name as _display_name
+from src.methods.method_names import (
+    display_name as _display_name,
+    method_class as _method_class,
+    method_class_color as _method_class_color,
+    METHOD_CLASS_COLORS,
+    METHOD_CLASS_ORDER,
+)
+
+# Dataset naming + ordering: the single source of truth (see the module docstring
+# of src/data/dataset_registry.py). Proprietary datasets are anonymised here,
+# and EVERY dataset axis / legend / header is ordered by ``_ds_sort_key``
+# (public first, alphabetical; proprietary last) -- never by slug, which would
+# reproduce the OLD paper numbering.
+from src.data.dataset_names import (
+    display_name as _ds_name,
+    is_proprietary as _ds_proprietary,
+    sort_datasets as _ds_sorted,
+    sort_key as _ds_sort_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,8 +184,38 @@ def apply_style(rc: Optional[dict] = None, sns_style: str = "whitegrid") -> None
 
 def _best_to_worst_colors(n: int):
     """Green (best) -> red (worst) gradient. The caller passes data ALREADY
-    sorted best-first, so position 0 is greenest and the last bar is reddest."""
+    sorted best-first, so position 0 is greenest and the last bar is reddest.
+
+    NOTE: for many-method bar charts prefer :func:`method_class_colors` -- the
+    value is already printed on every bar there, so a value gradient is
+    redundant ink, while the model class is information the figure otherwise
+    does not carry. This helper stays for non-method gradients.
+    """
     return plt.get_cmap("RdYlGn")(np.linspace(0.92, 0.08, max(n, 1)))
+
+
+def method_class_colors(methods) -> list:
+    """Per-bar colours keyed on MODEL CLASS (foundation / boosting / deep /
+    classical) -- the standard colour code for every many-method bar chart."""
+    return [_method_class_color(m) for m in methods]
+
+
+def method_class_legend(ax, methods, *, loc: str = "best", ncol: int = 1,
+                        **legend_kw):
+    """Add a model-class legend covering exactly the classes present in
+    ``methods``, in the canonical class order. Returns the legend (or None)."""
+    from matplotlib.patches import Patch
+
+    present = {_method_class(m) for m in methods}
+    handles = [
+        Patch(facecolor=METHOD_CLASS_COLORS[c], edgecolor="black",
+              linewidth=EDGE_LW, label=c)
+        for c in METHOD_CLASS_ORDER if c in present
+    ]
+    if not handles:
+        return None
+    return ax.legend(handles=handles, loc=loc, ncol=ncol,
+                     fontsize=LEGEND_FS, framealpha=0.92, **legend_kw)
 
 
 def _strip_size(n_per_method: int) -> float:
@@ -272,6 +322,37 @@ def _color_foundation_ticks(ax, axis: str = "x") -> None:
             lbl.set_fontweight("bold")
 
 
+def _style_dataset_axis(ax, axis: str = "y") -> None:
+    """Relabel a per-DATASET tick ``axis`` with registry display names.
+
+    The method-axis counterpart (:func:`_color_foundation_ticks`) deliberately
+    only touches the method axis, so dataset ticks (heatmap rows, per-dataset
+    bar groups) would otherwise render the raw on-disk slug -- which both leaks
+    proprietary dataset names and shows the old numbering. Call this on any axis
+    whose ticks are dataset slugs. Rotation / alignment are preserved.
+    """
+    from matplotlib.ticker import FixedLocator
+
+    get = ax.get_xticklabels if axis == "x" else ax.get_yticklabels
+    setlab = ax.set_xticklabels if axis == "x" else ax.set_yticklabels
+    cur = get()
+    raws = [t.get_text() for t in cur]
+    if not any(raws):                      # ticks not drawn yet -> nothing to do
+        return
+    rot = cur[0].get_rotation()
+    ha = cur[0].get_horizontalalignment()
+    locs = ax.get_xticks() if axis == "x" else ax.get_yticks()
+    (ax.xaxis if axis == "x" else ax.yaxis).set_major_locator(FixedLocator(list(locs)))
+    setlab([_ds_name(r) for r in raws], rotation=rot, ha=ha)
+
+
+def _order_datasets_index(frame: pd.DataFrame) -> pd.DataFrame:
+    """Reindex ``frame`` so its dataset index follows the paper order."""
+    if frame.empty:
+        return frame
+    return frame.reindex(sorted(frame.index, key=_ds_sort_key))
+
+
 def _style_method_axis(ax, *, connect: bool = False) -> None:
     """Uniform per-method x axis: standard display labels, 45-deg right-aligned
     at TICK_FS, with foundation-model names highlighted in red. ``connect=True``
@@ -321,9 +402,11 @@ def _method_bar(
     fig, ax = plt.subplots(figsize=figsize or _vbar_figsize(n))
     bars = ax.bar(
         range(n), vals,
-        color=_best_to_worst_colors(n), edgecolor="black", linewidth=EDGE_LW,
+        # Bars are coloured by MODEL CLASS (the value is already printed on
+        # each bar, so a value gradient would be redundant ink).
+        color=method_class_colors(names), edgecolor="black", linewidth=EDGE_LW,
         yerr=yerr, capsize=4 if yerr is not None else 0,
-        # Navy error bars read clearly over the green→red bar gradient.
+        # Navy error bars read clearly over every class colour.
         error_kw={"ecolor": "#0b1f4d", "lw": 2.0, "capthick": 2.0, "zorder": 5},
     )
     if logy:
@@ -356,7 +439,14 @@ def _method_bar(
     ax.set_xticklabels(names)
     _style_method_axis(ax)
     ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
-    ax.set_title(title, fontsize=TITLE_FS, fontweight="bold")
+    # Model-class legend in a horizontal strip ABOVE the axes, with the title
+    # padded to sit above it: inside the axes the legend covered the tallest bars
+    # and their value labels (both on the left after the best-first sort).
+    method_class_legend(ax, names, loc="lower left", ncol=4,
+                        bbox_to_anchor=(0.0, 1.01), borderaxespad=0.0,
+                        frameon=False)
+    ax.set_title(title, fontsize=TITLE_FS, fontweight="bold",
+                 pad=30 if ax.get_legend() is not None else 6)
     plt.tight_layout()
     return _save(fig, out_dir, stem)
 
@@ -593,7 +683,7 @@ def calibration_bias_table(
     if methods is not None:
         requested = set(methods)
         available_methods = [method for method in available_methods if method in requested]
-    datasets = sorted(df["dataset"].astype(str).unique())
+    datasets = _ds_sorted(df["dataset"].astype(str).unique())   # paper order
     rows: List[Dict[str, object]] = []
     for method in available_methods:
         for dataset in datasets:
@@ -630,6 +720,30 @@ def calibration_bias_table(
     return pd.DataFrame(rows)
 
 
+def _obs_pred_legend(ax, *, headroom: float = 0.18):
+    """Neutral observed-vs-predicted key for the ONE panel it describes.
+
+    Colour encodes the METHOD everywhere in the project, so observed vs
+    predicted is carried by the fill (solid vs hatched) and explained in grey.
+    The key is attached to the axes it applies to -- NOT to the figure -- because
+    only the observed/predicted panel shows both series; a figure-level legend
+    wrongly implied it also described the signed-difference panel. Extra top
+    headroom is added first so the legend sits above the data, never on it.
+    """
+    from matplotlib.patches import Patch
+
+    handles = [
+        Patch(facecolor="0.72", edgecolor="black", linewidth=EDGE_LW,
+              label="Observed"),
+        Patch(facecolor="white", edgecolor="0.30", linewidth=EDGE_LW,
+              hatch="///", label="Predicted"),
+    ]
+    low, high = ax.get_ylim()
+    ax.set_ylim(low, high + headroom * (high - low))
+    return ax.legend(handles=handles, loc="upper center", ncol=2,
+                     fontsize=LEGEND_FS, framealpha=0.92)
+
+
 def selected_method_calibration_summary(
     calibration_df: pd.DataFrame,
     *,
@@ -638,7 +752,22 @@ def selected_method_calibration_summary(
     task_name: Optional[str] = None,
     out_dir: Optional[Path] = None,
 ) -> Optional[Path]:
-    """Four-panel calibration summary for the requested comparison methods."""
+    """Two-panel calibration DISTRIBUTION summary for the compared methods.
+
+    Left: the dataset-level observed and predicted means, one point per
+    dataset. Right: the distribution of the signed differences
+    (observed - predicted), where a positive value means UNDERprediction.
+
+    Only the distributions are shown: their macro means (the former top row of
+    bars) carry no information the boxes do not already convey, and the exact
+    numbers are printed by :func:`calibration_summary_text` into
+    ``results/All_Results.md``.
+
+    Styling follows the project conventions: one colour per METHOD (same map as
+    the decile curve and the sweep figures), observed vs predicted by
+    solid/hatched fill with a single neutral key at the figure bottom,
+    45-degree display names with foundation models in crimson, y grid at 0.25.
+    """
     task = task.lower()
     if calibration_df.empty:
         logger.warning("selected_method_calibration_summary: no calibration rows")
@@ -652,62 +781,14 @@ def selected_method_calibration_summary(
         logger.warning("selected_method_calibration_summary: no selected methods")
         return None
     task_name = task_name or task.upper()
-    stats = work.groupby("method").agg(
-        observed_mean=("observed_mean", "mean"),
-        observed_std=("observed_mean", "std"),
-        predicted_mean=("predicted_mean", "mean"),
-        predicted_std=("predicted_mean", "std"),
-        bias_mean=("calibration_bias", "mean"),
-        bias_std=("calibration_bias", "std"),
-    ).fillna(0.0).reindex(present)
     method_colors = _sweep_colors(present)
-    # Observed vs predicted as the project's box/strip blue pair: navy filled
-    # vs light fill with the standard black contour. The dark/light contrast
-    # survives colour blindness and cannot collide with the Okabe-Ito method
-    # colours used in the signed-difference panels.
-    obs_color, pred_color = "#1f4e79", "#cfe8ff"
     x = np.arange(len(present), dtype=float)
-    # The project's only 2x2 grid: each panel close to a FIG_WIDE half.
-    fig, axes = plt.subplots(2, 2, figsize=(13.0, 9.0))
+    fig, axes = plt.subplots(1, 2, figsize=FIG_WIDE)
 
-    ax = axes[0, 0]
-    width = 0.34
-    ax.bar(
-        x - width / 2, 100.0 * stats["observed_mean"], width,
-        yerr=100.0 * stats["observed_std"], color=obs_color,
-        edgecolor="black", linewidth=EDGE_LW, capsize=4, label="Observed",
-        error_kw={"ecolor": "0.25", "lw": 1.6},
-    )
-    ax.bar(
-        x + width / 2, 100.0 * stats["predicted_mean"], width,
-        yerr=100.0 * stats["predicted_std"], color=pred_color,
-        edgecolor="black", linewidth=EDGE_LW, capsize=4, label="Predicted",
-        error_kw={"ecolor": "0.25", "lw": 1.6},
-    )
-    ax.set_title("Average observed versus predicted",
-                 fontsize=LABEL_FS, fontweight="bold")
-    ax.set_ylabel("Mean value across datasets (%)",
-                  fontsize=LABEL_FS, fontweight="bold")
-    ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.92)
-
-    ax = axes[0, 1]
-    ax.bar(
-        x, 100.0 * stats["bias_mean"].to_numpy(),
-        yerr=100.0 * stats["bias_std"].to_numpy(),
-        color=[method_colors[method] for method in present], edgecolor="black",
-        linewidth=EDGE_LW, capsize=4, error_kw={"ecolor": "0.25", "lw": 1.6},
-    )
-    ax.axhline(0.0, color="0.35", lw=1.2, ls="--")
-    ax.set_title("Average signed difference",
-                 fontsize=LABEL_FS, fontweight="bold")
-    ax.set_ylabel("Observed - predicted (percentage points)",
-                  fontsize=LABEL_FS, fontweight="bold")
-
-    ax = axes[1, 0]
-    # One point per dataset, like every box+strip figure in the project; the
-    # dot size follows the shared dataset-count rule.
+    # ---- left: dataset-level observed vs predicted distributions ----------
+    ax = axes[0]
     dot_size = _strip_size(int(work.groupby("method")["dataset"].nunique().max() or 1))
-    positions, distributions, box_colors = [], [], []
+    positions, distributions, specs = [], [], []
     for index, method in enumerate(present):
         method_data = work[work["method"].eq(method)]
         positions.extend([index - 0.18, index + 0.18])
@@ -715,34 +796,45 @@ def selected_method_calibration_summary(
             100.0 * method_data["observed_mean"].to_numpy(dtype=float),
             100.0 * method_data["predicted_mean"].to_numpy(dtype=float),
         ])
-        box_colors.extend([obs_color, pred_color])
+        specs.extend([(method_colors[method], False),
+                      (method_colors[method], True)])
     box = ax.boxplot(
         distributions, positions=positions, widths=0.28, patch_artist=True,
         showfliers=False, medianprops={"color": "black", "linewidth": 1.4},
     )
-    for patch, color in zip(box["boxes"], box_colors):
-        patch.set_facecolor(color)
-        patch.set_alpha(0.45)
-        patch.set_edgecolor("black")
-    for position, values, color in zip(positions, distributions, box_colors):
-        offsets = np.linspace(-0.045, 0.045, len(values)) if len(values) > 1 else np.zeros(len(values))
+    for patch, (color, is_pred) in zip(box["boxes"], specs):
+        if is_pred:
+            # Hatch takes the EDGE colour in matplotlib, so an edge in the
+            # method colour keeps "one colour = one method" true here too.
+            patch.set_facecolor("white")
+            patch.set_edgecolor(color)
+            patch.set_linewidth(1.4)
+            patch.set_hatch("///")
+        else:
+            patch.set_facecolor(color)
+            patch.set_alpha(0.45)
+            patch.set_edgecolor("black")
+    for position, values, (color, is_pred) in zip(positions, distributions, specs):
+        offsets = (np.linspace(-0.045, 0.045, len(values))
+                   if len(values) > 1 else np.zeros(len(values)))
         ax.scatter(
-            position + offsets, values, s=dot_size ** 2, color=color,
-            edgecolor="black", linewidth=0.35, alpha=0.75, zorder=3,
+            position + offsets, values, s=dot_size ** 2,
+            color="white" if is_pred else color,
+            edgecolor=color if is_pred else "black",
+            linewidth=1.0 if is_pred else 0.35, alpha=0.85, zorder=3,
         )
-    ax.scatter([], [], color=obs_color, label="Observed")
-    ax.scatter([], [], color=pred_color, edgecolor="black", linewidth=0.35,
-               label="Predicted")
     ax.set_title("Distribution of dataset-level means",
                  fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel("Dataset-level mean (%)", fontsize=LABEL_FS, fontweight="bold")
-    ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.92)
+    # Key on THIS panel only -- the signed-difference panel has no
+    # observed/predicted split, so a shared figure legend would mislabel it.
+    _obs_pred_legend(ax)
 
-    ax = axes[1, 1]
+    # ---- right: distribution of signed differences ------------------------
+    ax = axes[1]
     bias_distributions = [
-        100.0 * work.loc[
-            work["method"].eq(method), "calibration_bias"
-        ].to_numpy(dtype=float)
+        100.0 * work.loc[work["method"].eq(method),
+                         "calibration_bias"].to_numpy(dtype=float)
         for method in present
     ]
     box = ax.boxplot(
@@ -754,7 +846,8 @@ def selected_method_calibration_summary(
         patch.set_alpha(0.45)
         patch.set_edgecolor("black")
     for position, values, method in zip(x, bias_distributions, present):
-        offsets = np.linspace(-0.09, 0.09, len(values)) if len(values) > 1 else np.zeros(len(values))
+        offsets = (np.linspace(-0.09, 0.09, len(values))
+                   if len(values) > 1 else np.zeros(len(values)))
         ax.scatter(
             position + offsets, values, s=dot_size ** 2,
             color=method_colors[method], edgecolor="black", linewidth=0.35,
@@ -767,6 +860,7 @@ def selected_method_calibration_summary(
                   fontsize=LABEL_FS, fontweight="bold")
 
     for ax in axes.ravel():
+        ax.set_axisbelow(True)
         ax.set_xticks(x)
         # Project method-axis convention: 45-degree right-aligned display
         # names, foundation models in crimson.
@@ -778,9 +872,8 @@ def selected_method_calibration_summary(
         f"{task_name}: observed versus predicted values across datasets",
         fontsize=TITLE_FS, fontweight="bold",
     )
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
     return _save(fig, out_dir, f"{task}_selected_calibration_summary")
-
 
 def _decile_curve_points(y_true: np.ndarray, prediction: np.ndarray,
                          n_bins: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -820,7 +913,7 @@ def calibration_decile_curve(
     if methods is None:
         baseline = "LogReg" if task == "pd" else "LinearRegression"
         methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
-    datasets = sorted(df["dataset"].astype(str).unique())
+    datasets = _ds_sorted(df["dataset"].astype(str).unique())   # paper order
     present = [m for m in methods if m in set(df["method"].astype(str))]
 
     curves: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
@@ -863,8 +956,9 @@ def calibration_decile_curve(
         if method not in curves:
             continue
         p, o = curves[method]
-        ax.plot(100.0 * p, 100.0 * o, lw=CURVE_LW, marker="o", ms=7,
-                markeredgecolor="black", markeredgewidth=0.5,
+        # Thin, marker-free lines: with four methods over ten deciles the
+        # markers collided and hid where the curves actually separate.
+        ax.plot(100.0 * p, 100.0 * o, lw=1.6, solid_capstyle="round",
                 color=colors[method], zorder=3, label=_display_name(method))
     ax.set_xlim(lim)
     ax.set_ylim(lim)
@@ -882,77 +976,425 @@ def calibration_decile_curve(
     return _save(fig, out_dir, f"{task}_calibration_deciles")
 
 
-def calibration_bias_vs_default_rate(
-    calibration_df: pd.DataFrame,
+#: Datasets (rows) per per-dataset figure -- chosen to FILL one A4 page.
+#:
+#: These figures are 4 method columns wide and are included at 	extwidth, so
+#: the page height they occupy is fixed by their aspect ratio:
+#:     height_on_page = text_width x (fig_height / fig_width)
+#: For A4 (210x297 mm) with 25 mm margins the text block is 160 x 247 mm; a
+#: 3-line caption leaves ~229 mm of usable figure height, i.e. a target aspect
+#: of at most 229/160 = 1.43.
+#:
+#: Measured aspects of the real figures (4 columns, tight bbox):
+#:     rows   binned grid        density
+#:        4   0.97 -> 156 mm     0.93 -> 148 mm
+#:        5   1.21 -> 193 mm     1.16 -> 186 mm
+#:        6   1.42 -> 227 mm     1.38 -> 221 mm   <-- ~97% of the page
+#:        7   1.68 -> 268 mm     1.63 -> 261 mm   <-- OVERFLOWS the page
+#: So 6 rows fills an A4 page almost exactly while 7 overflows it by ~17%
+#: (7 rows had to be scaled down to fit, shrinking the tick labels with it).
+#: 14 PD datasets therefore give pages of 6 + 6 + 2, and 7 LGD datasets 6 + 1.
+_PER_DATASET_ROWS_PER_PAGE = 6
+
+#: Per-panel size in inches. The height is the lever that sets the aspect above;
+#: keep the two in step if you change either.
+_PER_DATASET_PANEL_SIZE = (3.1, 2.8)
+
+
+#: A final page with fewer than this many rows is spread away instead of being
+#: emitted. Set to 2, i.e. ONLY a single-row last page is rebalanced: that keeps
+#: every earlier page at the A4-filling maximum (the point of the exercise),
+#: while avoiding the one genuinely degenerate case -- a lone 4-panel strip on
+#: its own sheet. A 2-row last page is just a normal half-page figure.
+#: Raise this to 3 to trade page fill for uniform page heights
+#: (14 datasets would then split 5 + 5 + 4 at ~81% fill instead of 6 + 6 + 2).
+_MIN_ROWS_LAST_PAGE = 2
+
+
+def _page_sizes(n_items: int, per_page: int) -> List[int]:
+    """Rows per page: fill to ``per_page``, but never leave an orphan last page.
+
+    ``per_page`` is the A4-filling maximum (see
+    :data:`_PER_DATASET_ROWS_PER_PAGE`), so a page never EXCEEDS it. Greedy
+    chunking can leave a straggler: 7 datasets would be 6 + 1, where a lone
+    4-panel strip gets a sheet of its own. When the remainder is below
+    :data:`_MIN_ROWS_LAST_PAGE` the same number of pages is used but the rows are
+    spread as evenly as possible instead (7 -> 4 + 3). Otherwise pages are
+    filled to ``per_page`` so each one uses as much of the A4 sheet as it can
+    (14 -> 6 + 6 + 2: two pages at ~97% fill plus a half-page).
+    """
+    if n_items <= 0:
+        return []
+    n_pages = max(1, math.ceil(n_items / per_page))
+    remainder = n_items % per_page
+    if n_pages > 1 and remainder and remainder < min(_MIN_ROWS_LAST_PAGE, per_page):
+        base, extra = divmod(n_items, n_pages)
+        return [base + (1 if i < extra else 0) for i in range(n_pages)]
+    return [min(per_page, n_items - i * per_page) for i in range(n_pages)]
+
+
+def _paged(items: Sequence[str], per_page: Optional[int] = None):
+    """Yield ``(page_index, n_pages, chunk)`` for a per-dataset figure.
+
+    ``per_page`` defaults to :data:`_PER_DATASET_ROWS_PER_PAGE` at CALL time (a
+    default argument would bind the constant at import time, so overriding the
+    module constant would silently have no effect).
+    """
+    per_page = int(per_page or _PER_DATASET_ROWS_PER_PAGE)
+    sizes = _page_sizes(len(items), per_page)
+    start = 0
+    for index, size in enumerate(sizes, start=1):
+        yield index, len(sizes), list(items[start:start + size])
+        start += size
+
+
+def _oof_pairs_by_dataset(
+    df: pd.DataFrame,
     *,
+    results_root: Path,
     task: str,
+    experiment: str,
+    hpo_mode: str,
+    present: Sequence[str],
+    datasets: Sequence[str],
+) -> Dict[Tuple[str, str], Tuple[np.ndarray, np.ndarray]]:
+    """``{(dataset, method): (prediction, actual)}`` from the stored npz files."""
+    out: Dict[Tuple[str, str], Tuple[np.ndarray, np.ndarray]] = {}
+    for dataset in datasets:
+        for method in present:
+            path = _result_npz_path(results_root, experiment=experiment, task=task,
+                                    dataset=dataset, method=method, hpo_mode=hpo_mode)
+            if not path.exists():
+                continue
+            try:
+                y_true, prediction, _ = _load_oof_prediction_pair(path, task)
+            except (OSError, ValueError) as exc:
+                logger.warning("per-dataset calibration: skipping %s (%s)", path, exc)
+                continue
+            out[(dataset, method)] = (np.asarray(prediction, dtype=float),
+                                      np.asarray(y_true, dtype=float))
+    return out
+
+
+def per_dataset_calibration_grid(
+    df: pd.DataFrame,
+    *,
+    results_root: Path,
+    task: str,
+    experiment: str = "experiment1",
+    hpo_mode: str = "HPO",
     methods: Optional[Sequence[str]] = None,
     task_name: Optional[str] = None,
+    n_bins: int = 20,
+    panel_size: Optional[Tuple[float, float]] = None,
+    rows_per_page: Optional[int] = None,
     out_dir: Optional[Path] = None,
-) -> Optional[Path]:
-    """Signed calibration bias against each dataset's base rate.
+) -> List[Path]:
+    """Binned predicted (x) versus actual (y) per DATASET and per METHOD.
 
-    One dot per (method, dataset): x = the dataset's observed mean (the
-    default rate for PD; log scale, since the rates span decades), y = the
-    signed bias (observed minus predicted, percentage points). A thin OLS
-    trend per method shows whether miscalibration concentrates on
-    rare-default datasets. Consumes :func:`calibration_bias_table` output.
+    WHAT EACH PANEL SHOWS. One row = one dataset, one column = one method.
+    Every dot is a *bin of loans*, not a loan: the dataset's pooled
+    out-of-fold predictions are sorted and cut into ``n_bins`` (default 20)
+    equal-count bins, and for each bin we plot
+
+    * **x** = the mean PREDICTED value inside that bin, and
+    * **y** = the mean ACTUAL outcome of the same loans (for PD, the observed
+      default *rate* in the bin; for LGD, the mean realised LGD),
+
+    with the dot AREA proportional to the bin's share of the dataset. Binning
+    is what makes a binary PD outcome plottable on a y axis: individual actuals
+    are only 0 or 1, whereas a bin of them has a frequency. So the 20 dots walk
+    from the method's lowest-risk to its highest-risk predictions, and their
+    vertical distance from the dashed ``y = x`` line is the calibration error
+    in that risk band -- above the line the method UNDERpredicts, below it
+    overpredicts.
+
+    Axis limits are shared within a row so the diagonal is comparable across
+    the methods being compared. Returns one path PER PAGE (7 datasets each).
+    For the raw, unbinned distribution see
+    :func:`per_dataset_prediction_density`.
     """
-    from matplotlib.ticker import LogLocator, NullFormatter, ScalarFormatter
-
     task = task.lower()
-    if calibration_df.empty:
-        logger.warning("calibration_bias_vs_default_rate: no calibration rows")
-        return None
+    panel_size = panel_size or _PER_DATASET_PANEL_SIZE
     if methods is None:
         baseline = "LogReg" if task == "pd" else "LinearRegression"
         methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
-    present = [m for m in methods if m in set(calibration_df["method"])]
-    work = calibration_df[calibration_df["method"].isin(present)]
-    if work.empty:
-        logger.warning("calibration_bias_vs_default_rate: no selected methods")
-        return None
+    available = set(df["method"].astype(str))
+    present = [m for m in methods if m in available]
+    if not present:
+        logger.warning("per_dataset_calibration_grid: none of %s present", methods)
+        return []
+    datasets = _ds_sorted(df["dataset"].astype(str).unique())
+    pairs = _oof_pairs_by_dataset(df, results_root=results_root, task=task,
+                                  experiment=experiment, hpo_mode=hpo_mode,
+                                  present=present, datasets=datasets)
+    rows_all = [d for d in datasets if any((d, m) in pairs for m in present)]
+    if not rows_all:
+        logger.warning("per_dataset_calibration_grid: no out-of-fold predictions found")
+        return []
 
     task_name = task_name or task.upper()
-    quantity = "default rate" if task == "pd" else "mean observed LGD"
-    colors = _sweep_colors(sorted(present))
-    fig, ax = plt.subplots(figsize=FIG_WIDE)
-    ax.set_xscale("log")
-    ax.axhline(0.0, color="0.35", lw=1.2, ls="--", zorder=1)
-    for method in present:
-        sub = work[work["method"].eq(method)]
-        x = 100.0 * sub["observed_mean"].to_numpy(dtype=float)
-        y = 100.0 * sub["calibration_bias"].to_numpy(dtype=float)
-        ax.scatter(x, y, s=PT_NORMAL, color=colors[method], edgecolor="black",
-                   linewidth=EDGE_LW, zorder=3, label=_display_name(method))
-        mask = np.isfinite(x) & np.isfinite(y) & (x > 0)
-        if mask.sum() >= 2:                     # per-method OLS on log10(rate)
-            lx = np.log10(x[mask])
-            coef = np.polyfit(lx, y[mask], 1)
-            xs = np.linspace(lx.min(), lx.max(), 50)
-            ax.plot(10 ** xs, np.polyval(coef, xs), color=colors[method],
-                    lw=1.8, alpha=0.9, zorder=2)
-    ax.xaxis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0)))
-    ax.xaxis.set_major_formatter(ScalarFormatter())
-    ax.xaxis.set_minor_formatter(NullFormatter())   # no stray 3x10^1-style labels
-    ax.set_xlabel(f"Dataset {quantity} (%, log scale)",
-                  fontsize=LABEL_FS, fontweight="bold")
-    ax.set_ylabel("Observed - predicted (percentage points)",
-                  fontsize=LABEL_FS, fontweight="bold")
-    ax.tick_params(labelsize=TICK_FS)
-    ax.set_title(f"{task_name}: calibration bias versus dataset {quantity}",
-                 fontsize=TITLE_FS, fontweight="bold")
-    ax.legend(loc="best", fontsize=LEGEND_FS, framealpha=0.92)
-    ax.grid(True, which="both", alpha=0.25)
-    plt.tight_layout()
-    suffix = "default_rate" if task == "pd" else "mean_lgd"
-    return _save(fig, out_dir, f"{task}_calibration_bias_vs_{suffix}")
+    quantity = "default rate" if task == "pd" else "LGD"
+    method_colors = _sweep_colors(present)
+    # Bigger axis numbers: these panels are read at page scale, where the
+    # shared TICK_FS was too small to make out.
+    tick_fs = TICK_FS + 1
+    paths: List[Path] = []
+
+    for page, n_pages, rows in _paged(rows_all, rows_per_page):
+        n_rows, n_cols = len(rows), len(present)
+        fig, axes = plt.subplots(
+            n_rows, n_cols, squeeze=False,
+            figsize=(panel_size[0] * n_cols, panel_size[1] * n_rows),
+        )
+        for r, dataset in enumerate(rows):
+            row_vals = [v for m in present if (dataset, m) in pairs
+                        for v in pairs[(dataset, m)]]
+            flat = np.concatenate([np.asarray(v).ravel() for v in row_vals])
+            lo, hi = float(np.nanmin(flat)), float(np.nanmax(flat))
+            pad = 0.06 * ((hi - lo) or 1.0)
+            lim = (100.0 * (lo - pad), 100.0 * (hi + pad))
+            for c, method in enumerate(present):
+                ax = axes[r][c]
+                ax.set_axisbelow(True)
+                ax.plot(lim, lim, color="0.4", lw=1.2, ls="--", zorder=1)
+                if (dataset, method) in pairs:
+                    prediction, actual = pairs[(dataset, method)]
+                    order = np.argsort(prediction, kind="stable")
+                    bins = [b for b in np.array_split(order, min(n_bins, max(len(order), 1)))
+                            if len(b)]
+                    px = np.array([prediction[b].mean() for b in bins])
+                    py = np.array([actual[b].mean() for b in bins])
+                    share = np.array([len(b) for b in bins], dtype=float)
+                    share = share / share.sum() if share.sum() else share
+                    # Smaller dots than before: at 20 bins the previous sizes
+                    # overlapped and hid the shape of the curve.
+                    ax.scatter(100.0 * px, 100.0 * py,
+                               s=14.0 + 260.0 * share, color=method_colors[method],
+                               edgecolor="black", linewidth=0.4, alpha=0.85, zorder=3)
+                else:
+                    ax.text(0.5, 0.5, "no result", transform=ax.transAxes,
+                            ha="center", va="center", fontsize=NOTE_FS, color="0.5")
+                ax.set_xlim(lim)
+                ax.set_ylim(lim)
+                ax.set_aspect("equal", adjustable="box")
+                ax.tick_params(labelsize=tick_fs)
+                ax.grid(True, alpha=0.25)
+                if r == 0:
+                    ax.set_title(_display_name(method), fontsize=LABEL_FS,
+                                 fontweight="bold",
+                                 color="crimson" if method in _foundation_methods() else "black")
+                if c == 0:
+                    ax.set_ylabel(f"{_ds_name(dataset)}\nobserved {quantity} (%)",
+                                  fontsize=tick_fs, fontweight="bold")
+                if r == n_rows - 1:
+                    ax.set_xlabel(f"predicted {quantity} (%)", fontsize=tick_fs,
+                                  fontweight="bold")
+        page_note = f" -- page {page} of {n_pages}" if n_pages > 1 else ""
+        fig.suptitle(
+            f"{task_name}: predicted versus actual per dataset{page_note}\n"
+            f"each dot = one of {n_bins} equal-count prediction bins "
+            f"(area = share of loans); dashed = perfect calibration",
+            fontsize=TITLE_FS, fontweight="bold",
+        )
+        # Reserve a FIXED 0.62 in for the two-line suptitle. A fraction of the
+        # figure height (the old 0.45/n_rows) asked tight_layout for margins it
+        # could not satisfy on short pages, which it warned about and ignored.
+        fig.tight_layout(rect=(0, 0, 1, 1 - 0.62 / fig.get_figheight()))
+        stem = f"{task}_per_dataset_calibration"
+        if n_pages > 1:
+            stem = f"{stem}_p{page}"
+        saved = _save(fig, out_dir, stem)
+        if saved:
+            paths.append(saved)
+    return paths
 
 
-# ---------------------------------------------------------------------------
-#  Heatmap (methods x datasets) of a single metric
-# ---------------------------------------------------------------------------
+def per_dataset_prediction_density(
+    df: pd.DataFrame,
+    *,
+    results_root: Path,
+    task: str,
+    experiment: str = "experiment1",
+    hpo_mode: str = "HPO",
+    methods: Optional[Sequence[str]] = None,
+    task_name: Optional[str] = None,
+    panel_size: Optional[Tuple[float, float]] = None,
+    rows_per_page: Optional[int] = None,
+    out_dir: Optional[Path] = None,
+) -> List[Path]:
+    """Actual versus predicted as a smooth DENSITY, per dataset and method.
 
+    The companion to :func:`per_dataset_calibration_grid`: instead of 20
+    aggregated bins it shows where the individual loans actually sit, so the
+    spread of the predictions is visible and not just the bin means.
+
+    * **LGD (continuous actual)** -- a filled 2D kernel-density estimate of the
+      raw ``(predicted, actual)`` cloud, with the dashed ``y = x``. Tight,
+      diagonal-hugging density = well calibrated *and* sharp; a horizontal
+      smear = predictions that barely vary with the realised loss.
+    * **PD (binary actual)** -- a 2D density is degenerate when the actual is
+      only 0 or 1, so each panel shows the two class-conditional densities of
+      the predicted probability: the filled curve rising from the y = 0 row is
+      the distribution of predictions for loans that did NOT default, the one
+      from the y = 1 row is for loans that DID. The axes keep the same meaning
+      (x = predicted, y = actual); separation between the two curves is
+      discrimination, and their positions relative to the class base rates are
+      calibration.
+
+    Returns one path PER PAGE (7 datasets each).
+    """
+    task = task.lower()
+    panel_size = panel_size or _PER_DATASET_PANEL_SIZE
+    if methods is None:
+        baseline = "LogReg" if task == "pd" else "LinearRegression"
+        methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
+    available = set(df["method"].astype(str))
+    present = [m for m in methods if m in available]
+    if not present:
+        logger.warning("per_dataset_prediction_density: none of %s present", methods)
+        return []
+    datasets = _ds_sorted(df["dataset"].astype(str).unique())
+    pairs = _oof_pairs_by_dataset(df, results_root=results_root, task=task,
+                                  experiment=experiment, hpo_mode=hpo_mode,
+                                  present=present, datasets=datasets)
+    rows_all = [d for d in datasets if any((d, m) in pairs for m in present)]
+    if not rows_all:
+        logger.warning("per_dataset_prediction_density: no out-of-fold predictions found")
+        return []
+
+    task_name = task_name or task.upper()
+    quantity = "default rate" if task == "pd" else "LGD"
+    is_binary = task == "pd"
+    method_colors = _sweep_colors(present)
+    tick_fs = TICK_FS + 1
+    paths: List[Path] = []
+    rng = np.random.default_rng(0)          # deterministic subsample for the KDE
+
+    def _kde_1d(values: np.ndarray, grid: np.ndarray):
+        """Gaussian KDE on ``grid``; None when scipy or the data can't support it."""
+        values = values[np.isfinite(values)]
+        if len(values) < 5 or np.allclose(values, values[0]):
+            return None
+        try:
+            from scipy.stats import gaussian_kde
+            return gaussian_kde(values)(grid)
+        except Exception:  # noqa: BLE001 -- fall back to a histogram outline
+            hist, edges = np.histogram(values, bins=40, range=(grid[0], grid[-1]),
+                                       density=True)
+            centers = 0.5 * (edges[:-1] + edges[1:])
+            return np.interp(grid, centers, hist)
+
+    for page, n_pages, rows in _paged(rows_all, rows_per_page):
+        n_rows, n_cols = len(rows), len(present)
+        fig, axes = plt.subplots(
+            n_rows, n_cols, squeeze=False,
+            figsize=(panel_size[0] * n_cols, panel_size[1] * n_rows),
+        )
+        for r, dataset in enumerate(rows):
+            row_vals = [v for m in present if (dataset, m) in pairs
+                        for v in pairs[(dataset, m)]]
+            flat = np.concatenate([np.asarray(v).ravel() for v in row_vals])
+            lo, hi = float(np.nanmin(flat)), float(np.nanmax(flat))
+            pad = 0.06 * ((hi - lo) or 1.0)
+            lim = (100.0 * (lo - pad), 100.0 * (hi + pad))
+            for c, method in enumerate(present):
+                ax = axes[r][c]
+                ax.set_axisbelow(True)
+                color = method_colors[method]
+                if (dataset, method) not in pairs:
+                    ax.text(0.5, 0.5, "no result", transform=ax.transAxes,
+                            ha="center", va="center", fontsize=NOTE_FS, color="0.5")
+                elif is_binary:
+                    prediction, actual = pairs[(dataset, method)]
+                    grid = np.linspace(lim[0], lim[1], 256)
+                    # Two class-conditional densities, drawn as ridges rising
+                    # from the y = 0 and y = 1 rows (y keeps meaning "actual").
+                    for cls, ls in ((0.0, "-"), (1.0, "-")):
+                        vals = 100.0 * prediction[actual == cls]
+                        dens = _kde_1d(vals, grid)
+                        if dens is None or not np.isfinite(dens).any():
+                            continue
+                        dens = dens / dens.max()          # per-class, so both are visible
+                        base = 100.0 * cls
+                        ax.fill_between(grid, base, base + 0.42 * (lim[1] - lim[0]) * dens,
+                                        color=color, alpha=0.30 if cls == 0 else 0.55,
+                                        lw=1.2, edgecolor=color, ls=ls, zorder=2 + int(cls))
+                        ax.axhline(base, color="0.6", lw=0.8, zorder=1)
+                    ax.set_yticks([0.0, 100.0])
+                    ax.set_yticklabels(["0 (no default)", "1 (default)"])
+                    ax.set_ylim(-0.10 * (lim[1] - lim[0]), 100.0 + 0.5 * (lim[1] - lim[0]))
+                    ax.set_xlim(lim)
+                else:
+                    prediction, actual = pairs[(dataset, method)]
+                    # Diagonal drawn ON TOP of the filled density (which would
+                    # otherwise bury it) but semi-transparent so it does not
+                    # mask the contours it crosses.
+                    ax.plot(lim, lim, color="0.25", lw=1.2, ls="--", zorder=6,
+                            alpha=0.85)
+                    px, py = 100.0 * prediction, 100.0 * actual
+                    if len(px) > 20000:                    # keep the KDE tractable
+                        pick = rng.choice(len(px), 20000, replace=False)
+                        px, py = px[pick], py[pick]
+                    drawn = False
+                    try:
+                        from scipy.stats import gaussian_kde
+                        if len(px) >= 10 and px.std() > 0 and py.std() > 0:
+                            gx, gy = np.mgrid[lim[0]:lim[1]:80j, lim[0]:lim[1]:80j]
+                            dens = gaussian_kde(np.vstack([px, py]))(
+                                np.vstack([gx.ravel(), gy.ravel()])).reshape(gx.shape)
+                            cmap = LinearSegmentedColormap.from_list(
+                                f"_{method}_dens", ["#ffffff", color])
+                            ax.contourf(gx, gy, dens, levels=12, cmap=cmap, zorder=2)
+                            drawn = True
+                    except Exception:  # noqa: BLE001
+                        drawn = False
+                    if not drawn:                          # hexbin fallback
+                        cmap = LinearSegmentedColormap.from_list(
+                            f"_{method}_dens", ["#ffffff", color])
+                        ax.hexbin(px, py, gridsize=30, mincnt=1, cmap=cmap,
+                                  linewidths=0.0, zorder=2)
+                    ax.set_xlim(lim)
+                    ax.set_ylim(lim)
+                    ax.set_aspect("equal", adjustable="box")
+                ax.tick_params(labelsize=tick_fs)
+                # A ridge plot needs no vertical rules: the faint x-grid line
+                # at zero read as a stray artefact exactly where the density
+                # starts. The two grey class baselines carry the structure.
+                if is_binary:
+                    ax.grid(False)          # NB: grid(False, alpha=..) still enables it
+                else:
+                    ax.grid(True, alpha=0.25)
+                if r == 0:
+                    ax.set_title(_display_name(method), fontsize=LABEL_FS,
+                                 fontweight="bold",
+                                 color="crimson" if method in _foundation_methods() else "black")
+                if c == 0:
+                    label = (f"{_ds_name(dataset)}\nactual outcome" if is_binary
+                             else f"{_ds_name(dataset)}\nactual {quantity} (%)")
+                    ax.set_ylabel(label, fontsize=tick_fs, fontweight="bold")
+                if r == n_rows - 1:
+                    ax.set_xlabel(f"predicted {quantity} (%)", fontsize=tick_fs,
+                                  fontweight="bold")
+        page_note = f" -- page {page} of {n_pages}" if n_pages > 1 else ""
+        detail = ("density of the predicted probability for defaulters vs non-defaulters"
+                  if is_binary else
+                  "2D kernel density of the raw prediction/actual pairs; dashed = perfect calibration")
+        fig.suptitle(
+            f"{task_name}: prediction density per dataset{page_note}\n{detail}",
+            fontsize=TITLE_FS, fontweight="bold",
+        )
+        # Reserve a FIXED 0.62 in for the two-line suptitle. A fraction of the
+        # figure height (the old 0.45/n_rows) asked tight_layout for margins it
+        # could not satisfy on short pages, which it warned about and ignored.
+        fig.tight_layout(rect=(0, 0, 1, 1 - 0.62 / fig.get_figheight()))
+        stem = f"{task}_per_dataset_prediction_density"
+        if n_pages > 1:
+            stem = f"{stem}_p{page}"
+        saved = _save(fig, out_dir, stem)
+        if saved:
+            paths.append(saved)
+    return paths
 def performance_heatmap(
     df: pd.DataFrame,
     metric: str,
@@ -975,8 +1417,12 @@ def performance_heatmap(
     foundation-model column names are shown in red.
     """
     mean_col = _resolve_mean_column(df, metric)
-    pivot = df.pivot_table(index="dataset", columns="method",
-                           values=mean_col, aggfunc="mean").sort_index()
+    # Rows in PAPER order (public alphabetical, then proprietary) -- NOT
+    # .sort_index(), which sorts by slug and reproduces the old numbering.
+    pivot = _order_datasets_index(
+        df.pivot_table(index="dataset", columns="method",
+                       values=mean_col, aggfunc="mean")
+    )
     # Best performance on the LEFT, worst on the RIGHT.
     method_order = pivot.mean(axis=0).sort_values(ascending=not higher_is_better).index
     pivot = pivot[method_order]
@@ -1002,6 +1448,7 @@ def performance_heatmap(
     ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
     _style_method_axis(ax)
+    _style_dataset_axis(ax, "y")           # rows are datasets -> registry labels
     ax.tick_params(axis="y", rotation=0)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_heatmap_{metric.lower()}")
@@ -1060,8 +1507,10 @@ def per_dataset_bars(
     if methods:
         sub = sub[sub["method"].isin(methods)]
     fig, ax = plt.subplots(figsize=figsize)
-    sns.barplot(data=sub, x="dataset", y=mean_col, hue="method", ax=ax)
+    sns.barplot(data=sub, x="dataset", y=mean_col, hue="method", ax=ax,
+                order=_ds_sorted(sub["dataset"].astype(str).unique()))
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right")
+    _style_dataset_axis(ax, "x")           # x ticks are datasets -> registry labels
     ax.tick_params(labelsize=TICK_FS)
     ax.set_ylabel(_pretty_metric(metric), fontsize=LABEL_FS, fontweight="bold")
     ax.set_title(f"{task_name} per-dataset {_pretty_metric(metric)}",
@@ -1577,12 +2026,8 @@ def per_dataset_sweep_curves(
         "row_limit": "learning curve",
         "minority_proportion": "imbalance-robustness curve",
     }.get(sweep_axis, "sweep curve")
-    for dataset in sorted(sub["dataset"].unique()):
-        dataset_label = str(dataset).split(".")[-1]
-        first, sep, rest = dataset_label.partition("_")
-        if sep and first.isdigit():
-            dataset_label = rest
-        dataset_label = dataset_label.replace("_", " ")
+    for dataset in _ds_sorted(sub["dataset"].unique()):
+        dataset_label = _ds_name(dataset)   # registry label (anonymised if proprietary)
         dsub = sub[sub["dataset"] == dataset]
         grp = dsub.groupby(["method", "sweep_value"])[mean_col].mean().reset_index()
         fig, ax = plt.subplots(figsize=figsize)
@@ -1597,7 +2042,22 @@ def per_dataset_sweep_curves(
                      fontsize=TITLE_FS, fontweight="bold")
         ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
         plt.tight_layout()
+        # Filename keeps the on-disk slug so existing \includegraphics paths in
+        # the LaTeX keep working (the slug never appears in the compiled PDF).
         stem = f"{task_name.lower()}_{sweep_axis}_{str(dataset).replace('.', '_')}_{metric.lower()}"
+        # For a PROPRIETARY dataset also write a neutral, anonymised copy
+        # (spec rule 3) so the figure can be \included without the real dataset
+        # name appearing in the path. Written BEFORE _save, which closes the
+        # figure. Same rendered content -- title/labels are already anonymised.
+        if out_dir is not None and _ds_proprietary(dataset):
+            neutral = (
+                f"{task_name.lower()}_{sweep_axis}_"
+                f"{_ds_name(dataset).lower()}_{metric.lower()}"
+            )
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            neutral_path = Path(out_dir) / f"{neutral}.pdf"
+            fig.savefig(neutral_path, bbox_inches="tight", dpi=200)
+            paths.append(neutral_path)
         p = _save(fig, out_dir, stem)
         if p:
             paths.append(p)
@@ -1821,8 +2281,12 @@ def compute_time_boxplot(
 
 def _rank_pivot(df: pd.DataFrame, metric: str, higher_is_better: bool) -> pd.DataFrame:
     mean_col = _resolve_mean_column(df, metric)
-    pivot = df.pivot_table(index="dataset", columns="method",
-                           values=mean_col, aggfunc="mean")
+    # Dataset rows in PAPER order (see _order_datasets_index). This is the
+    # chokepoint for rank_heatmap / method_ranking_bars / rank_boxplots.
+    pivot = _order_datasets_index(
+        df.pivot_table(index="dataset", columns="method",
+                       values=mean_col, aggfunc="mean")
+    )
     ranks = pivot.rank(axis=1, ascending=not higher_is_better)
     return ranks[ranks.mean(axis=0).sort_values().index]  # best (lowest rank) left
 
@@ -1852,6 +2316,7 @@ def rank_heatmap(
     ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
     ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
     _style_method_axis(ax)
+    _style_dataset_axis(ax, "y")           # rows are datasets -> registry labels
     ax.tick_params(axis="y", rotation=0)
     plt.tight_layout()
     return _save(fig, out_dir, f"{task_name.lower()}_rank_matrix_{metric.lower()}")
@@ -2170,7 +2635,7 @@ def foundation_vs_baseline_size_trend(
     ax.legend(loc="best", fontsize=LEGEND_FS)
     ax.grid(True, which="both", alpha=0.25)
     _declutter_labels(ax, [(xi, yi) for xi, yi in zip(x, y) if np.isfinite(yi)],
-                      [str(d).split(".")[-1] for d, yi in zip(piv.index, y) if np.isfinite(yi)])
+                      [_ds_name(d) for d, yi in zip(piv.index, y) if np.isfinite(yi)])
     plt.tight_layout()
     return _save(fig, out_dir,
                  f"{task_name.lower()}_{fnd_method}_vs_{base_method}_sizetrend_{metric.lower()}")
@@ -2262,7 +2727,7 @@ def foundation_vs_baseline_imbalance_trend(
         ax,
         [(x_value, y_value) for x_value, y_value in zip(x, y) if np.isfinite(y_value)],
         [
-            str(dataset).split(".", 1)[-1]
+            _ds_name(dataset)
             for dataset, y_value in zip(pivot.index, y)
             if np.isfinite(y_value)
         ],
@@ -2322,7 +2787,7 @@ def foundation_vs_baseline_scatter(
                  fontsize=TITLE_FS, fontweight="bold")
     ax.legend(loc="best", fontsize=LEGEND_FS)
     ax.grid(True, alpha=0.25)
-    _declutter_labels(ax, list(zip(xb, yf)), [str(d).split(".")[-1] for d in piv.index])
+    _declutter_labels(ax, list(zip(xb, yf)), [_ds_name(d) for d in piv.index])
     plt.tight_layout()
     return _save(fig, out_dir,
                  f"{task_name.lower()}_{fnd_method}_vs_{base_method}_scatter_{metric.lower()}")
@@ -2391,23 +2856,156 @@ def lgd_summary_text(df: pd.DataFrame, *, task_name: str = "LGD",
                          sort_by=sort_by, higher_is_better=higher_is_better)
 
 
-def calibration_summary_text(bias_table: pd.DataFrame, *, task_name: str = "PD") -> str:
-    """Copy-pasteable text version of the calibration analysis, printed like
-    the metric summaries so ``run_notebooks`` collects it into
-    ``results/All_Results.md`` (the calibration figures alone leave no trace
-    there).
+def rank_summary_text(df: pd.DataFrame, metric: str, *,
+                      higher_is_better: bool = True, task_name: str = "PD") -> str:
+    """Average per-dataset RANK of every method (1 = best) -- the numbers behind
+    the rank heatmap / ranking bars / rank box plots."""
+    pivot = _order_datasets_index(
+        df.pivot_table(index="dataset", columns="method",
+                       values=_resolve_mean_column(df, metric), aggfunc="mean")
+    )
+    ranks = pivot.rank(axis=1, ascending=not higher_is_better)
+    table = pd.DataFrame({
+        "mean_rank": ranks.mean(axis=0),
+        "std_rank": ranks.std(axis=0, ddof=0),
+        "best_rank": ranks.min(axis=0),
+        "worst_rank": ranks.max(axis=0),
+        "times_rank_1": (ranks == 1).sum(axis=0),
+        "datasets": ranks.notna().sum(axis=0),
+    }).sort_values("mean_rank")
+    table.index = [_display_name(m) for m in table.index]
+    header = (f"{task_name} - average rank per method on {_pretty_metric(metric)} "
+              f"(1 = best on a dataset; ranked over {ranks.shape[0]} datasets)")
+    text = header + "\n" + "-" * len(header) + "\n" + table.round(3).to_string()
+    print(text)
+    return text
 
-    ``bias_table`` is the output of :func:`calibration_bias_table`: one row
-    per (method, dataset) with pooled out-of-fold observed/predicted means.
-    Positive bias (observed − predicted) means the method UNDERPREDICTS.
-    Prints (a) a per-method summary (equal weight per dataset) sorted by mean
-    absolute bias — best-calibrated first — and (b) the per-dataset signed
-    bias pivot behind the figures.
+
+def hpo_effect_text(df_both: pd.DataFrame, metric: str, *,
+                    higher_is_better: bool = True, task_name: str = "PD") -> str:
+    """Tuned vs untuned ``metric`` per method -- the numbers behind the
+    HPO-effect bars.
+
+    ``df_both`` is the summary loaded with ``hpo_mode=None`` so it carries BOTH
+    modes. Methods that cannot be tuned appear with a delta of exactly zero
+    (their HPO result is a copy of the NO_HPO run, by construction).
+    """
+    col = _resolve_mean_column(df_both, metric)
+    if "hpo_mode" not in df_both.columns:
+        text = f"{task_name} - HPO effect: no hpo_mode column in the summary."
+        print(text)
+        return text
+    per = df_both.pivot_table(index="method", columns="hpo_mode", values=col, aggfunc="mean")
+    if not {"HPO", "NO_HPO"} <= set(per.columns):
+        text = f"{task_name} - HPO effect: need both HPO and NO_HPO rows."
+        print(text)
+        return text
+    table = pd.DataFrame({
+        "no_hpo": per["NO_HPO"],
+        "hpo": per["HPO"],
+        "delta (hpo - no_hpo)": per["HPO"] - per["NO_HPO"],
+    })
+    table = table.sort_values("delta (hpo - no_hpo)", ascending=not higher_is_better)
+    table.index = [_display_name(m) for m in table.index]
+    tuned = int((table["delta (hpo - no_hpo)"].abs() > 1e-12).sum())
+    header = (f"{task_name} - effect of hyper-parameter tuning on "
+              f"{_pretty_metric(metric)} ({tuned} of {len(table)} methods actually "
+              f"change; the rest are NO_HPO-only, so their tuned result is a copy)")
+    text = header + "\n" + "-" * min(len(header), 100) + "\n" + table.round(4).to_string()
+    print(text)
+    return text
+
+
+def head_to_head_text(
+    df: pd.DataFrame,
+    metric: str,
+    *,
+    fnd_method: str = "tabpfn_v3",
+    base_methods: Sequence[str] = ("catboost",),
+    higher_is_better: bool = True,
+    task_name: str = "PD",
+) -> str:
+    """Per-dataset head-to-head of ``fnd_method`` against each baseline -- the
+    numbers behind the ``y = x`` scatters and the size/imbalance trend lines.
+
+    Reports, per baseline: the win/loss/tie count over datasets, the mean and
+    median difference, and the full per-dataset difference column (positive =
+    the foundation model is better on that dataset, for a higher-is-better
+    metric).
+    """
+    col = _resolve_mean_column(df, metric)
+    pivot = _order_datasets_index(
+        df.pivot_table(index="dataset", columns="method", values=col, aggfunc="mean")
+    )
+    parts: List[str] = []
+    pm = _pretty_metric(metric)
+    if fnd_method not in pivot.columns:
+        text = f"{task_name} - head-to-head: {fnd_method} absent from the summary."
+        print(text)
+        return text
+    fnd = pivot[fnd_method]
+    for base in base_methods:
+        if base not in pivot.columns:
+            parts.append(f"{_display_name(base)}: absent from the summary.")
+            continue
+        diff = (fnd - pivot[base]) if higher_is_better else (pivot[base] - fnd)
+        valid = diff.dropna()
+        wins = int((valid > 0).sum())
+        losses = int((valid < 0).sum())
+        ties = int((valid == 0).sum())
+        block = pd.DataFrame({
+            f"{_display_name(fnd_method)}": fnd.reindex(valid.index),
+            f"{_display_name(base)}": pivot[base].reindex(valid.index),
+            "difference": valid,
+        })
+        block.index = [_ds_name(d) for d in block.index]
+        head = (f"{_display_name(fnd_method)} vs {_display_name(base)} on {pm}: "
+                f"{wins} wins / {losses} losses / {ties} ties over {len(valid)} datasets; "
+                f"mean difference {valid.mean():+.4f}, median {valid.median():+.4f}")
+        parts.append(head + "\n" + block.round(4).to_string())
+    header = (f"{task_name} - head-to-head per dataset (positive difference = "
+              f"{_display_name(fnd_method)} better)")
+    text = header + "\n" + "-" * min(len(header), 100) + "\n" + "\n\n".join(parts)
+    print(text)
+    return text
+
+
+def calibration_summary_text(
+    bias_table: pd.DataFrame,
+    *,
+    task_name: str = "PD",
+    df: Optional[pd.DataFrame] = None,
+    results_root: Optional[Path] = None,
+    task: Optional[str] = None,
+    experiment: str = "experiment1",
+    hpo_mode: str = "HPO",
+    methods: Optional[Sequence[str]] = None,
+    n_bins: int = 10,
+) -> str:
+    """Printed counterpart of the WHOLE calibration analysis.
+
+    ``run_notebooks`` harvests stdout into ``results/All_Results.md``, so this
+    is what makes the calibration figures' numbers available as text. It covers
+    every calibration figure:
+
+    1. **Per-method summary** -- mean observed, mean predicted, signed bias
+       (observed - predicted; positive = UNDERprediction), its spread and mean
+       absolute value, best-calibrated first. Backs the two-panel summary.
+    2. **Per-dataset tables** -- observed mean, predicted mean and signed bias
+       per (dataset, method). Backs the dataset-level distribution panel and
+       the per-dataset predicted-vs-actual grids.
+    3. **Decile calibration table** (only when ``df``/``results_root``/``task``
+       are given) -- the mean predicted and mean observed value per decile,
+       averaged over datasets: the numbers plotted by
+       :func:`calibration_decile_curve`.
+
+    ``bias_table`` is :func:`calibration_bias_table`'s output.
     """
     if bias_table is None or bias_table.empty:
         text = f"{task_name} calibration: no out-of-fold predictions found."
         print(text)
         return text
+
     grouped = bias_table.groupby("method")
     summary = pd.DataFrame({
         "observed_mean": grouped["observed_mean"].mean(),
@@ -2417,17 +3015,75 @@ def calibration_summary_text(bias_table: pd.DataFrame, *, task_name: str = "PD")
         "abs_bias_mean": grouped["calibration_bias"].apply(lambda s: float(s.abs().mean())),
         "datasets": grouped["dataset"].nunique(),
     }).sort_values("abs_bias_mean")
-    pivot = bias_table.pivot_table(index="dataset", columns="method",
-                                   values="calibration_bias", aggfunc="mean")
+
+    def _pivot(values: str) -> pd.DataFrame:
+        """Per-dataset pivot in paper order, labelled with display names."""
+        out = _order_datasets_index(
+            bias_table.pivot_table(index="dataset", columns="method",
+                                   values=values, aggfunc="mean")
+        )
+        out.index = [_ds_name(d) for d in out.index]
+        return out
+
     header = (f"{task_name} — calibration: observed vs predicted target means per method "
               f"(equal weight per dataset; positive bias = underprediction)")
-    text = (header + "\n" + "=" * max(len(header), 64) + "\n"
-            + summary.round(4).to_string()
-            + "\n\nPer-dataset signed bias (observed - predicted):\n"
-            + pivot.round(4).to_string())
+    parts = [
+        header,
+        "=" * max(len(header), 64),
+        summary.round(4).to_string(),
+        "",
+        "Per-dataset OBSERVED mean:",
+        _pivot("observed_mean").round(4).to_string(),
+        "",
+        "Per-dataset PREDICTED mean:",
+        _pivot("predicted_mean").round(4).to_string(),
+        "",
+        "Per-dataset signed bias (observed - predicted):",
+        _pivot("calibration_bias").round(4).to_string(),
+    ]
+
+    # ---- decile table: the numbers behind the decile calibration curve -----
+    if df is not None and results_root is not None and task is not None:
+        task_l = task.lower()
+        if methods is None:
+            baseline = "LogReg" if task_l == "pd" else "LinearRegression"
+            methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
+        available = set(df["method"].astype(str))
+        present = [m for m in methods if m in available]
+        datasets = _ds_sorted(df["dataset"].astype(str).unique())
+        rows = {}
+        for method in present:
+            preds, obs = [], []
+            for dataset in datasets:
+                path = _result_npz_path(Path(results_root), experiment=experiment,
+                                        task=task_l, dataset=dataset, method=method,
+                                        hpo_mode=hpo_mode)
+                if not path.exists():
+                    continue
+                try:
+                    y_true, prediction, _ = _load_oof_prediction_pair(path, task_l)
+                except (OSError, ValueError):
+                    continue
+                p, o = _decile_curve_points(y_true, prediction, n_bins)
+                preds.append(p)
+                obs.append(o)
+            if preds:
+                rows[(method, "predicted")] = np.mean(np.stack(preds), axis=0)
+                rows[(method, "observed")] = np.mean(np.stack(obs), axis=0)
+        if rows:
+            decile = pd.DataFrame(rows, index=[f"D{i}" for i in range(1, n_bins + 1)]).T
+            decile.index = pd.MultiIndex.from_tuples(decile.index,
+                                                     names=["method", "series"])
+            parts += [
+                "",
+                f"Decile calibration ({n_bins} equal-count bins, mean over datasets; "
+                f"D1 = lowest predicted risk):",
+                decile.round(4).to_string(),
+            ]
+
+    text = "\n".join(parts)
     print(text)
     return text
-
 
 # ---------------------------------------------------------------------------
 #  Helpers
@@ -2535,7 +3191,8 @@ __all__ = [
     "calibration_bias_table",
     "selected_method_calibration_summary",
     "calibration_decile_curve",
-    "calibration_bias_vs_default_rate",
+    "per_dataset_calibration_grid",
+    "per_dataset_prediction_density",
     "performance_heatmap",
     "method_ranking_bars",
     "per_dataset_bars",

@@ -103,8 +103,24 @@ def _method(raw: str) -> str:
 
 
 def _dataset(tok: str) -> str:
-    """``0003_vehicle_loan`` -> ``vehicle loan``."""
-    return _latex_escape(re.sub(r"^\d+[_.]", "", tok).replace("_", " "))
+    """Figure-filename dataset token -> its registry display name.
+
+    The token comes out of a figure stem (e.g. ``0003_vehicle_loan`` from
+    ``pd_row_limit_0003_vehicle_loan_auc``), so it uses underscores rather than
+    the on-disk dot; ``canonical_slug``'s aliases resolve both. Proprietary
+    datasets therefore get their anonymised name in the caption, and captions
+    are ordered by the registry rule (see ``_dataset_sort_key``).
+    """
+    from src.data.dataset_names import display_name as _ds_display
+
+    return _latex_escape(_ds_display(tok))
+
+
+def _dataset_sort_key(tok: str) -> tuple:
+    """Registry order (public alphabetical, then proprietary) for a stem token."""
+    from src.data.dataset_names import sort_key as _ds_key
+
+    return _ds_key(tok)
 
 
 def _with_foundation_note(caption: str) -> str:
@@ -394,14 +410,51 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         ),
     ))
     R.append((
-        r"^(pd|lgd)_calibration_bias_vs_(default_rate|mean_lgd)$",
+        r"^(pd|lgd)_per_dataset_calibration(?:_p(\d+))?$",
         lambda g: (
-            (S_CAL, 2, g[0]),
-            f"Signed calibration bias (observed minus predicted, percentage points) on "
-            f"every dataset against the dataset's "
-            f"{'default rate' if g[0] == 'pd' else 'mean observed LGD'} (log scale): "
-            f"one point per (method, dataset) with a thin per-method OLS trend line. "
-            f"Points above the dashed zero line are underpredictions.",
+            (S_CAL, 2, g[0], int(g[1] or 1)),
+            "Predicted versus actual per dataset (rows) and per compared method "
+            "(columns)"
+            + (f", page {g[1]} of the dataset set" if g[1] else "")
+            + ". Every dot is one of twenty equal-count prediction bins, not a "
+            "single loan: the dataset's pooled out-of-fold predictions are sorted "
+            "and cut into twenty bins of equal size, and each dot places that "
+            "bin's mean predicted value on the horizontal axis against the mean "
+            "actual outcome of the same loans on the vertical axis"
+            + (" (the observed default rate in the bin)" if g[0] == "pd"
+               else " (the mean realised LGD in the bin)")
+            + ", with the dot area proportional to the bin's share of the data. "
+            "Dots therefore run from the method's lowest-risk to its "
+            "highest-risk predictions, and their vertical distance from the "
+            "dashed diagonal is the calibration error in that band: above the "
+            "line the method underpredicts, below it overpredicts. Axis limits "
+            "are shared within a row so the diagonal is comparable across methods.",
+        ),
+    ))
+    R.append((
+        r"^(pd|lgd)_per_dataset_prediction_density(?:_p(\d+))?$",
+        lambda g: (
+            (S_CAL, 3, g[0], int(g[1] or 1)),
+            "Prediction density per dataset (rows) and per compared method "
+            "(columns)"
+            + (f", page {g[1]} of the dataset set" if g[1] else "")
+            + ". "
+            + ("Each panel shows the two class-conditional densities of the "
+               "predicted default probability: the curve rising from the lower "
+               "row is the distribution of predictions for loans that did not "
+               "default, the one from the upper row for loans that did, so the "
+               "separation between them is discrimination and their position "
+               "relative to the base rates is calibration. A two-dimensional "
+               "density is not meaningful here because the actual outcome only "
+               "takes the values zero and one."
+               if g[0] == "pd" else
+               "Each panel is a two-dimensional kernel density of the raw "
+               "out-of-fold prediction and actual LGD pairs, with the dashed "
+               "diagonal marking perfect calibration: density hugging the "
+               "diagonal is both well calibrated and sharp, while a horizontal "
+               "smear marks predictions that barely vary with the realised loss.")
+            + " Unlike the binned grid, this view shows where the individual "
+              "loans sit rather than bin averages.",
         ),
     ))
 
@@ -435,14 +488,14 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
     R.append((
         rf"^(pd|lgd)_row_limit_(.+)_({M})$",
         lambda g: (
-            (S_PERDS, 0, _dataset(g[1])),
+            (S_PERDS, 0, _dataset_sort_key(g[1])),
             "Dataset-size sweep within one dataset; no cross-dataset averaging or smoothing is applied.",
         ),
     ))
     R.append((
         rf"^(pd|lgd)_minority_proportion_(.+)_({M})$",
         lambda g: (
-            (S_PERDS, 1, _dataset(g[1])),
+            (S_PERDS, 1, _dataset_sort_key(g[1])),
             "Minority-class proportion is varied within one dataset; no cross-dataset averaging or smoothing is applied.",
         ),
     ))
@@ -608,9 +661,37 @@ CHAPTERS: List[Tuple[str, str]] = [
 ]
 
 
+def _is_redundant_proprietary_stem(stem: str, available: set) -> bool:
+    r"""True if ``stem`` names a PROPRIETARY dataset by its real slug AND a
+    neutral-filename twin exists.
+
+    ``per_dataset_sweep_curves`` (and the correlation cell) write two identical
+    PDFs for a proprietary dataset: the historical slug-named file, kept so
+    existing ``\includegraphics`` paths resolve, and a neutral copy named after
+    the anonymised display name. Only the neutral one belongs in CAPTIONS.md --
+    otherwise the real dataset name would appear in the filename header and in
+    the generated ``\label``, both of which get copied into the paper source.
+    """
+    from src.data.dataset_names import display_name as _ds_display, registry
+
+    for slug, entry in registry().items():
+        if not entry.proprietary:
+            continue
+        # numbered forms plus the BARE name (``corr_heloc``). Safe because a
+        # stem is only dropped when its neutral twin actually exists on disk.
+        for form in (slug.replace(".", "_"), slug, slug.partition(".")[2]):
+            if form in stem:
+                twin = stem.replace(form, _ds_display(slug).lower())
+                if twin in available:
+                    return True
+    return False
+
+
 def _ordered_stems(d: Path) -> List[str]:
     """The ``.pdf`` stems in directory ``d`` in notebook generation order."""
     pdfs = [f.stem for f in d.glob("*.pdf")]
+    available = set(pdfs)
+    pdfs = [s for s in pdfs if not _is_redundant_proprietary_stem(s, available)]
     return [s for _key, s in sorted((caption_for(s)[0], s) for s in pdfs)]
 
 

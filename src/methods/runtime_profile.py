@@ -149,15 +149,27 @@ _PROFILES: Dict[str, Profile] = {
     "tabicl":          Profile(Tier.FOUNDATION, 300,  prefers_gpu=True, needs_foundation_gpu=True),
     "tabicl_v2":       Profile(Tier.FOUNDATION, 900,  prefers_gpu=True, needs_foundation_gpu=True),
     "tabdpt":          Profile(Tier.FOUNDATION, 600,  prefers_gpu=True, needs_foundation_gpu=True),
-    # High per-fold estimate on purpose: TabFM keeps its FULL in-context set (no
-    # row cap) and ensembles 32 members, so a fold on a large dataset (e.g. GMSC
-    # ~96k train rows) is genuinely hours. With one dataset per array task
-    # (TABPFN_MAX_CELLS_PER_SLOT=1) the slot walltime is derived from a SINGLE
-    # dataset's estimate, so this must be large enough to request ~the full H100
-    # wall (23 h) for the big datasets -- a low estimate got them killed at ~1.6h.
-    # Overestimating only over-requests walltime (the job exits early when done)
-    # and is skip-if-done-safe.
-    "tabfm":           Profile(Tier.FOUNDATION, 14000, prefers_gpu=True, needs_foundation_gpu=True),
+    # TabFM is by far the most expensive method here: 32 ensemble members, and
+    # its cost is dominated by INFERENCE (each member's sequence is its context
+    # plus the whole evaluation split), so it scales with the test-split size.
+    # With one dataset per array task (TABPFN_MAX_CELLS_PER_SLOT=1) the slot
+    # walltime comes from a SINGLE dataset's estimate, so this has to cover the
+    # largest dataset. Measured on H100-80GB at a 10k context (job 61519948),
+    # seconds per *single* model fit + evaluation:
+    #     taiwan_creditcard  6.0k test rows,  23 feat ->  194 s
+    #     heloc (LGD)       11.6k,             8      ->  147 s
+    #     cobranded         16.0k,            47      ->  434 s
+    #     loan_default      21.1k,           500*     ->  697 s
+    #     vehicle_loan      46.6k,            35      -> 1401 s
+    #     (*capped by max_num_features)
+    # Extrapolating to the largest split (hackerearth, 106k x 35) gives ~3200 s
+    # per fold. 6000 s keeps ~2x headroom on that -- a ~11 h request rather than
+    # the 25 h the old 14000 asked for. The old number was calibrated against
+    # runs that unknowingly refit 15x per fold (TALENT's packaged seed_num=15,
+    # now pinned to 1 in CONFIG_EXPERIMENT.yaml), so it over-requested by ~15x.
+    # Overestimating only costs queue priority: the job exits when done and
+    # skip-if-done makes any overrun resumable.
+    "tabfm":           Profile(Tier.FOUNDATION, 6000, prefers_gpu=True, needs_foundation_gpu=True),
     "mitra":           Profile(Tier.FOUNDATION, 600,  prefers_gpu=True, needs_foundation_gpu=True),
     "limix":           Profile(Tier.FOUNDATION, 1800, prefers_gpu=True, needs_foundation_gpu=True),
     "hyperfast":       Profile(Tier.FOUNDATION, 60,   prefers_gpu=True),

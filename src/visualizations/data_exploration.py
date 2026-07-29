@@ -45,6 +45,14 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+# Dataset naming + ordering: single source of truth (proprietary datasets are
+# anonymised; order is public-alphabetical then proprietary). Never build a
+# dataset label or sort datasets by slug here -- use these helpers.
+from src.data.dataset_names import (  # noqa: E402
+    display_name as _ds_name,
+    sort_key as _ds_sort_key,
+)
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -118,6 +126,47 @@ def load_processed_dataset(task: str, dataset: str) -> Tuple[Optional[np.ndarray
 #  Summary tables
 # ============================================================================
 
+def _with_display_columns(df: pd.DataFrame, *, sort: bool = True) -> pd.DataFrame:
+    """Add registry display columns to a table that has a ``dataset`` column.
+
+    The raw ``dataset`` slug is KEPT (it is the join key used by the plotting
+    helpers and by ``load_processed_dataset``); ``dataset_display`` and
+    ``paper_id`` are what a reader should ever see. With ``sort=True`` the rows
+    are put in paper order (public alphabetical, then proprietary).
+    """
+    if df.empty or "dataset" not in df.columns:
+        return df
+    from src.data.dataset_names import paper_id as _ds_paper_id
+
+    out = df.copy()
+    out.insert(1, "dataset_display", [_ds_name(d) for d in out["dataset"]])
+    out.insert(2, "paper_id", [_ds_paper_id(d) for d in out["dataset"]])
+    if sort:
+        out = (out.assign(_k=[_ds_sort_key(d) for d in out["dataset"]])
+                  .sort_values("_k").drop(columns="_k").reset_index(drop=True))
+    return out
+
+
+def paper_table(df: pd.DataFrame) -> pd.DataFrame:
+    """A PAPER-FACING view of a dataset table: no raw slugs.
+
+    The tables returned by the ``*_table`` helpers deliberately keep the on-disk
+    ``dataset`` slug, because plotting code and ``load_processed_dataset`` join
+    on it. That slug must never be SHOWN, though -- it carries the real name of
+    a proprietary dataset. This view drops it and promotes the registry display
+    name, so notebooks can ``display(paper_table(...))`` safely.
+    """
+    if df.empty:
+        return df
+    out = df.copy()
+    if "dataset_display" in out.columns:
+        out = out.drop(columns=[c for c in ("dataset",) if c in out.columns])
+        out = out.rename(columns={"dataset_display": "dataset"})
+        cols = ["dataset"] + [c for c in out.columns if c != "dataset"]
+        out = out[cols]
+    return out
+
+
 def raw_dataset_summary_table(task: str) -> pd.DataFrame:
     """One row per raw CSV: shape, file size, dtype counts, target column."""
     rows = []
@@ -167,7 +216,7 @@ def processed_dataset_summary_table(task: str) -> pd.DataFrame:
             })
         except Exception as exc:
             logger.warning("Failed to summarise %s: %s", dataset, exc)
-    return pd.DataFrame(rows)
+    return _with_display_columns(pd.DataFrame(rows))
 
 
 def pd_target_balance_table() -> pd.DataFrame:
@@ -193,7 +242,10 @@ def pd_target_balance_table() -> pd.DataFrame:
         except Exception as exc:
             logger.warning("Failed to balance %s: %s", dataset, exc)
     df = pd.DataFrame(rows)
-    return df.sort_values("positive_rate") if not df.empty else df
+    # Row order stays by positive_rate (the balance plot depends on it);
+    # only the display columns are added.
+    return _with_display_columns(
+        df.sort_values("positive_rate") if not df.empty else df, sort=False)
 
 
 def lgd_target_distribution_table() -> pd.DataFrame:
@@ -221,7 +273,7 @@ def lgd_target_distribution_table() -> pd.DataFrame:
             })
         except Exception as exc:
             logger.warning("Failed to summarise LGD %s: %s", path.name, exc)
-    return pd.DataFrame(rows)
+    return _with_display_columns(pd.DataFrame(rows))
 
 
 def numeric_feature_stats(task: str, dataset: str) -> pd.DataFrame:
@@ -321,7 +373,8 @@ def plot_dataset_size_bar(
         return None
     df = df.sort_values("rows", ascending=True)
     fig, ax = plt.subplots(figsize=figsize)
-    bars = ax.barh(df["dataset"], df["rows"], color=sns.color_palette("viridis", len(df)))
+    bars = ax.barh([_ds_name(d) for d in df["dataset"]], df["rows"],
+                   color=sns.color_palette("viridis", len(df)))
     for bar, value in zip(bars, df["rows"]):
         ax.text(bar.get_width() * 1.01, bar.get_y() + bar.get_height() / 2,
                 f"{value:,}", va="center", fontsize=9)
@@ -344,7 +397,7 @@ def plot_target_balance(
         logger.warning("plot_target_balance: no PD datasets to plot")
         return None
     fig, ax = plt.subplots(figsize=figsize)
-    bars = ax.barh(df["dataset"], df["positive_rate"] * 100,
+    bars = ax.barh([_ds_name(d) for d in df["dataset"]], df["positive_rate"] * 100,
                    color=sns.color_palette("rocket", len(df)))
     for bar, value in zip(bars, df["positive_rate"] * 100):
         ax.text(bar.get_width() * 1.01, bar.get_y() + bar.get_height() / 2,
@@ -388,7 +441,7 @@ def plot_processed_dataset_overview_slide(
     task_colors = {"pd": "#4477AA", "lgd": "#EE7733"}  # colour-blind-safe blue/orange
 
     def _dataset_label(name: str) -> str:
-        return name.split(".", 1)[1].replace("_", " ") if "." in name else name.replace("_", " ")
+        return _ds_name(name)          # registry label (anonymised if proprietary)
 
     def _count_tick(x: float, _pos: int) -> str:
         if x >= 1_000_000:
@@ -568,7 +621,8 @@ def plot_lgd_target_hists(
         ax.axvline(median, color=C_MEDIAN, lw=2.0, ls="--")  # green, dashed
         # Two-line title: name + n, then the numeric mean / median.
         ax.set_title(
-            f"{dataset}   (n = {len(y):,})\nmean = {mean:.3f}   median = {median:.3f}",
+            f"{_ds_name(dataset)}   (n = {len(y):,})\n"
+            f"mean = {mean:.3f}   median = {median:.3f}",
             fontsize=14, fontweight="bold",
         )
         ax.set_xlabel("LGD target")
@@ -611,7 +665,7 @@ def plot_correlation_heatmap(
     fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(corr, vmin=-1, vmax=1, cmap="vlag", center=0, square=True,
                 cbar_kws={"label": "Pearson r"}, ax=ax)
-    ax.set_title(f"{dataset} -- numerical feature correlations")
+    ax.set_title(f"{_ds_name(dataset)} -- numerical feature correlations")
     plt.tight_layout()
     return save_or_show(fig, out_path)
 
@@ -666,7 +720,7 @@ def plot_pca_2d(
         plt.colorbar(sc, ax=ax, label="LGD target")
     ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0] * 100:.1f}% var)")
     ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1] * 100:.1f}% var)")
-    ax.set_title(f"{dataset} -- 2D PCA (n_shown={len(y):,})")
+    ax.set_title(f"{_ds_name(dataset)} -- 2D PCA (n_shown={len(y):,})")
     plt.tight_layout()
     return save_or_show(fig, out_path)
 
@@ -680,5 +734,6 @@ __all__ = [
     "plot_dataset_size_bar", "plot_target_balance", "plot_lgd_target_hists",
     "plot_processed_dataset_overview_slide",
     "plot_correlation_heatmap", "plot_pca_2d",
+    "paper_table",
     "save_or_show",
 ]

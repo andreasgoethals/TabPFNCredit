@@ -382,6 +382,7 @@ def _run_one_point(
             n_trials=config["tuning"]["n_trials"] if point.get("tune") else 1,
             early_stopping=config["training"]["early_stopping"],
             early_stopping_patience=config["training"]["early_stopping_patience"],
+            seed_num=config["training"].get("seed_num", 1),
             verbose=verbose,
         )
         if packed:

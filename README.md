@@ -270,6 +270,31 @@ quantity to compare across datasets. All four (`AP`, `AP_baseline` = π,
 `AP_minus_baseline`, `AP_normalized`) are stored so you can recompute
 either gap yourself.
 
+### Dataset display names and paper ordering
+
+On disk a dataset is a slug like `0009.bank_status`; that slug is the join key
+for every result file, cached prediction and figure path, and it is **never
+renamed**. What a *reader* sees comes from
+`src/data/dataset_registry.py` (gitignored -- see below), the single
+source of truth for three things:
+
+- **Display names** — proprietary datasets are anonymised (`PropPD1`, `PropPD2`,
+  `PropLGD1`…`PropLGD5`); public ones use their real names.
+- **Paper IDs** — `PD1..PD14` / `LGD1..LGD7`.
+- **Ordering** — every dataset axis, legend, table and caption is sorted by
+  `(is_proprietary, display_name)`, i.e. public datasets first in alphabetical
+  order, then the proprietary ones. Sorting by slug (the old numbering) is a bug.
+
+No display name may be hard-coded anywhere else. Plotting code calls
+`display_name()` / `sort_key()`; per-dataset figures of proprietary datasets are
+additionally written under a neutral filename (e.g. `pd_row_limit_proppd1_auc.pdf`)
+so the real name never appears in a path used by the paper. Print the current
+old → new mapping with:
+
+```bash
+python -m src.data.dataset_registry
+```
+
 ### LGD targets are clipped to `[0, 1]`
 
 LGD predictions and targets are both clipped to `[0, 1]`: preprocessing
@@ -294,6 +319,16 @@ Each experiment is driven by three YAMLs under
 - `CONFIG_DATA.yaml` — splits and dataset selection,
 - `CONFIG_METHOD.yaml` — per-task method toggles,
 - `CONFIG_EXPERIMENT.yaml` — training knobs and sweep parameters.
+
+**One model fit per fold.** `seed_num` in `CONFIG_EXPERIMENT.yaml` is the
+number of model-seed repeats per fold, and it is pinned to `1`. Every metric,
+probability and prediction this repo records comes from a *single* fit
+(TALENT's `RunResult` carries the last repeat's predictions), so repeats above
+1 multiply the compute without changing anything that is reported.
+Comparability across methods rests on the fixed **split** seed in
+`CONFIG_DATA.yaml` — every method sees byte-identical folds — not on the model
+seed. This must be set explicitly: left unset, TALENT's own packaged defaults
+supply `seed_num: 15`.
 
 **Experiment 1's method set is curated by hand.** After Experiment 0
 finishes, inspect
@@ -388,6 +423,10 @@ TabPFNCredit/
 │   │   ├── preprocessing.py            # cached TALENT-format conversion
 │   │   ├── dataset_preprocessing.py    # private, gitignored proprietary cleaning rules
 │   │   ├── dataset_inventory.py        # dataset row counts -> min_rows filter
+│   │   ├── dataset_registry.py         # private, gitignored: real -> anonymised
+│   │   │                               #   dataset names + paper ordering
+│   │   ├── dataset_names.py            # public accessor for the above
+│   │   │                               #   (degrades to raw slugs if absent)
 │   │   └── data_feeder.py              # CV-fold assembly + post-split anti-leakage
 │   ├── methods/
 │   │   ├── method_config.py            # thin layer over the TALENT registry
@@ -513,7 +552,7 @@ what is stored on disk.
 |---|---|
 | `Data_Exploration` | Dataset inventory, class balance, LGD target shapes, per-dataset structure. |
 | `Experiment0` | Pilot coverage + quick performance / cost overview. |
-| `Experiment1.1-PD` | Headline PD benchmark. Each matrix metric (**AUC**, **Brier**, **F1**) in three views — heatmap, per-method bar, across-dataset box (box = per-fold spread, dot = per-dataset mean) — with the **AUC rank** kept next to AUC; then the **HPO effect**, a **time analysis** (train + predict + HPO; tunable methods' train time × `n_trials`) with the cost/quality frontier, a **TabPFN v3 vs baselines** head-to-head — against **CatBoost** and **log. reg** (relative AUC-gain-vs-size trend + per-dataset `y = x` scatter) — a **prediction-calibration analysis** (observed-vs-predicted summary, decile reliability curves, bias vs default rate), and a summary table. |
+| `Experiment1.1-PD` | Headline PD benchmark. Each matrix metric (**AUC**, **Brier**, **F1**) in three views — heatmap, per-method bar, across-dataset box (box = per-fold spread, dot = per-dataset mean) — with the **AUC rank** kept next to AUC; then the **HPO effect**, a **time analysis** (train + predict + HPO; tunable methods' train time × `n_trials`) with the cost/quality frontier, a **TabPFN v3 vs baselines** head-to-head — against **CatBoost** and **log. reg** (relative AUC-gain-vs-size trend + per-dataset `y = x` scatter) — a **prediction-calibration analysis** (observed-vs-predicted summary, decile reliability curves, and a per-dataset predicted-vs-actual grid), and a summary table. |
 | `Experiment1.2-PD-Stat` | Full **all-learner** statistical analysis (PD): PAMA (two charts — all winners, and only methods winning ≥ 2 folds), Friedman + Iman–Davenport, the more powerful Friedman-Aligned-Ranks & Quade omnibus tests, Nemenyi **critical-difference diagrams** (compact, paper-ready), Win/Loss matrix, Holm-corrected significant pairs (Wilcoxon **and** paired t-test), all-pairwise adjusted-p-value matrix (Shaffer / Bergmann–Hommel), and a **Bayesian signed-rank ROPE** analysis (Benavoli et al., 2017). Backed by `src/utils/statistical_testing.py`. |
 | `Experiment1.3-PD-FamilyStat` | **Champion-level** statistical analysis (PD): one champion per family (the `champions` list in `notebooks/CONFIG_NOTEBOOKS.yaml`; default **TabPFN-3**, **CatBoost**, **T2G-Former**, **Logistic Regression**) — with a **TabPFN-3-as-control** test (Bonferroni–Dunn) plus the same omnibus / CD / Win-Loss / Holm / **Bayesian ROPE** battery and a copy-paste report. Higher power and a cleaner answer to "is the foundation model competitive with each established family?"; the complete all-learner version stays in 1.2. |
 | `Experiment1.4-LGD` | Headline LGD benchmark, same structure as 1.1: **R²** and **Pearson correlation** in three views, **R² rank**, **HPO effect**, **time analysis**, the **TabPFN v3 vs baselines** head-to-head — relative TabPFN-3 R² improvement vs dataset size against **CatBoost** and **lin. reg**, plus absolute per-dataset `y = x` scatters for both baselines — a **prediction-calibration analysis** (observed-vs-predicted summary, decile reliability curves, bias vs mean LGD), and a summary table. |

@@ -13,3 +13,12 @@ batch_size: 63             # Batch size for training (ignored by classical model
 n_trials: 1                 # Number of hyperparameter tuning trials
 early_stopping: true        # Whether to use early stopping during training
 early_stopping_patience: 5  # Patience epochs for early stopping
+
+# Model-seed repeats per fold. TALENT's own packaged defaults set this to 15,
+# which refits every model 15x per fold -- but only ONE of those fits is ever
+# reported (TALENT's RunResult carries the LAST seed's predictions, and that is
+# what this repo reads), so seeds 0..13 are pure waste: 15x the GPU hours for a
+# number that is thrown away. 1 = fit once per fold. Cross-method comparability
+# comes from the fixed *split* seed above, not from the model seed. Set this to
+# 15 only if you deliberately want TALENT's historical repeat count back.
+seed_num: 1
