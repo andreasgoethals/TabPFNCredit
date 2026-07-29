@@ -117,18 +117,18 @@ def test_regression_baselines_render_abbreviated():
 
 def test_size_trend_captions_explain_color_and_trend_encoding():
     _, auc_cap = caption_for("pd_tabpfn_v3_vs_catboost_sizetrend_auc")
-    assert "green points favour TabPFN-3" in auc_cap
-    assert "red points favour CatBoost" in auc_cap
+    assert "green points favor TabPFN-3" in auc_cap
+    assert "red points favor CatBoost" in auc_cap
     assert "log dataset size" in auc_cap
     assert "remaining unexplained variance" not in auc_cap
 
     _, r2_cap = caption_for("lgd_tabpfn_v3_vs_catboost_sizetrend_r2")
-    assert "green points favour TabPFN-3" in r2_cap
-    assert "red points favour CatBoost" in r2_cap
+    assert "green points favor TabPFN-3" in r2_cap
+    assert "red points favor CatBoost" in r2_cap
     assert "remaining unexplained variance" not in r2_cap
 
     _, lin_cap = caption_for("lgd_tabpfn_v3_vs_LinearRegression_sizetrend_r2")
-    assert "red points favour lin. reg" in lin_cap
+    assert "red points favor lin. reg" in lin_cap
     assert "remaining unexplained variance" not in lin_cap
 
 

@@ -20,7 +20,7 @@ import re
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import yaml
 
@@ -130,7 +130,7 @@ def _with_foundation_note(caption: str) -> str:
 def _size_trend_caption(g) -> str:
     fnd, base = _method(g[1]), _method(g[2])
     return (
-        f"Each point is a dataset; green points favour {fnd}, red points favour "
+        f"Each point is a dataset; green points favor {fnd}, red points favor "
         f"{base}, and the line is an OLS trend over log dataset size."
     )
 
@@ -257,7 +257,7 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_DATA, 9, "overview"),
             "Rows, processed feature counts, and PD positive-class rates of every "
-            "processed dataset, colour-coded by task; the 16:9 layout targets slide use.",
+            "processed dataset, color-coded by task; the 16:9 layout targets slide use.",
         ),
     ))
 
@@ -276,7 +276,8 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_MATRIX, _metric_rank(g[1]), _VIEW["bar_mean"]),
             _with_foundation_note(
-                "Bars are ordered best to worst; whiskers show pooled fold-level standard deviations."
+                "Bars are ordered best to worst; whiskers show pooled fold-level standard "
+                "deviations. Bar fill encodes the model class."
             ),
         ),
     ))
@@ -303,7 +304,8 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_MATRIX, _metric_rank(g[1]), _VIEW["ranking"]),
             _with_foundation_note(
-                "Lower ranks are better; whiskers show the standard deviation of per-dataset ranks."
+                "Lower ranks are better; whiskers show the standard deviation of per-dataset "
+                "ranks. Bar fill encodes the model class."
             ),
         ),
     ))
@@ -323,7 +325,8 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_HPO, _metric_rank(g[1]), 0),
             _with_foundation_note(
-                "Bars show tuning improvement relative to the untuned run; positive values favour HPO."
+                "Bars show tuning improvement relative to the untuned run; green bars "
+                "favor tuning, red bars favor the untuned default."
             ),
         ),
     ))
@@ -334,7 +337,8 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_COMPUTE, 0, 0),
             _with_foundation_note(
-                "Bars are ordered by mean runtime; HPO runs include search cost when applicable."
+                "Bars are ordered by mean runtime; HPO runs include search cost when "
+                "applicable. Bar fill encodes the model class."
             ),
         ),
     ))
@@ -368,8 +372,8 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
             (S_HEAD, _metric_rank(g[3]), 1),
             (
                 f"Each point is a dataset. The horizontal axis is the processed minority-class "
-                f"proportion, so lower values indicate stronger imbalance; green points favour "
-                f"{_method(g[1])}, red points favour {_method(g[2])}, and the solid line is an "
+                f"proportion, so lower values indicate stronger imbalance; green points favor "
+                f"{_method(g[1])}, red points favor {_method(g[2])}, and the solid line is an "
                 f"ordinary least-squares trend."
             ),
         ),
@@ -380,7 +384,7 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
             (S_HEAD, _metric_rank(g[3]), 2),
             (
                 f"Each point is a dataset; the diagonal marks equal performance, with green points "
-                f"favouring {_method(g[1])} and red points favouring {_method(g[2])}."
+                f"favoring {_method(g[1])} and red points favoring {_method(g[2])}."
             ),
         ),
     ))
@@ -390,71 +394,60 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         r"^(pd|lgd)_selected_calibration_summary$",
         lambda g: (
             (S_CAL, 0, g[0]),
-            "The top panels compare equal-dataset macro means and signed differences, with "
-            "one-standard-deviation whiskers. The bottom panels show the corresponding "
-            "dataset-level distributions. Positive observed-minus-predicted values indicate "
-            "underprediction.",
+            "Left: dataset-level observed and predicted means, one point per dataset. "
+            "Right: the distribution of their signed differences. Positive "
+            "observed-minus-predicted values indicate underprediction, negative values "
+            "overprediction.",
         ),
     ))
     R.append((
         r"^(pd|lgd)_calibration_deciles$",
         lambda g: (
             (S_CAL, 1, g[0]),
-            f"Decile calibration curve: within every dataset the pooled out-of-fold "
-            f"predictions are ranked into ten equal-count bins, and each marker is one "
-            f"bin's mean predicted versus mean observed "
-            f"{'default rate' if g[0] == 'pd' else 'LGD'}, averaged across datasets "
-            f"(equal weight per dataset). One colour per method; the dashed diagonal "
-            f"marks perfect calibration, with points above it underpredicted and "
-            f"points below it overpredicted.",
+            f"Within every dataset the pooled out-of-fold predictions are ranked into "
+            f"ten equal-count bins; each curve traces one method's mean predicted "
+            f"against mean observed "
+            f"{'default rate' if g[0] == 'pd' else 'LGD'} per bin, averaged across "
+            f"datasets with equal weight. The dashed diagonal marks perfect "
+            f"calibration: above it the method underpredicts, below it overpredicts.",
         ),
     ))
     R.append((
         r"^(pd|lgd)_per_dataset_calibration(?:_p(\d+))?$",
         lambda g: (
             (S_CAL, 2, g[0], int(g[1] or 1)),
-            "Predicted versus actual per dataset (rows) and per compared method "
+            "Predicted versus actual per dataset (rows) and compared method "
             "(columns)"
-            + (f", page {g[1]} of the dataset set" if g[1] else "")
-            + ". Every dot is one of twenty equal-count prediction bins, not a "
-            "single loan: the dataset's pooled out-of-fold predictions are sorted "
-            "and cut into twenty bins of equal size, and each dot places that "
-            "bin's mean predicted value on the horizontal axis against the mean "
-            "actual outcome of the same loans on the vertical axis"
-            + (" (the observed default rate in the bin)" if g[0] == "pd"
-               else " (the mean realised LGD in the bin)")
-            + ", with the dot area proportional to the bin's share of the data. "
-            "Dots therefore run from the method's lowest-risk to its "
-            "highest-risk predictions, and their vertical distance from the "
-            "dashed diagonal is the calibration error in that band: above the "
-            "line the method underpredicts, below it overpredicts. Axis limits "
-            "are shared within a row so the diagonal is comparable across methods.",
+            + _page_suffix(f"{g[0]}_per_dataset_calibration", g[1])
+            + ". Each dot is one of twenty equal-count prediction bins, plotting "
+            "the bin's mean predicted value against "
+            + ("the observed default rate" if g[0] == "pd"
+               else "the mean realized LGD")
+            + " of the same loans, with dot area proportional to the bin's share "
+            "of the dataset. Vertical distance from the dashed diagonal is the "
+            "calibration error in that risk band; axis limits are shared within "
+            "a row.",
         ),
     ))
     R.append((
         r"^(pd|lgd)_per_dataset_prediction_density(?:_p(\d+))?$",
         lambda g: (
             (S_CAL, 3, g[0], int(g[1] or 1)),
-            "Prediction density per dataset (rows) and per compared method "
+            "Prediction density per dataset (rows) and compared method "
             "(columns)"
-            + (f", page {g[1]} of the dataset set" if g[1] else "")
+            + _page_suffix(f"{g[0]}_per_dataset_prediction_density", g[1])
             + ". "
-            + ("Each panel shows the two class-conditional densities of the "
-               "predicted default probability: the curve rising from the lower "
-               "row is the distribution of predictions for loans that did not "
-               "default, the one from the upper row for loans that did, so the "
-               "separation between them is discrimination and their position "
-               "relative to the base rates is calibration. A two-dimensional "
-               "density is not meaningful here because the actual outcome only "
-               "takes the values zero and one."
+            + ("Each panel holds the two class-conditional kernel densities of "
+               "the predicted default probability, for surviving and for "
+               "defaulted loans: their separation is discrimination, their "
+               "placement relative to the base rate is calibration."
                if g[0] == "pd" else
                "Each panel is a two-dimensional kernel density of the raw "
-               "out-of-fold prediction and actual LGD pairs, with the dashed "
-               "diagonal marking perfect calibration: density hugging the "
-               "diagonal is both well calibrated and sharp, while a horizontal "
-               "smear marks predictions that barely vary with the realised loss.")
-            + " Unlike the binned grid, this view shows where the individual "
-              "loans sit rather than bin averages.",
+               "out-of-fold prediction and realized LGD pairs; density hugging "
+               "the dashed diagonal is well calibrated and sharp, while a "
+               "horizontal smear marks predictions that barely track the loss.")
+            + " Unlike the binned grid, this view keeps the full prediction "
+              "distribution rather than bin averages.",
         ),
     ))
 
@@ -506,7 +499,8 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
         lambda g: (
             (S_STAT, 0, 0),
             _with_foundation_note(
-                "Bars are ordered by PAMA; labels report percentages and winning-fold counts."
+                "Bars are ordered by PAMA; labels report percentages and winning-fold "
+                "counts. Bar fill encodes the model class."
             ),
         ),
     ))
@@ -687,9 +681,37 @@ def _is_redundant_proprietary_stem(stem: str, available: set) -> bool:
     return False
 
 
+#: Base stem -> highest page number present on disk, so a paged figure's caption
+#: can say "page 2 of 3" rather than a bare page number. Filled by
+#: :func:`_ordered_stems`, which is the only place that sees the whole directory.
+_PAGE_TOTALS: Dict[str, int] = {}
+
+
+def _register_page_totals(stems: Iterable[str]) -> None:
+    """Record how many pages each paged figure family has."""
+    for stem in stems:
+        m = re.match(r"^(.*)_p(\d+)$", stem)
+        if m:
+            base, page = m.group(1), int(m.group(2))
+            _PAGE_TOTALS[base] = max(_PAGE_TOTALS.get(base, 0), page)
+
+
+def _page_suffix(base: str, page: Optional[str]) -> str:
+    """``", page 2 of 3"`` for a paged figure, ``""`` for a single-page one.
+
+    Degrades to ``", page 2"`` if the total is unknown (a caption built before
+    the directory was scanned), so it can never claim a wrong page count.
+    """
+    if not page:
+        return ""
+    total = _PAGE_TOTALS.get(base)
+    return f", page {page} of {total}" if total else f", page {page}"
+
+
 def _ordered_stems(d: Path) -> List[str]:
     """The ``.pdf`` stems in directory ``d`` in notebook generation order."""
     pdfs = [f.stem for f in d.glob("*.pdf")]
+    _register_page_totals(pdfs)          # so captions can say "page 2 of 3"
     available = set(pdfs)
     pdfs = [s for s in pdfs if not _is_redundant_proprietary_stem(s, available)]
     return [s for _key, s in sorted((caption_for(s)[0], s) for s in pdfs)]

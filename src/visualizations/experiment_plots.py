@@ -1122,8 +1122,9 @@ def calibration_decile_curve(
     ``n_bins`` equal-count bins; each bin contributes its (mean predicted,
     mean observed) pair, and the k-th bin's pair is averaged across datasets
     (equal weight per dataset, matching the project's mean-over-datasets
-    convention). One line+marker sequence per method in the shared sweep
-    colours; the dashed diagonal marks perfect calibration.
+    convention). One line per method in the shared sweep colours -- no markers,
+    so ten bins per method stay readable; the dashed diagonal marks perfect
+    calibration.
     """
     task = task.lower()
     if methods is None:
