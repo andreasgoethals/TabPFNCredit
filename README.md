@@ -418,7 +418,6 @@ TabPFNCredit/
 ├── LICENSE.txt                         # MIT licence
 │
 ├── src/
-│   ├── cli.py                          # `tabpfncredit` Typer CLI
 │   ├── data/
 │   │   ├── preprocessing.py            # cached TALENT-format conversion
 │   │   ├── dataset_preprocessing.py    # private, gitignored proprietary cleaning rules
@@ -434,8 +433,10 @@ TabPFNCredit/
 │   │   ├── method_runner.py            # TALENT.run() per fold + metric enrichment
 │   │   ├── method_metrics.py           # PD / LGD metric helpers
 │   │   ├── cost_metrics.py             # expected loss + profit curves
-│   │   └── runtime_profile.py          # tier + sec/fold per method (drives SLURM)
+│   │   ├── runtime_profile.py          # tier + sec/fold per method (drives SLURM)
+│   │   └── tabfm_chunked.py            # memory-safe TabFM inference (chunk + OOM retry)
 │   ├── utils/
+│   │   ├── cli.py                      # `tabpfncredit` Typer CLI (the entry point)
 │   │   ├── paths.py                    # central path resolution (repo / project storage)
 │   │   ├── config_reader.py            # YAML loader (min_rows + validators)
 │   │   ├── result_io.py                # save_method / load_method / scan_results
@@ -450,6 +451,7 @@ TabPFNCredit/
 │   │   ├── generate_captions.py        # auto-write the single figures/CAPTIONS.md
 │   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
 │   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
+│   │   ├── verify_inference_chunking.py  # check chunked == single-pass inference
 │   └── visualizations/
 │       ├── experiment_plots.py         # heatmaps, ranking bars, learning/imbalance curves
 │       └── data_exploration.py         # backs the Data_Exploration notebook

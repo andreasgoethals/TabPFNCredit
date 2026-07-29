@@ -68,7 +68,7 @@ def test_cost_metrics_imports():
 
 
 def test_cli_imports():
-    from src.cli import app
+    from src.utils.cli import app
     # Typer apps expose a `.registered_commands` attribute -- check it has entries
     assert len(app.registered_commands) >= 4
 

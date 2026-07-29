@@ -25,7 +25,7 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
@@ -200,10 +200,25 @@ def method_class_colors(methods) -> list:
     return [_method_class_color(m) for m in methods]
 
 
-def method_class_legend(ax, methods, *, loc: str = "best", ncol: int = 1,
+#: Title pad (points) that clears the class-legend strip sitting above the axes.
+CLASS_LEGEND_TITLE_PAD = 26
+
+
+def method_class_legend(ax, methods, *, loc: Optional[str] = None,
+                        ncol: Optional[int] = None, above: bool = True,
                         **legend_kw):
     """Add a model-class legend covering exactly the classes present in
-    ``methods``, in the canonical class order. Returns the legend (or None)."""
+    ``methods``, in the canonical class order. Returns the legend (or None).
+
+    By default the legend is one horizontal row **centred above the axes**: it
+    is a colour key for the whole chart, not a data series, so it belongs
+    outside the plotting area, and centring keeps it from crowding the tall
+    left-hand bars (every chart here is sorted best-first). Callers that set the
+    title afterwards should pass ``pad=CLASS_LEGEND_TITLE_PAD``; this helper
+    re-pads an already-set title itself.
+
+    Pass ``above=False`` for the old in-axes placement.
+    """
     from matplotlib.patches import Patch
 
     present = {_method_class(m) for m in methods}
@@ -214,8 +229,24 @@ def method_class_legend(ax, methods, *, loc: str = "best", ncol: int = 1,
     ]
     if not handles:
         return None
-    return ax.legend(handles=handles, loc=loc, ncol=ncol,
-                     fontsize=LEGEND_FS, framealpha=0.92, **legend_kw)
+    if above:
+        loc = loc or "lower center"
+        ncol = ncol or len(handles)          # a single horizontal strip
+        legend_kw.setdefault("bbox_to_anchor", (0.5, 1.01))
+        legend_kw.setdefault("borderaxespad", 0.0)
+        legend_kw.setdefault("frameon", False)
+    else:
+        loc = loc or "best"
+        ncol = ncol or 1
+    legend = ax.legend(handles=handles, loc=loc, ncol=ncol,
+                       fontsize=LEGEND_FS, framealpha=0.92, **legend_kw)
+    if above and ax.get_title():
+        # Lift a title that was set BEFORE the legend clear of the strip.
+        title = ax.title
+        ax.set_title(title.get_text(), fontsize=title.get_fontsize(),
+                     fontweight=title.get_fontweight(),
+                     pad=CLASS_LEGEND_TITLE_PAD)
+    return legend
 
 
 def _strip_size(n_per_method: int) -> float:
@@ -268,17 +299,157 @@ def _relative_metric_gain(
     return 100.0 * diff / denom
 
 
-def _heatmap_figsize(n_rows: int, n_cols: int) -> Tuple[float, float]:
-    """Paper-friendly matrix size: scales with the shape but caps the width so
-    a wide pilot matrix doesn't become a giant image that the notebook then
-    shrinks to an unreadable thumbnail."""
-    return (min(0.55 * n_cols + 3, 19.0), min(0.5 * n_rows + 2.5, 12.0))
+# ---------------------------------------------------------------------------
+#  A4 geometry
+# ---------------------------------------------------------------------------
+#
+# Every figure here ends up in the paper as
+# ``\includegraphics[width=\textwidth]``, so LaTeX rescales it to the text-block
+# width and the size a reader actually sees is
+#
+#     printed_pt = nominal_pt * (A4_TEXT_WIDTH_MM / figure_width_mm)
+#
+# A 19-inch-wide figure at a 160 mm text block is shrunk to 33%: a nominal 13 pt
+# label prints at 4 pt. That is why the wide matrices were unreadable -- not
+# because their fonts were small in absolute terms, but because the FIGURE was
+# three times too wide for the page. The helpers below work in printed
+# millimetres/points so the two can't drift apart again.
+
+#: A4 (210 x 297 mm) with 25 mm margins -> a 160 x 247 mm text block.
+A4_TEXT_WIDTH_MM = 160.0
+A4_TEXT_HEIGHT_MM = 247.0
+_MM_PER_IN = 25.4
 
 
-def _annot_fontsize(n_cols: int) -> int:
-    """Largest annotation font that still fits a cell at the capped width.
-    Sized up for print legibility."""
-    return 14 if n_cols <= 14 else 12 if n_cols <= 20 else 11 if n_cols <= 30 else 9
+#: Mean advance width of a digit as a fraction of the font size, for the
+#: DejaVu Sans family matplotlib ships with. Measured, not guessed:
+#: ``TextPath`` on "0123456789" gives 0.636 em per glyph.
+_DIGIT_EM = 0.636
+
+
+def _cell_annot_fontsize(cell_width_in: float, n_chars: int, *,
+                         fill: float = 0.78, cap: float = 30.0) -> float:
+    """Font size at which ``n_chars`` digits fill ``fill`` of a cell's width.
+
+    This is "the numbers should occupy as much of the cell as possible" stated
+    geometrically: a run of digits is ``n_chars * _DIGIT_EM * size`` points
+    wide, so the largest size leaving a ``1 - fill`` margin is
+    ``fill * cell_pt / (n_chars * _DIGIT_EM)``.
+
+    Note this is deliberately NOT corrected for the A4 downscale: the cell
+    shrinks by the same factor as the glyphs, so the fill fraction is
+    scale-invariant. Legibility on paper is decided by the FIGURE WIDTH, which
+    is what :func:`_matrix_geometry` picks.
+    """
+    cell_pt = cell_width_in * 72.0
+    size = fill * cell_pt / max(n_chars * _DIGIT_EM, 1e-9)
+    return float(min(size, cap))
+
+
+#: Smallest printed font we accept for per-cell text in the paper.
+_MIN_PRINTED_PT = 6.5
+
+#: Fraction of the figure width the heatmap axes actually occupy. MEASURED on
+#: rendered 33x33 figures after ``tight_layout``: 0.974 without a colorbar,
+#: ~0.86 with one (the bar, its padding and its label take the rest).
+_MATRIX_AXES_FRACTION = 0.95
+_MATRIX_AXES_FRACTION_CBAR = 0.86
+
+#: Minimum row pitch as a multiple of the tick font size, so horizontal row
+#: labels can never collide. 1.0 would have them touching; 1.65 leaves the
+#: normal single-spaced gap.
+_MIN_ROW_PITCH = 1.65
+
+#: Column pitch a 45-degree rotated tick label needs, per point of font size.
+#: Two neighbouring labels are parallel baselines separated by
+#: ``pitch * sin(45) = 0.707 * pitch``, and that has to clear one line height
+#: (~1.2 * fs), so the theoretical floor is ``1.2 / 0.707 = 1.70``. Ignoring it
+#: is what made 33 method names overlap into an unreadable smear at 160 mm.
+#: 1.9 rather than 1.70 because at the exact floor the rendered clearance
+#: measured -2 px (scratch check over all five matrix shapes); 1.9 leaves a
+#: real gap.
+_LABEL_PITCH_PER_PT = 1.9
+
+#: Smallest font we accept for a rotated method label. Below this the column
+#: pitch is too tight and the figure escalates to the wider page budget.
+_MIN_LABEL_PT = 7.5
+
+
+def _matrix_geometry(k: int, *, n_chars: int = 4, n_rows: Optional[int] = None,
+                     cbar: bool = False, label_chars: int = 14) -> dict:
+    """Size a ``k``-column matrix figure for A4, in TRUE PRINTED units.
+
+    The figure is built at the width it will be printed at, so a nominal point
+    size *is* the size a reader sees. That is the whole fix: the old matrices
+    were 520 mm wide, so ``\\includegraphics[width=\\textwidth]`` shrank them to
+    31% and a nominal 16 pt title printed at 4.9 pt.
+
+    Width is the A4 text block (160 mm) when the per-cell text still clears
+    :data:`_MIN_PRINTED_PT` there, and the landscape/full-page budget (the text
+    block's 247 mm HEIGHT, for a ``sidewaysfigure`` or a rotated page)
+    otherwise. Note the honest limit: a 33-method pairwise matrix with four
+    characters per cell has 4.7 mm cells at 160 mm and cannot carry legible
+    text at any font size -- the density, not the layout, is binding. It gets
+    the wide budget so a landscape placement reads at ~7 pt.
+
+    Returns ``figsize``, ``annot_fs``, ``tick_fs``, ``title_fs``,
+    ``target_width_mm`` and ``axes_fraction``.
+    """
+    n_rows = k if n_rows is None else n_rows
+    frac = _MATRIX_AXES_FRACTION_CBAR if cbar else _MATRIX_AXES_FRACTION
+    budgets = (A4_TEXT_WIDTH_MM, A4_TEXT_HEIGHT_MM)
+    for target_mm in budgets:
+        width_in = target_mm / _MM_PER_IN
+        cell_in = width_in * frac / max(k, 1)
+        annot_fs = _cell_annot_fontsize(cell_in, n_chars)
+        # Ticks carry method names, read left-to-right rather than scanned, so
+        # they can run a little larger than the in-cell digits -- but never
+        # larger than the COLUMN PITCH allows, or the 45-degree labels collide.
+        tick_fs = min(max(annot_fs * 1.05, _MIN_PRINTED_PT), 11.0,
+                      cell_in * 72.0 / _LABEL_PITCH_PER_PT)
+        if (annot_fs >= _MIN_PRINTED_PT and tick_fs >= _MIN_LABEL_PT) \
+                or target_mm == budgets[-1]:
+            break
+    axes_w_in = width_in * frac
+    tick_fs = round(tick_fs, 1)
+    # Title larger again, and floored so a dense matrix still has a readable
+    # title -- the specific complaint being fixed here.
+    title_fs = round(min(max(annot_fs * 1.8, 10.0), 15.0), 1)
+    # Row height: square cells, but never tighter than the ROW LABELS need.
+    # A dataset x method matrix is 14 x 33, so square cells would give 2.4 mm
+    # rows and the dataset names would sit on top of each other -- which is
+    # exactly what happened before this floor existed. Non-square cells are fine
+    # for a labelled heatmap; illegible labels are not.
+    row_h_in = max(axes_w_in / max(k, 1), _MIN_ROW_PITCH * tick_fs / 72.0)
+    # Room for the 45-degree column labels, the axis titles and the title. Being
+    # GENEROUS is free: ``_save``/``_finish`` write with ``bbox_inches="tight"``,
+    # so surplus margin is cropped -- whereas underestimating makes
+    # ``tight_layout`` squeeze the axes and collapse the cells.
+    labels_in = label_chars * 0.55 * tick_fs / 72.0 / 1.414 + 0.28
+    title_in = 2.6 * title_fs / 72.0
+    height_in = row_h_in * n_rows + labels_in + title_in
+    return {
+        "figsize": (round(width_in, 2), round(height_in, 2)),
+        "annot_fs": round(annot_fs, 1),
+        "tick_fs": tick_fs,
+        "title_fs": title_fs,
+        "target_width_mm": target_mm,
+        "axes_fraction": frac,
+        "row_height_in": round(row_h_in, 4),
+    }
+
+
+#: Colorbar geometry for every matrix figure. seaborn/matplotlib default to
+#: ``pad=0.05`` (5% of the axes width), which on a wide matrix is a centimetre
+#: of dead space between the cells and the gradient bar. 0.012 tucks the bar
+#: against the matrix; ``fraction`` keeps the bar itself slim.
+MATRIX_CBAR_KW = {"pad": 0.012, "fraction": 0.028, "aspect": 34}
+
+
+def _longest_method_label(methods) -> int:
+    """Longest DISPLAY name among ``methods`` -- drives the vertical room the
+    45-degree column labels need in :func:`_matrix_geometry`."""
+    return max((len(_display_name(m)) for m in methods), default=10)
 
 
 def _foundation_methods() -> set:
@@ -437,16 +608,19 @@ def _method_bar(
         ax.margins(y=head)
     ax.set_xticks(range(n))
     ax.set_xticklabels(names)
+    # Trim the dead space before the first bar and after the last one.
+    # matplotlib's default 5% x-margin is 5% of the CATEGORY range, i.e. ~1.7
+    # bar widths at each end for a 33-method chart -- which read as a broken
+    # axis. Half a bar plus a hair is all that's needed for the bar edges.
+    ax.set_xlim(-0.6, n - 0.4)
     _style_method_axis(ax)
     ax.set_ylabel(ylabel, fontsize=LABEL_FS, fontweight="bold")
-    # Model-class legend in a horizontal strip ABOVE the axes, with the title
-    # padded to sit above it: inside the axes the legend covered the tallest bars
-    # and their value labels (both on the left after the best-first sort).
-    method_class_legend(ax, names, loc="lower left", ncol=4,
-                        bbox_to_anchor=(0.0, 1.01), borderaxespad=0.0,
-                        frameon=False)
+    # Model-class legend: a horizontal strip CENTRED above the axes, with the
+    # title padded to clear it. Inside the axes it covered the tallest bars and
+    # their value labels (both on the left after the best-first sort).
+    method_class_legend(ax, names)
     ax.set_title(title, fontsize=TITLE_FS, fontweight="bold",
-                 pad=30 if ax.get_legend() is not None else 6)
+                 pad=CLASS_LEGEND_TITLE_PAD if ax.get_legend() is not None else 6)
     plt.tight_layout()
     return _save(fig, out_dir, stem)
 
@@ -1432,11 +1606,18 @@ def performance_heatmap(
     n_rows, n_cols = pivot.shape
     if fmt is None:  # fewer decimals when the matrix is wide, so digits fit
         fmt = ".3f" if n_cols <= 30 else ".2f"
-    fig, ax = plt.subplots(figsize=figsize or _heatmap_figsize(n_rows, n_cols))
+    # A4-true sizing (see _matrix_geometry). ``.3f`` renders as "0.764" -> 5
+    # characters, ``.2f`` as "0.76" -> 4.
+    geo = _matrix_geometry(n_cols, n_chars=int(fmt[1]) + 2, n_rows=n_rows,
+                           cbar=True, label_chars=_longest_method_label(pivot.columns))
+    fig, ax = plt.subplots(figsize=figsize or geo["figsize"])
     pm = _pretty_metric(metric)
     common = dict(annot=True, fmt=fmt, cmap=cmap, linewidths=0.5, ax=ax,
-                  annot_kws={"size": _annot_fontsize(n_cols)},
-                  cbar_kws={"label": pm})
+                  annot_kws={"size": geo["annot_fs"]},
+                  # xticklabels="auto" (seaborn default) DROPS labels when
+                  # space is tight; every method must stay named.
+                  xticklabels=True, yticklabels=True,
+                  cbar_kws={"label": pm, **MATRIX_CBAR_KW})
     if metric.upper() in {"R2"}:  # diverging, centred on zero
         abs_max = float(np.nanmax(np.abs(pivot.values)))
         sns.heatmap(pivot, center=0, vmin=-abs_max, vmax=abs_max, **common)
@@ -1444,9 +1625,10 @@ def performance_heatmap(
         sns.heatmap(pivot, vmin=float(np.nanmin(pivot.values)),
                     vmax=float(np.nanmax(pivot.values)), **common)
     ax.set_title(f"{task_name} performance: {pm} (datasets x methods)",
-                 fontsize=TITLE_FS, fontweight="bold", pad=20)
-    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
+                 fontsize=geo["title_fs"], fontweight="bold", pad=10)
+    ax.set_xlabel("Method", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
+    ax.tick_params(labelsize=geo["tick_fs"])
     _style_method_axis(ax)
     _style_dataset_axis(ax, "y")           # rows are datasets -> registry labels
     ax.tick_params(axis="y", rotation=0)
@@ -2305,16 +2487,23 @@ def rank_heatmap(
     Auto-sizes to the matrix shape for legible cells and labels."""
     ranks = _rank_pivot(df, metric, higher_is_better)
     n_rows, n_cols = ranks.shape
-    fig, ax = plt.subplots(figsize=figsize or _heatmap_figsize(n_rows, n_cols))
+    # A4-true sizing: ranks are 1-2 digits, so the cells stay legible at the
+    # text-block width (see _matrix_geometry).
+    geo = _matrix_geometry(n_cols, n_chars=len(str(n_cols)), n_rows=n_rows,
+                           cbar=True, label_chars=_longest_method_label(ranks.columns))
+    fig, ax = plt.subplots(figsize=figsize or geo["figsize"])
     pm = _pretty_metric(metric)
     sns.heatmap(ranks, annot=True, fmt=".0f", cmap="RdYlGn_r",
-                vmin=1, vmax=n_cols, annot_kws={"size": _annot_fontsize(n_cols) + 1},
-                cbar_kws={"label": f"rank by {pm} (1 = best)"},
+                vmin=1, vmax=n_cols, annot_kws={"size": geo["annot_fs"]},
+                cbar_kws={"label": f"rank by {pm} (1 = best)", **MATRIX_CBAR_KW},
+                # see metric_heatmap: never let seaborn drop a method label
+                xticklabels=True, yticklabels=True,
                 linewidths=0.5, ax=ax)
     ax.set_title(f"{task_name} rank matrix by {pm} (1 = best; best mean rank left)",
-                 fontsize=TITLE_FS, fontweight="bold", pad=20)
-    ax.set_xlabel("Method", fontsize=LABEL_FS, fontweight="bold")
-    ax.set_ylabel("Dataset", fontsize=LABEL_FS, fontweight="bold")
+                 fontsize=geo["title_fs"], fontweight="bold", pad=10)
+    ax.set_xlabel("Method", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
+    ax.set_ylabel("Dataset", fontsize=geo["tick_fs"] * 1.15, fontweight="bold")
+    ax.tick_params(labelsize=geo["tick_fs"])
     _style_method_axis(ax)
     _style_dataset_axis(ax, "y")           # rows are datasets -> registry labels
     ax.tick_params(axis="y", rotation=0)

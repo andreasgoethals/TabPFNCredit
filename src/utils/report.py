@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import io
 from contextlib import redirect_stdout
-from typing import Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Callable, List, Sequence, Tuple
 
 #: A report section: ``(heading, body)``.
 Section = Tuple[str, str]

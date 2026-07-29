@@ -90,7 +90,6 @@ And each info = {
 
 from __future__ import annotations
 import numpy as np
-import pandas as pd
 import logging
 from typing import Dict, Optional, Tuple, List
 from sklearn.model_selection import train_test_split, StratifiedKFold, KFold

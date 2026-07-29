@@ -26,7 +26,6 @@ no ``os.environ['LIGHTGBM_VERBOSITY']`` side effects at import time).
 from __future__ import annotations
 
 import logging
-import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -46,7 +45,6 @@ except ImportError:  # pragma: no cover
 import TALENT
 from TALENT.model.method_registry import (
     METHOD_REGISTRY,
-    MethodSpec,
     get_method_spec,
 )
 from TALENT.model.utils import set_seeds
@@ -65,6 +63,7 @@ from src.methods.method_config import (
 )
 from src.methods.method_metrics import enrich_pd_metrics, enrich_lgd_metrics
 from src.methods.cost_metrics import cost_sensitive_summary
+from src.methods.tabfm_chunked import install as install_tabfm_chunked_inference
 from src.utils.paths import cache_root
 from src.utils.runtime_quiet import configure_quiet_runtime
 
@@ -367,17 +366,17 @@ def _build_talent_args(
     # them in the paper.
     #
     # It does NOT cap the test half, which is what actually decided life or
-    # death on job 61519948: with a 10k context, splits of 106k x 35 / 61k x 120
-    # / 32k x 500 features each OOM'd (17-27 GiB short) while every split of
-    # <= 30k rows completed. That is handled where it belongs -- TALENT's TabFM
-    # wrapper scores the split in one pass by default and, on CUDA OOM, halves
-    # the chunk and retries (test rows are conditionally independent given the
-    # context, so chunking is equivalent). Set
-    # ``general.predict_chunk_size`` there to force a chunk size up front and
-    # skip the probe. Do NOT raise ``batch_size`` on the big datasets.
+    # death on jobs 61519948 / 61587874: with a 10k context, splits of
+    # 106k x 35 / 61k x 120 / 32k x 500 features each OOM'd (17-27 GiB short)
+    # while every split of <= 30k rows completed. That half is handled by
+    # ``src.methods.tabfm_chunked``, which scores the split in one pass by
+    # default and halves the chunk on CUDA OOM. Set
+    # ``general.predict_chunk_size`` to force a chunk size up front and skip the
+    # probe. Do NOT raise ``batch_size`` on the big datasets.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
         gen.setdefault("max_num_rows", 10_000)
+        install_tabfm_chunked_inference()
 
     return args
 
@@ -455,7 +454,6 @@ def _run_one_fold(
     checkpoint_dir: Path,
     seed_num: int = 1,
 ) -> _FoldResult:
-    spec = get_method_spec(method)
     args = _build_talent_args(
         method=method,
         seed=seed,
@@ -607,7 +605,6 @@ def run_talent_method(
         )
 
     is_regression = task.lower() == "lgd"
-    spec = get_method_spec(method)
 
     # Method-side training cap (e.g. TabPFN v1 ~ 10k rows)
     method_train_cap = METHOD_ROW_LIMITS.get(method)

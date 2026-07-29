@@ -43,7 +43,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, Mapping, Optional, Tuple
+from typing import Any, Dict, Iterator, Mapping, Optional, Tuple
 
 import numpy as np
 

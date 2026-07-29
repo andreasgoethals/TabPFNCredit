@@ -18,7 +18,7 @@ optimisation and not a change of model.
 
 Run it on a GPU node, e.g.::
 
-    python scripts/verify_inference_chunking.py --method tabfm \\
+    python -m src.utils.verify_inference_chunking --method tabfm \\
         --task pd --dataset 0008.german --chunk 64
 
 Exits non-zero if the two paths disagree by more than ``--tol``.
@@ -34,7 +34,7 @@ from pathlib import Path
 
 import numpy as np
 
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]   # src/utils/ -> repo root
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
@@ -69,6 +69,17 @@ def main(argv: list[str] | None = None) -> int:
     import TALENT
 
     from src.methods.method_runner import _prepare_folds_uncached
+    from src.methods.tabfm_chunked import install as install_tabfm_chunked
+
+    # A real run installs this from ``_build_talent_args``; do it explicitly here
+    # so the chunking path under test is the one TALENT will actually resolve.
+    if args.method == "tabfm" and not install_tabfm_chunked():
+        print(
+            "ERROR: could not install the chunked TabFM method -- nothing to "
+            "verify. Check that TALENT is importable.",
+            file=sys.stderr,
+        )
+        return 2
 
     # One fold is enough -- we are testing an inference property, not a score.
     folds = _prepare_folds_uncached(

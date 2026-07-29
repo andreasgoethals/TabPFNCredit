@@ -225,7 +225,7 @@ Homepage = "https://github.com/andreasgoethals/tabpfncredit"
 Issues = "https://github.com/andreasgoethals/tabpfncredit/issues"
 
 [project.scripts]
-tabpfncredit = "src.cli:app"
+tabpfncredit = "src.utils.cli:app"
 
 # ----------------------------------------------------------------------------
 # Package discovery (hatchling)
@@ -298,5 +298,5 @@ files = [
     "src/methods/cost_metrics.py",
     "src/utils/result_io.py",
     "src/utils/config_reader.py",
-    "src/cli.py",
+    "src/utils/cli.py",
 ]

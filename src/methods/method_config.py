@@ -38,9 +38,7 @@ from TALENT.model.method_registry import (
     Architecture,
     Hardware,
     METHOD_REGISTRY,
-    MethodSpec,
     OutputType,
-    list_methods,
 )
 
 # Canonical figure labels (TALENT-free module). Re-exported here so the standard

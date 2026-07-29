@@ -35,7 +35,6 @@ import numpy as np
 import pandas as pd
 
 from src.utils.paths import results_root as _default_results_root
-from src.utils.result_io import scan_results
 
 Combo = Tuple[str, str, str]  # (task, dataset, name)
 
@@ -58,8 +57,8 @@ def expected_points(experiment: str) -> Tuple[set, int]:
     what a run would attempt. Requires the datasets to be visible (repo or
     project storage), since Exp 2/3 select datasets by row count / imbalance.
     """
-    # Imported lazily: src.cli pulls in Typer + the method registry.
-    from src.cli import _build_task_list, _sweep_points
+    # Imported lazily: the CLI module pulls in Typer + the method registry.
+    from src.utils.cli import _build_task_list, _sweep_points
     from src.utils.config_reader import load_config
 
     config = load_config(experiment)

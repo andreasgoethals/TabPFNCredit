@@ -56,7 +56,7 @@ from rich.console import Console
 from rich.table import Table
 
 # Path injection so `import src.*` works whether or not the package is editable-installed.
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]   # src/utils/ -> repo root
 sys.path.insert(0, str(_PROJECT_ROOT))
 
 from src.data.dataset_inventory import list_datasets  # noqa: E402

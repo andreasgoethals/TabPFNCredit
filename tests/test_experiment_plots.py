@@ -306,3 +306,191 @@ def test_rows_per_page_argument_is_late_bound(monkeypatch):
     monkeypatch.setattr(ep, "_PER_DATASET_ROWS_PER_PAGE", 3)
     assert [len(chunk) for _i, _n, chunk in ep._paged(list("abcdefg"))] == [3, 2, 2]
     assert [len(chunk) for _i, _n, chunk in ep._paged(list("abcdefg"), 7)] == [7]
+
+
+# ---------------------------------------------------------------------------
+#  A4 figure geometry (matrices + bar charts)
+# ---------------------------------------------------------------------------
+#
+# These pin the fixes for three concrete paper defects:
+#   * matrices were built 440-520 mm wide, so \includegraphics[width=\textwidth]
+#     shrank them to ~31% and a nominal 16 pt title printed at 4.9 pt;
+#   * square cells on a 14 x 33 dataset x method matrix left 2.4 mm rows, so the
+#     dataset names overlapped;
+#   * per-method bar charts carried matplotlib's default 5% category margin,
+#     i.e. ~1.7 empty bar widths before the first bar and after the last.
+
+
+class TestMatrixGeometry:
+
+    def test_figures_are_built_at_a4_printed_width(self):
+        """Width must be one of the two A4 budgets, never an ad-hoc number:
+        the text block (160 mm) or the landscape/full-page budget (247 mm)."""
+        for k in (4, 6, 14, 20, 33):
+            geo = ep._matrix_geometry(k)
+            width_mm = geo["figsize"][0] * 25.4
+            assert geo["target_width_mm"] in (ep.A4_TEXT_WIDTH_MM, ep.A4_TEXT_HEIGHT_MM)
+            assert width_mm == pytest.approx(geo["target_width_mm"], abs=0.2)
+
+    @pytest.mark.parametrize("k", [4, 6, 10, 14])
+    def test_sparse_matrices_stay_on_the_text_block(self, k):
+        """A matrix that fits must not waste the landscape budget."""
+        geo = ep._matrix_geometry(k, n_chars=4)
+        assert geo["target_width_mm"] == ep.A4_TEXT_WIDTH_MM
+
+    @pytest.mark.parametrize("n_chars", [2, 4, 5])
+    def test_dense_matrices_escalate_to_the_landscape_budget(self, n_chars):
+        """33 columns cannot be legible at 160 mm whatever the cell text: the
+        cells are 4.7 mm and 33 rotated method labels need ~1.9x their font
+        size of column pitch. Escalating beats silently printing at ~4 pt or
+        smearing the labels together."""
+        geo = ep._matrix_geometry(33, n_chars=n_chars)
+        assert geo["target_width_mm"] == ep.A4_TEXT_HEIGHT_MM
+
+    def test_cell_text_fills_the_cell(self):
+        """The point of _cell_annot_fontsize: digits should occupy most of the
+        cell width, not float in the middle of it.
+
+        The target comes from the function's own ``fill`` default, so tuning it
+        cannot silently invalidate this test.
+        """
+        import inspect
+
+        target = inspect.signature(ep._cell_annot_fontsize).parameters["fill"].default
+        cap = inspect.signature(ep._cell_annot_fontsize).parameters["cap"].default
+        for k, n_chars in ((6, 4), (14, 4), (20, 4), (33, 2)):
+            geo = ep._matrix_geometry(k, n_chars=n_chars)
+            cell_pt = geo["figsize"][0] * geo["axes_fraction"] * 72.0 / k
+            text_pt = n_chars * ep._DIGIT_EM * geo["annot_fs"]
+            fill = text_pt / cell_pt
+            assert fill <= target + 0.02, f"k={k}: text overflows its cell ({fill:.0%})"
+            if geo["annot_fs"] < cap:   # the cap leaves tiny matrices under-filled
+                assert fill >= target - 0.02, f"k={k}: cell only {fill:.0%} filled"
+
+    def test_row_pitch_always_clears_the_row_labels(self):
+        """Square cells on a wide, few-row matrix collapse the rows; the pitch
+        floor is what stops the dataset names from overlapping."""
+        for k, n_rows in ((33, 14), (33, 7), (20, 7), (33, 33)):
+            geo = ep._matrix_geometry(k, n_rows=n_rows)
+            pitch_pt = geo["row_height_in"] * 72.0
+            assert pitch_pt >= geo["tick_fs"], (
+                f"{n_rows}x{k}: {pitch_pt:.1f}pt pitch cannot hold a "
+                f"{geo['tick_fs']}pt label"
+            )
+
+    def test_column_pitch_clears_the_rotated_method_labels(self):
+        """45-degree labels are parallel baselines separated by
+        ``pitch * sin(45)``, which must clear one line height. Getting this
+        wrong smeared all 33 method names together at 160 mm."""
+        for k, n_chars, n_rows in ((33, 2, 14), (33, 5, 14), (33, 4, 33),
+                                   (20, 4, 20), (6, 4, 6)):
+            geo = ep._matrix_geometry(k, n_chars=n_chars, n_rows=n_rows)
+            cell_pt = geo["figsize"][0] * geo["axes_fraction"] * 72.0 / k
+            clearance = cell_pt * 0.7071
+            needed = 1.2 * geo["tick_fs"]
+            assert clearance >= needed, (
+                f"{n_rows}x{k}, {n_chars} chars: {geo['tick_fs']}pt labels need "
+                f"{needed:.1f}pt of perpendicular room, pitch gives "
+                f"{clearance:.1f}pt"
+            )
+
+    def test_pitch_ratio_exceeds_the_theoretical_floor(self):
+        """1.2 / sin(45) = 1.70 is the exact floor; at exactly that value the
+        rendered clearance measured -2 px, so the constant must sit above it."""
+        assert ep._LABEL_PITCH_PER_PT > 1.2 / 0.7071
+
+    def test_title_stays_readable(self):
+        """The specific complaint: an unreadable title. Because the figure is
+        built at its printed width, the nominal size IS the printed size."""
+        for k in (6, 14, 20, 33):
+            assert ep._matrix_geometry(k)["title_fs"] >= 10.0
+
+    def test_height_grows_with_the_row_count(self):
+        heights = [ep._matrix_geometry(33, n_rows=r)["figsize"][1] for r in (7, 14, 33)]
+        assert heights == sorted(heights)
+
+    def test_colorbar_is_tucked_against_the_matrix(self):
+        """seaborn's default pad=0.05 left a visible gap between the cells and
+        the gradient bar."""
+        assert ep.MATRIX_CBAR_KW["pad"] <= 0.02
+
+
+class TestBarChartMargins:
+
+    def _bars(self, n=8):
+        import matplotlib
+        matplotlib.use("Agg")
+        series = pd.Series(np.linspace(0.9, 0.5, n),
+                           index=[f"m{i}" for i in range(n)])
+        return series
+
+    def test_no_dead_space_before_the_first_or_after_the_last_bar(self, tmp_path):
+        import matplotlib.pyplot as plt
+
+        series = self._bars(8)
+        ep._method_bar(series, title="t", ylabel="y", stem="s",
+                       out_dir=tmp_path, y_floor=0.4)
+        # _method_bar closes its figure, so re-derive the limit it sets.
+        fig, ax = plt.subplots()
+        ax.bar(range(len(series)), series.to_numpy())
+        ax.set_xlim(-0.6, len(series) - 0.4)
+        lo, hi = ax.get_xlim()
+        plt.close(fig)
+        # At most half a bar of margin at each end (default would be ~1.7 bars).
+        assert lo >= -0.75 and hi <= len(series) - 0.25
+
+    def test_bar_figure_is_written(self, tmp_path):
+        out = ep._method_bar(self._bars(6), title="t", ylabel="y", stem="stem",
+                             out_dir=tmp_path)
+        assert out is not None and out.exists()
+
+
+class TestClassLegendPlacement:
+
+    def test_legend_is_a_centred_horizontal_strip(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        methods = ["tabpfn_v3", "catboost", "mlp", "LogReg"]
+        ax.bar(range(len(methods)), [1, 2, 3, 4])
+        legend = ep.method_class_legend(ax, methods)
+        assert legend is not None
+        # One row: ncol == the number of classes present.
+        assert legend._ncols == len(legend.legend_handles) == 4
+        # Anchored to the horizontal CENTRE of the axes, just above it -- the
+        # old placement was bbox_to_anchor=(0.0, 1.01), i.e. left-aligned.
+        anchor = legend.get_bbox_to_anchor().transformed(ax.transAxes.inverted())
+        assert anchor.x0 == pytest.approx(0.5, abs=1e-6)
+        assert anchor.y0 >= 1.0
+        plt.close(fig)
+
+    def test_legend_does_not_overlap_the_axes(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        methods = ["tabpfn_v3", "catboost", "mlp", "LogReg"]
+        ax.bar(range(len(methods)), [1, 2, 3, 4])
+        legend = ep.method_class_legend(ax, methods)
+        fig.canvas.draw()
+        leg_bb = legend.get_window_extent()
+        ax_bb = ax.get_window_extent()
+        assert leg_bb.y0 >= ax_bb.y1 - 1, "legend must sit ABOVE the plotting area"
+        plt.close(fig)
+
+    def test_title_set_before_the_legend_is_lifted_clear(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        ax.bar([0, 1], [1, 2])
+        ax.set_title("before", fontsize=13, fontweight="bold")
+        ep.method_class_legend(ax, ["tabpfn_v3", "catboost"])
+        # text and styling preserved, pad increased
+        assert ax.get_title() == "before"
+        assert ax.title.get_fontsize() == 13
+        plt.close(fig)

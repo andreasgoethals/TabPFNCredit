@@ -42,8 +42,8 @@ def find_missing_work_items(
     counts (``expected`` / ``done`` / ``missing``) plus a per-method breakdown
     of what is missing.
     """
-    # Imported lazily: src.cli pulls in Typer + the full method registry.
-    from src.cli import _build_task_list, _sweep_points
+    # Imported lazily: the CLI module pulls in Typer + the full method registry.
+    from src.utils.cli import _build_task_list, _sweep_points
 
     config = load_config(experiment)
     root = Path(results_root) if results_root else _default_results_root()

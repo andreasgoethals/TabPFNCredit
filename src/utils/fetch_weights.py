@@ -39,7 +39,7 @@ import os
 import sys
 import urllib.request
 from pathlib import Path
-from typing import Callable, Dict, List, NamedTuple, Optional
+from typing import Dict, List, NamedTuple, Optional
 
 # ----------------------------------------------------------------------------
 # Paths + cache env. We set the HF / Torch / XDG / TabPFN cache env vars to

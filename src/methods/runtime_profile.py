@@ -38,14 +38,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Optional
 
-from src.methods.method_config import (
-    CLASSICAL_METHODS,
-    DEEP_METHODS,
-    FOUNDATION_METHODS,
-    GPU_METHODS,
-)
-
-
 # ============================================================================
 #  Tier definitions
 # ============================================================================

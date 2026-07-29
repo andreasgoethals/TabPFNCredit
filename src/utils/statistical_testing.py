@@ -45,11 +45,18 @@ import matplotlib.pyplot as plt
 # Shared styling so the stats figures match the experiment notebooks exactly
 # (same fonts, the crimson foundation-model highlight, R2 -> R²).
 from src.visualizations.experiment_plots import (  # noqa: E402
-    TICK_FS, LABEL_FS, TITLE_FS, LEGEND_FS, VALUE_FS, NOTE_FS, EDGE_LW,
-    _pretty_metric, _color_foundation_ticks, _foundation_methods, _best_to_worst_colors,
-    _hbar_figsize, method_class_colors, method_class_legend,
+    TICK_FS, LABEL_FS, TITLE_FS, VALUE_FS, NOTE_FS, EDGE_LW,
+    _pretty_metric, _color_foundation_ticks, _foundation_methods,
+    _hbar_figsize, _matrix_geometry, MATRIX_CBAR_KW,
+    method_class_colors, method_class_legend,
 )
 from src.methods.method_names import display_name as _display_name  # noqa: E402
+
+
+def _longest_label(methods) -> int:
+    """Longest DISPLAY name in ``methods`` -- drives how much vertical room the
+    45-degree column labels need in :func:`_matrix_geometry`."""
+    return max((len(_display_name(m)) for m in methods), default=10)
 
 
 # ============================================================================
@@ -788,16 +795,20 @@ def plot_significance_matrix(
             mat.loc[r.method_1, r.method_2] = v
             mat.loc[r.method_2, r.method_1] = v
     k = len(methods)
-    fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
     annot = mat.map(lambda v: "" if pd.isna(v) else f"{v:.3f}")
+    # A4-true sizing (see _matrix_geometry); "0.123" is 5 characters.
+    geo = _matrix_geometry(k, n_chars=5, cbar=False,
+                           label_chars=_longest_label(methods))
+    fig, ax = plt.subplots(figsize=geo["figsize"])
     # RdYlGn_r so small APV (significant) is GREEN, large is red.
     sns.heatmap(mat, annot=annot, fmt="", cmap="RdYlGn_r", vmin=0, vmax=2 * alpha,
-                center=alpha, linewidths=0.5, annot_kws={"fontsize": 9},
-                cbar=False, ax=ax)
+                center=alpha, linewidths=0.5, annot_kws={"fontsize": geo["annot_fs"]},
+                # keep EVERY method named (seaborn's "auto" drops labels)
+                xticklabels=True, yticklabels=True, cbar=False, ax=ax)
     ax.set_title(title or f"Pairwise adjusted p-values; "
                  f"green = significantly different (< {alpha})",
-                 fontweight="bold", fontsize=TITLE_FS)
-    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS)
+                 fontweight="bold", fontsize=geo["title_fs"])
+    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=geo["tick_fs"])
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45); lbl.set_horizontalalignment("right")
     _color_foundation_ticks(ax, axis="x")
@@ -818,11 +829,15 @@ def plot_win_loss_matrix(
     order = wlt_summary(matrix, higher_is_better=higher_is_better).index
     W = W.loc[order, order]
     k = len(order)
-    fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
+    # A4-true sizing; win counts are at most 2 digits.
+    geo = _matrix_geometry(k, n_chars=2, cbar=True, label_chars=_longest_label(order))
+    fig, ax = plt.subplots(figsize=geo["figsize"])
     sns.heatmap(W, annot=True, fmt="d", cmap="Blues", linewidths=0.5,
-                annot_kws={"fontsize": 11}, cbar_kws={"label": "# datasets won"}, ax=ax)
-    ax.set_title(title, fontweight="bold", fontsize=TITLE_FS)
-    ax.tick_params(labelsize=TICK_FS)
+                annot_kws={"fontsize": geo["annot_fs"]},
+                xticklabels=True, yticklabels=True,
+                cbar_kws={"label": "# datasets won", **MATRIX_CBAR_KW}, ax=ax)
+    ax.set_title(title, fontweight="bold", fontsize=geo["title_fs"])
+    ax.tick_params(labelsize=geo["tick_fs"])
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45); lbl.set_horizontalalignment("right")
     _color_foundation_ticks(ax, axis="x")
@@ -862,7 +877,7 @@ def plot_percent_of_max_bars(
     for y, v in enumerate(t["PctOfMax_%"][::-1]):
         ax.text(v + 0.4, y, f"{v:.1f}", va="center", fontsize=VALUE_FS,
                 fontweight="bold", color="0.15")
-    method_class_legend(ax, t.index, loc="lower left")   # bar colour = model class
+    method_class_legend(ax, t.index)      # centred strip above; bar colour = model class
     fig.tight_layout()
     return _finish(fig, out_path)
 
@@ -914,7 +929,7 @@ def plot_pama_bars(
     ax.tick_params(labelsize=TICK_FS)
     # Foundation-model names in the shared crimson, like every other figure.
     _color_foundation_ticks(ax, axis="y")
-    method_class_legend(ax, t.index, loc="center right")  # bar colour = model class
+    method_class_legend(ax, t.index)      # centred strip above; bar colour = model class
     if fm:
         # Collective share over EVERY foundation model and ALL its winning folds
         # -- computed from the unfiltered table, so the number is identical
@@ -953,13 +968,20 @@ def plot_wilcoxon_wl_matrix(
         margin.loc[r.method_1, r.method_2] = r.wins - r.losses
         margin.loc[r.method_2, r.method_1] = r.losses - r.wins
     vmax = float(np.nanmax(np.abs(margin.values))) or 1.0
-    fig, ax = plt.subplots(figsize=(0.52 * k + 3.5, 0.46 * k + 2.8))
+    # Sized in TRUE PRINTED units for A4 -- the old 0.52*k+3.5 rule produced a
+    # 520 mm-wide figure, so at \textwidth the title printed at 4.9 pt and the
+    # cell text at 4.0 pt. Cell text is sized to FILL its cell.
+    n_chars = max((len(s) for s in annot.to_numpy().ravel() if s), default=4)
+    geo = _matrix_geometry(k, n_chars=n_chars, cbar=False,
+                           label_chars=_longest_label(order))
+    fig, ax = plt.subplots(figsize=geo["figsize"])
     sns.heatmap(margin, annot=annot, fmt="", cmap="RdBu_r", center=0,
                 vmin=-vmax, vmax=vmax, linewidths=0.4, linecolor="white",
-                cbar=False, annot_kws={"fontsize": 13}, ax=ax)
+                xticklabels=True, yticklabels=True,
+                cbar=False, annot_kws={"fontsize": geo["annot_fs"]}, ax=ax)
     ax.set_title(f"Pairwise Win/Loss of row vs column ({_pretty_metric(metric_name)})",
-                 fontweight="bold", fontsize=TITLE_FS)
-    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=TICK_FS)
+                 fontweight="bold", fontsize=geo["title_fs"])
+    ax.set_xlabel(""); ax.set_ylabel(""); ax.tick_params(labelsize=geo["tick_fs"])
     for lbl in ax.get_xticklabels():
         lbl.set_rotation(45); lbl.set_horizontalalignment("right")
     _color_foundation_ticks(ax, axis="x")

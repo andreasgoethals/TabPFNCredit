@@ -52,17 +52,12 @@ from __future__ import annotations
 import math
 import os
 import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 from typing import List, Optional
 
-from src.methods.runtime_profile import (
-    Profile,
-    Tier,
-    estimate_walltime_seconds,
-    get_profile,
-)
+from src.methods.runtime_profile import get_profile
 
 # Absolute path to the repo root, resolved at generation time (the generator
 # runs on the login node, where this is the real on-cluster path, e.g.
