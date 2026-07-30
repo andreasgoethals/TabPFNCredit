@@ -98,6 +98,20 @@ def find_processed_dir(task: str, dataset: str) -> Optional[Path]:
     return None
 
 
+def raw_file_for(stem: Path, ext: str) -> Path:
+    """``stem`` + ``ext``, APPENDED -- never ``Path.with_suffix``.
+
+    Every dataset slug has the form ``NNNN.name`` ("0001.gmsc"), so pathlib reads
+    ``.gmsc`` as the suffix and ``with_suffix(".csv")`` REPLACES it, yielding
+    "0001.csv". That silently made :func:`find_raw_path` return ``None`` for every
+    dataset in the benchmark: preprocessing always fell back to the repo-local
+    path (so raw data on project storage was never seen) and the raw row-count
+    fallback never fired, which let datasets drop out of experiment selection
+    whenever their processed cache was absent.
+    """
+    return stem.parent / (stem.name + ext)
+
+
 def find_raw_path(task: str, dataset: str) -> Optional[Path]:
     """Return the raw dataset path *stem* (no extension) that exists, else ``None``.
 
@@ -107,7 +121,7 @@ def find_raw_path(task: str, dataset: str) -> Optional[Path]:
     """
     for root in data_roots():
         stem = root / "raw" / task.lower() / dataset
-        if stem.with_suffix(".csv").exists() or stem.with_suffix(".parquet").exists():
+        if any(raw_file_for(stem, ext).exists() for ext in (".csv", ".parquet")):
             return stem
     return None
 
@@ -202,6 +216,7 @@ __all__ = [
     "checkpoint_roots",
     "find_processed_dir",
     "find_raw_path",
+    "raw_file_for",
     "processed_write_dir",
     "raw_task_dirs",
     "processed_task_dirs",

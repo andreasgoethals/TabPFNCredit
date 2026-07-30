@@ -29,6 +29,7 @@ from src.utils.paths import (
     find_processed_dir,
     find_raw_path,
     processed_task_dirs,
+    raw_file_for,
     raw_task_dirs,
 )
 
@@ -112,10 +113,12 @@ def row_count(task: str, dataset: str) -> Optional[int]:
     stem = find_raw_path(task, dataset)
     if stem is None:
         return None
-    csv_path = stem.with_suffix(".csv")
+    # raw_file_for APPENDS the extension. with_suffix would REPLACE ".gmsc" in
+    # "0001.gmsc" and look for "0001.csv" -- see paths.raw_file_for.
+    csv_path = raw_file_for(stem, ".csv")
     if csv_path.exists():
         return _count_rows_csv(csv_path)
-    parquet_path = stem.with_suffix(".parquet")
+    parquet_path = raw_file_for(stem, ".parquet")
     if parquet_path.exists():
         return _count_rows_parquet(parquet_path)
     return None
