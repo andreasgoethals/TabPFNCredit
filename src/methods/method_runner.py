@@ -64,6 +64,7 @@ from src.methods.method_config import (
 from src.methods.method_metrics import enrich_pd_metrics, enrich_lgd_metrics
 from src.methods.cost_metrics import cost_sensitive_summary
 from src.methods.tabfm_chunked import install as install_tabfm_chunked_inference
+from src.methods.sklearn_compat import install_sklearn_validate_data_shim
 from src.utils.paths import cache_root
 from src.utils.runtime_quiet import configure_quiet_runtime
 
@@ -88,13 +89,25 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ============================================================================
-#  Folds cache (joblib.Memory keyed on dataset hash + split params)
+#  Folds cache (joblib.Memory keyed on the SPLIT PARAMETERS, not the data)
 # ============================================================================
 #
 # Persists across processes -- SLURM workers share the prepared fold dict.
-# Invalidates automatically when input arguments change (joblib hashes
-# them) or when DataFeeder.prepare's source changes (joblib hashes the
-# function bytecode too).
+# Invalidates automatically when the input arguments change (joblib hashes them)
+# or when this function's source changes (joblib hashes the bytecode too).
+#
+# IMPORTANT: the key is the ARGUMENT TUPLE -- task, dataset SLUG, split sizes,
+# seed, row limits. The processed arrays themselves are NOT hashed, so
+# re-preprocessing a dataset does NOT invalidate its cached folds: every argument
+# is identical, and the run silently reuses folds built from the OLD data. After
+# any change under src/data/ that alters a processed dataset, delete this cache
+# (it is fully regenerable):
+#
+#     rm -rf "$(python -c 'from src.utils.paths import cache_root; print(cache_root())')/folds"
+#
+# German Credit is the cautionary case: a loader fix took it from 999 rows to its
+# full 1000, and without clearing this cache the rerun would have reproduced the
+# original 999-row folds exactly.
 
 _FOLDS_CACHE_DIR = cache_root() / "folds"
 _FOLDS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -320,6 +333,13 @@ def _build_talent_args(
     if spec.architecture.value == "deep":
         overrides.setdefault("max_epoch", max_epoch)
         overrides.setdefault("batch_size", batch_size)
+
+    # scikit-learn 1.6 removed BaseEstimator._validate_data, which TALENT's
+    # vendored TabICL v1 still calls in BOTH arms of its own version check --
+    # every tabicl fit dies with AttributeError on the cluster, where TabFM
+    # forces sklearn >= 1.6. Restore it before any estimator is built; this is a
+    # no-op on sklearn < 1.6 and is idempotent.
+    install_sklearn_validate_data_shim()
 
     args = TALENT.build_args(
         method,

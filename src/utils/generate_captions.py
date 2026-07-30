@@ -438,9 +438,10 @@ def _rules() -> List[Tuple[re.Pattern, Callable]]:
             + _page_suffix(f"{g[0]}_per_dataset_prediction_density", g[1])
             + ". "
             + ("Each panel holds the two class-conditional kernel densities of "
-               "the predicted default probability, for surviving and for "
-               "defaulted loans: their separation is discrimination, their "
-               "placement relative to the base rate is calibration."
+               "the predicted default probability, rising from the actual "
+               "outcome rows 0 (no default) and 1 (default): their separation "
+               "is discrimination, their placement relative to the base rate is "
+               "calibration."
                if g[0] == "pd" else
                "Each panel is a two-dimensional kernel density of the raw "
                "out-of-fold prediction and realized LGD pairs; density hugging "

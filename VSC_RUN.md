@@ -329,6 +329,19 @@ half-complete copy is safe.
 > (`python -m src.utils.remove_results --dataset <slug>`) rather than reusing
 > them, and run `notebooks/Results_Checking.ipynb`: a dataset whose *observed*
 > target mean differs between methods is the signature of this problem.
+>
+> **Clear the joblib folds cache at the same time.** It is keyed on the argument
+> tuple (task, dataset slug, split sizes, seed, row limits) and does **not** hash
+> the processed arrays, so re-preprocessing a dataset leaves its cached folds
+> untouched and the rerun quietly reuses the old ones:
+>
+> ```bash
+> rm -rf "${VSC_SCRATCH:-$VSC_DATA}/tabpfncredit/cache/folds"
+> ```
+>
+> Note also that `src/data/dataset_preprocessing.py` is **gitignored**, so a fix
+> to it does *not* reach the cluster via `git pull` -- copy the file across
+> explicitly.
 
 ---
 

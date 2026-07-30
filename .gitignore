@@ -20,9 +20,13 @@
 
 # ---- Private dataset-specific preprocessing ----
 #
-# This module contains proprietary raw-dataset schema details and leakage
-# scrubbing rules. Keep your local copy at this path, but do not commit it.
-/src/data/dataset_preprocessing.py
+# TEMPORARILY TRACKED (requested) so a loader fix reaches the cluster through
+# `git pull` instead of a manual copy. This module contains proprietary
+# raw-dataset schema details -- real column names and per-dataset cleaning rules
+# -- so committing it publishes them in a public repository. Restore the line
+# below once the fix has been deployed:
+#
+#     /src/data/dataset_preprocessing.py
 
 # ---- Private dataset naming registry ----
 #
