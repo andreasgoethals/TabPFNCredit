@@ -12,8 +12,8 @@
 </div>
 
 TabPFNCredit evaluates modern tabular foundation models (the TabPFN
-family, TabICL v1/v2, TabDPT, MITRA — with LimiX, HyperFast, TabPTM and
-Google's TabFM also wired in but toggled off by default) against deep
+family, TabICL v1/v2, TabDPT, MITRA, Google's TabFM — with LimiX,
+HyperFast and TabPTM also wired in but toggled off by default) against deep
 tabular networks (FT-Transformer, RealMLP, TabM, T2G-Former, …) and classical
 baselines (XGBoost, CatBoost, LightGBM, RandomForest, LogisticRegression,
 …) on **14 PD (Probability of Default)** and **7 LGD (Loss Given Default)**
@@ -31,7 +31,7 @@ table.
 |  |  |
 |---|---|
 | **Tasks** | PD — probability of default (classification, 14 datasets) · LGD — loss given default (regression, 7 datasets) |
-| **Methods** | 9 tabular foundation models · gradient boosting (CatBoost / XGBoost / LightGBM) · ~20 deep-tabular networks · classical baselines (LogReg, RF, SVM, …) |
+| **Methods** | 10 tabular foundation models · gradient boosting (CatBoost / XGBoost / LightGBM) · ~20 deep-tabular networks · classical baselines (LogReg, RF, SVM, …) |
 | **Experiments** | Headline benchmark · data-efficiency sweep · imbalance-robustness sweep · pilot coverage |
 | **Statistics** | PAMA · Friedman + Nemenyi · Wilcoxon / Holm · Bayesian ROPE · champion-level control tests |
 | **Runs on** | a laptop (in-process) **or** a SLURM HPC cluster (auto-generated jobs) |
@@ -50,6 +50,7 @@ table.
   - [Maintenance and analysis utilities](#maintenance-and-analysis-utilities-run-manually)
 - [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
   - [Average Precision, baseline-corrected](#average-precision-baseline-corrected)
+  - [Dataset display names and paper ordering](#dataset-display-names-and-paper-ordering)
   - [LGD targets are clipped to `[0, 1]`](#lgd-targets-are-clipped-to-0-1)
 - [4. The four experiments](#4-the-four-experiments)
   - [Why the sweep curves are clean signal](#why-the-sweep-curves-are-clean-signal)
@@ -81,8 +82,8 @@ if your launcher can't find it.
 **Windows (PowerShell):**
 
 ```powershell
-git clone https://github.com/andreasgoethals/tabpfncredit.git
-cd tabpfncredit
+git clone https://github.com/andreasgoethals/TabPFNCredit.git
+cd TabPFNCredit
 
 py -3.12 -m venv tabpfncreditvenv
 .\tabpfncreditvenv\Scripts\Activate.ps1
@@ -94,8 +95,8 @@ tabpfncredit experiment Experiment0
 **macOS / Linux:**
 
 ```bash
-git clone https://github.com/andreasgoethals/tabpfncredit.git
-cd tabpfncredit
+git clone https://github.com/andreasgoethals/TabPFNCredit.git
+cd TabPFNCredit
 
 python3.12 -m venv tabpfncreditvenv
 source tabpfncreditvenv/bin/activate
@@ -224,15 +225,15 @@ ones accept `--dry-run` to preview first.
 | **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, AP / AP_normalized, Expected_Loss_Normalized |
 | **LGD** (Loss Given Default) | Regression on `[0, 1]` | 7 | R², RMSE, MAE, Pearson_Corr, Spearman_Corr |
 
-The headline benchmark enables 37 distinct methods (60 (task, method)
+The headline benchmark enables 38 distinct methods (62 (task, method)
 combinations across PD + LGD): **foundation models** (TabPFN family,
-TabICL v1/v2, TabDPT, MITRA), **transformers** (FT-Transformer, AutoInt,
-ExcelFormer, T2G-Former, …), **MLP / ResNet** (RealMLP, MLP-PLR, TabM, …),
-**tree-mimic** (TabNet, DCN2, …), and **classical** baselines (XGBoost,
-CatBoost, LightGBM, RandomForest, LogisticRegression, KNN, SVM). Further
-registered methods (LimiX, HyperFast, TabPTM, Google's TabFM, SAINT,
-TROMPT, NODE, GrowNet, …) ship toggled off and can be enabled per
-experiment.
+TabICL v1/v2, TabDPT, MITRA, Google's TabFM), **transformers**
+(FT-Transformer, AutoInt, ExcelFormer, T2G-Former, …), **MLP / ResNet**
+(RealMLP, MLP-PLR, TabM, …), **tree-mimic** (TabNet, DCN2, …), and
+**classical** baselines (XGBoost, CatBoost, LightGBM, RandomForest,
+LogisticRegression, KNN, SVM). Further registered methods (LimiX,
+HyperFast, TabPTM, SAINT, TROMPT, NODE, GrowNet, …) ship toggled off and
+can be enabled per experiment.
 
 Enabling a disabled method needs no special treatment: flip its toggle in
 the experiment's `CONFIG_METHOD.yaml` and re-send the experiment —
@@ -330,6 +331,18 @@ Comparability across methods rests on the fixed **split** seed in
 seed. This must be set explicitly: left unset, TALENT's own packaged defaults
 supply `seed_num: 15`.
 
+**Every method is scored on the identical observations.**
+`METHOD_TEST_VAL_LIMITS` in `src/methods/method_config.py` is deliberately
+empty, so no method's validation or test fold is ever subsampled: a per-method
+cap would mean comparing methods on different rows. Only the *training* side may
+be capped (`METHOD_ROW_LIMITS`, from TALENT's registry, plus TabFM's
+`max_num_rows` context cap), which changes what a model learns from, not what it
+is measured on. A consequence worth knowing when results are reused: because the
+evaluation set is a property of the dataset alone, the observed target mean of a
+dataset must be *byte-identical across methods*. If it is not, some result files
+predate a preprocessing change and are stale —
+`notebooks/Results_Checking.ipynb` is the place that surfaces it.
+
 **Experiment 1's method set is curated by hand.** After Experiment 0
 finishes, inspect
 `results/experiment0/summaries/experiment0_per_method.csv` and edit
@@ -387,7 +400,8 @@ src/data/data_feeder.py             # StratifiedKFold (PD) / KFold (LGD)
         |
         v
 src/methods/method_runner.py        # TALENT.run() per fold -> RunResult
-                                    # + foundation-model val/test downsampling
+                                    # + every method scored on the SAME full
+                                    #   val/test fold (no downsampling)
                                     # + LGD predictions clipped to [0, 1]
                                     # + enrich_{pd,lgd}_metrics + cost_sensitive_summary
         |
@@ -451,7 +465,7 @@ TabPFNCredit/
 │   │   ├── generate_captions.py        # auto-write the single figures/CAPTIONS.md
 │   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
 │   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
-│   │   ├── verify_inference_chunking.py  # check chunked == single-pass inference
+│   │   └── verify_inference_chunking.py  # check chunked == single-pass inference
 │   └── visualizations/
 │       ├── experiment_plots.py         # heatmaps, ranking bars, learning/imbalance curves
 │       └── data_exploration.py         # backs the Data_Exploration notebook
@@ -527,8 +541,8 @@ run the notebooks, which refresh their own summaries:
 ```
 
 Logging uses Python's standard `logging` (run with `--verbose` for
-INFO-level: start, finish, headline metric, foundation-model downsampling,
-per-fold minority counts). On an HPC cluster each array slot's
+INFO-level: start, finish, headline metric, per-fold minority counts). On
+an HPC cluster each array slot's
 stdout/stderr is captured by SLURM under `logs/<experiment>/` on the general
 data storage (`$VSC_DATA`), named per job + array id — kept off the project
 storage so logs always persist.
@@ -562,7 +576,7 @@ what is stored on disk.
 | `Experiment1.6-LGD-FamilyStat` | **Champion-level** statistical analysis (LGD): **TabPFN-3**, **CatBoost**, **TabM**, **Linear Regression** (the `champions` list in `notebooks/CONFIG_NOTEBOOKS.yaml`). Same structure as 1.3; with only 7 LGD datasets the **Bayesian ROPE** result is emphasised over the (low-power) frequentist tests. |
 | `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs **dataset size** (`row_limit` caps the rows before the CV split), in four pooled views (raw curve · raw curve with a lower-right inset zooming the shaded `rows <= 1000` region · moving average · moving average over transparent raw points), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
 | `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same four pooled views, with the lower-right inset zooming the shaded `minority proportion <= 0.025` region, plus per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
-| `Results_Checking` | Completeness / sanity audit of the result files. |
+| `Results_Checking` | Completeness / sanity audit of the result files: missing, incomplete, malformed, anomalous and not-in-config results, plus an **evaluation-set mismatch** check that fails loudly if a dataset's methods were not all scored on the same observations (the signature of results carried over from before a preprocessing change). |
 
 **Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook with the project venv kernel, collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` once after a successful run. Notebooks execute **in parallel** (`-j N`, default min(4, CPUs)) — each is an independent kernel process with its own figure directory and its own `All_Results.md` section, and the shared per-experiment summary CSVs are rebuilt once up front instead of once per kernel (which also speeds up `-j 1` runs). Direct VS Code/Jupyter notebook runs refresh `figures/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Individual_Method_Runner` is skipped entirely; `Results_Checking` is re-run as a QA pass but its output is not collected into `All_Results.md`. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
 
@@ -571,20 +585,25 @@ what is stored on disk.
 ## 8. Tests
 
 ```bash
-pytest tests/                 # fast tests, ~10 s
+pytest tests/                 # whole suite, well under a minute
 pytest tests/ -m smoke        # end-to-end runs of cheap methods on synthetic data
 pytest tests/ -m "not gpu"    # CI invocation -- auto-skips GPU-only tests
 ```
 
-Coverage includes the registry-derived method sets, the PD / LGD metric
-helpers, sweep-suffix round-trips, and
-the JSON+npz `save_method` round-trip.
+Coverage includes the registry-derived method sets, the PD / LGD metric helpers,
+sweep-suffix round-trips, the JSON+npz `save_method` round-trip, the notebook
+runner's contracts, A4 figure geometry, and chunked-vs-single-pass inference
+equivalence. Two act as publish gates: no tracked file may name a proprietary
+dataset, and no notebook cell may reference a name nothing imports.
 
 ## 9. Citation
 
-If you use this benchmark, please cite it. GitHub's "Cite this repository"
-button reads [`CITATION.cff`](CITATION.cff); a BibTeX entry for the
-accompanying paper will be added here on publication.
+If you use this benchmark, please cite the accompanying paper — *Foundation
+Models for Credit Risk Prediction: A Game Changer?*
+([arXiv:2605.18147](https://arxiv.org/abs/2605.18147)) — rather than the
+software entry. GitHub's "Cite this repository" button reads
+[`CITATION.cff`](CITATION.cff), which lists the paper as the preferred
+citation; the journal reference will replace the preprint on publication.
 
 ## 10. License
 

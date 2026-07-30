@@ -319,6 +319,17 @@ skip-if-done). A point is skipped only if its `<method>.json` has all
 `cv_splits` folds; a partially-finished point re-runs and overwrites, so a
 half-complete copy is safe.
 
+> **Reusing results is only safe while the data is unchanged.** Skip-if-done
+> keys on the result file's existence, not on the dataset it was computed from,
+> so any result carried over from **before** a preprocessing change keeps that
+> older version's predictions while newly run methods use the current one. The
+> benchmark then compares methods on different observations, which invalidates
+> every pooled mean, rank and significance test for that dataset. After
+> changing anything under `src/data/`, delete the affected results
+> (`python -m src.utils.remove_results --dataset <slug>`) rather than reusing
+> them, and run `notebooks/Results_Checking.ipynb`: a dataset whose *observed*
+> target mean differs between methods is the signature of this problem.
+
 ---
 
 ## 6. After the run finishes — consolidate & download
@@ -358,6 +369,19 @@ rsync -avz --info=progress2 \
   vsc<id>@login.hpc.kuleuven.be:/lustre1/project/stg_00211/TabPFNCredit/results/summaries/ \
   "<local path>/TabPFNCredit/results/summaries/"
 ```
+
+**On Windows**, PowerShell has no `rsync`; use the `scp` that ships with
+OpenSSH. Pass the destination as `.` after `cd`-ing into it — handing `scp` a
+Windows path containing spaces makes it read the path as a remote target and
+fail with `No such file or directory`:
+
+```powershell
+cd "<local path>\TabPFNCredit\results"
+scp -r "vsc<id>@login.hpc.kuleuven.be:/lustre1/project/stg_00211/TabPFNCredit/results/*" .
+```
+
+`scp` re-transfers everything each time, so prefer the summaries-only path
+above for repeat syncs, or run the `rsync` form from WSL / Git Bash.
 
 Finally, locally, regenerate every figure + the copy-pasteable results dump in
 one command (clears, restart-runs all notebooks, writes `results/All_Results.md`

@@ -108,8 +108,19 @@ def _vbar_figsize(n: int) -> Tuple[float, float]:
 
 def _hbar_figsize(n: int) -> Tuple[float, float]:
     """Size for every HORIZONTAL methods-on-y chart (HPO effect / PAMA /
-    %-of-max). Fixed width; height grows with the method count."""
-    return (10.0, round(max(4.5, 0.40 * n + 2.0), 2))
+    %-of-max). Fixed width; height grows with the method count up to the A4 cap.
+
+    The height is capped at :data:`A4_ASPECT_CEILING` x width. Uncapped, 34 PD
+    methods produced 15.6 in on a 10 in width -- aspect 1.56, i.e. 245 mm printed
+    against 229 mm of usable page -- so LaTeX would scale the whole figure down
+    and every tick label with it. Capping the HEIGHT keeps the width, and
+    therefore the printed font size, intact and merely thins the rows (0.42 in
+    per row at 34 methods, against ~0.2 in needed for a horizontal label).
+    """
+    width = 10.0
+    grown = max(4.5, 0.40 * n + 2.0)
+    ceiling = A4_ASPECT_CEILING * _A4_ASPECT_SAFETY * width
+    return (width, round(min(grown, ceiling), 2))
 
 
 DEFAULT_RC = {
@@ -318,6 +329,22 @@ def _relative_metric_gain(
 #: A4 (210 x 297 mm) with 25 mm margins -> a 160 x 247 mm text block.
 A4_TEXT_WIDTH_MM = 160.0
 A4_TEXT_HEIGHT_MM = 247.0
+
+#: Usable figure height once a 3-line caption is allowed for, and the resulting
+#: ceiling on a figure's aspect (height / width). A figure included at
+#: \textwidth prints at ``A4_TEXT_WIDTH_MM x aspect``; above this ceiling LaTeX
+#: shrinks it to fit the page and drags every label down with it, so a figure
+#: whose height grows with the method count must be capped here rather than
+#: allowed to overflow.
+A4_USABLE_HEIGHT_MM = 229.0
+A4_ASPECT_CEILING = A4_USABLE_HEIGHT_MM / A4_TEXT_WIDTH_MM          # 1.43
+
+#: Figures are saved with ``bbox_inches="tight"``, which trims the width and the
+#: height by DIFFERENT amounts (labels sit on the left, a title on top), so the
+#: saved aspect is not the figsize aspect. Capping a horizontal bar chart exactly
+#: at the ceiling still printed at 100.5% of the page, i.e. the trim added ~0.5%.
+#: Size to this fraction of the ceiling so the trim cannot push it over.
+_A4_ASPECT_SAFETY = 0.97
 _MM_PER_IN = 25.4
 
 
@@ -1211,6 +1238,9 @@ def calibration_decile_curve(
 #: So 6 rows fills an A4 page almost exactly while 7 overflows it by ~17%
 #: (7 rows had to be scaled down to fit, shrinking the tick labels with it).
 #: 14 PD datasets therefore give pages of 6 + 6 + 2, and 7 LGD datasets 6 + 1.
+#:
+#: This cap applies to the BINNED-GRID figure. The prediction-density figures use
+#: :data:`_DENSITY_ROWS_PER_PAGE` (4) with their own taller PD panel; see there.
 _PER_DATASET_ROWS_PER_PAGE = 6
 
 #: Per-panel size in inches. The height is the lever that sets the aspect above;
@@ -1238,6 +1268,34 @@ _RIDGE_MARGIN_FRAC = 0.05
 #: Raise this to 3 to trade page fill for uniform page heights
 #: (14 datasets would then split 5 + 5 + 4 at ~81% fill instead of 6 + 6 + 2).
 _MIN_ROWS_LAST_PAGE = 2
+
+
+#: The prediction-density figures use FOUR datasets per page, not six: a density
+#: panel needs more room per row than the binned grid to be readable at
+#: \textwidth, and four rows keeps the two ridges (PD) and the KDE cloud (LGD)
+#: legible. 14 PD datasets therefore split 4 + 4 + 4 + 2 and 7 LGD ones 4 + 3.
+_DENSITY_ROWS_PER_PAGE = 4
+
+#: Four rows of 2.8 in would leave a third of the A4 sheet empty, so the PD
+#: density panels are made TALLER to take that space back -- extra height goes
+#: straight into the ridges, which is exactly where it is useful.
+#:
+#: Height is free here. These figures are included at \textwidth, so the scale
+#: factor -- and therefore every printed font size -- is set by the figure's
+#: WIDTH alone (312 mm -> 160 mm, x0.513, which puts the panel ticks at 6.7 pt).
+#: Growing the height changes the page fill and nothing else:
+#:     h = 2.8 in -> aspect 0.93 -> 149 mm -> 65% of the 229 mm usable height
+#:     h = 3.4 in -> aspect 1.09 -> 174 mm -> 76%
+#:     h = 4.25 in -> aspect 1.37 -> 219 mm -> 96%   <-- chosen
+#: Panels are then 3.1 x 4.25 in (portrait), which suits a ridge plot: the extra
+#: room goes to the two class densities, whose separation is the thing being read.
+#:
+#: Only PD. The LGD panels are square (``set_aspect("equal", adjustable="box")``
+#: below), so a slot taller than it is wide cannot be filled: the surplus would
+#: reappear as vertical gaps between rows instead of larger axes. Four square
+#: panels per row inherently use ~66% of the sheet, and that is the cost of
+#: asking for four datasets per page rather than six.
+_DENSITY_PD_PANEL_SIZE = (3.1, 4.25)
 
 
 def _page_sizes(n_items: int, per_page: int) -> List[int]:
@@ -1471,14 +1529,16 @@ def per_dataset_prediction_density(
       discrimination, and their positions relative to the class base rates are
       calibration.
 
-    Returns one path PER PAGE (7 datasets each).
+    Returns one path PER PAGE, :data:`_DENSITY_ROWS_PER_PAGE` datasets each.
     """
     task = task.lower()
     if panel_size is None:
-        # The LGD panels are square (set_aspect("equal") below), so a slot wider
-        # than it is tall can never be filled and the slack shows up as
-        # horizontal gaps between columns. Trim the width toward the height.
-        panel_size = (_PER_DATASET_PANEL_SIZE if task == "pd"
+        # PD gets the taller density panel (see _DENSITY_PD_PANEL_SIZE) so four
+        # rows still fill the A4 sheet. The LGD panels are square
+        # (set_aspect("equal") below), so a slot wider OR taller than it is
+        # square can never be filled and the slack shows up as gaps between
+        # panels. Trim the width toward the height and leave the height alone.
+        panel_size = (_DENSITY_PD_PANEL_SIZE if task == "pd"
                       else (round(_PER_DATASET_PANEL_SIZE[1] * 1.05, 2),
                             _PER_DATASET_PANEL_SIZE[1]))
     if methods is None:
@@ -1520,7 +1580,8 @@ def per_dataset_prediction_density(
             centers = 0.5 * (edges[:-1] + edges[1:])
             return np.interp(grid, centers, hist)
 
-    for page, n_pages, rows in _paged(rows_all, rows_per_page):
+    for page, n_pages, rows in _paged(
+            rows_all, rows_per_page or _DENSITY_ROWS_PER_PAGE):
         n_rows, n_cols = len(rows), len(present)
         fig, axes = plt.subplots(
             n_rows, n_cols, squeeze=False,

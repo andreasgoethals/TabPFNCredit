@@ -64,6 +64,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -145,13 +146,25 @@ def resolve_targets(names: Sequence[str], notebooks_dir: Path = NOTEBOOKS_DIR) -
 # naming the .ipynb. Serial runs almost never see it; parallel runs did, seven
 # notebooks into a 12-notebook batch.
 #
-# Retrying is the right response: the condition is transient by construction and
-# clears in well under a second. Losing a 100-second notebook (and cancelling
-# the queue behind it) is not.
+# Retrying is the right response: the condition is transient by construction.
+# Losing a 100-second notebook (and cancelling the queue behind it) is not.
+#
+# How long "transient" is depends on the sync client, not on us. A 5 MB notebook
+# replaced while Google Drive is uploading it can stay locked for tens of
+# seconds -- the earlier 5 attempts from 0.2 s (3 s of total patience) gave up
+# well inside that window and failed two notebooks with WinError 5.
 
-#: Attempts, and the base for the exponential backoff between them.
-_IO_ATTEMPTS = 5
-_IO_BACKOFF_S = 0.2
+#: Attempts, and the base for the exponential backoff between them. Doubling
+#: from 0.4 s over 8 attempts waits ~51 s in total before giving up.
+_IO_ATTEMPTS = 8
+_IO_BACKOFF_S = 0.4
+
+#: Serialises the single synced-file write each notebook makes. The workers are
+#: threads in one process, so one lock removes the whole contention spike: with
+#: -j 4, four multi-megabyte replaces used to land on the sync client at once.
+#: The write itself takes ~50 ms, so holding this costs nothing measurable while
+#: execution -- the part that actually takes minutes -- stays fully parallel.
+_WRITE_LOCK = threading.Lock()
 
 
 def _retry_io(action, path: Path, what: str):
@@ -162,8 +175,15 @@ def _retry_io(action, path: Path, what: str):
             return action()
         except OSError as exc:
             if attempt == _IO_ATTEMPTS:
+                # Do not leave the sibling temp file behind as debris.
+                tmp = path.with_name(path.name + ".tmp")
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:                  # pragma: no cover -- best effort
+                    pass
                 raise OSError(
                     f"could not {what} {path.name} after {_IO_ATTEMPTS} attempts "
+                    f"over ~{_IO_BACKOFF_S * (2 ** _IO_ATTEMPTS - 2):.0f}s "
                     f"({type(exc).__name__}: {exc}). If this repo sits in a "
                     f"OneDrive/Google Drive folder, pause syncing or exclude it "
                     f"-- or rerun with -j 1."
@@ -190,7 +210,8 @@ def write_notebook_text(path: Path, text: str) -> None:
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
 
-    _retry_io(_do, path, "write")
+    with _WRITE_LOCK:                # see _WRITE_LOCK: never two replaces at once
+        _retry_io(_do, path, "write")
 
 
 def clear_notebook(path: Path) -> None:

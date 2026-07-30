@@ -1,9 +1,9 @@
 # ============================================================
 # CONFIG_METHOD.yaml
 # ============================================================
-# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks. 
-# - Set each method to true to include it in the benchmark. 
-# - Set to false to exclude it. 
+# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks.
+# - Set each method to true to include it in the benchmark.
+# - Set to false to exclude it.
 # This configuration file uses TALENT's canonical model names.
 # ============================================================
 
@@ -30,7 +30,7 @@ methods:
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    
+
     # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
     #    (Pre-trained on large datasets or priors to work out-of-the-box)
     tabpfn: true          # TabPFN v1 (classification)
@@ -67,7 +67,7 @@ methods:
     mlp_plr: true         # MLP-PLR
     danets: true          # DANets (Deep Abstract Networks)
     switchtab: true       # SwitchTab
-    
+
     # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
     #    (Combine deep learning with decision tree or ensemble concepts)
     tabnet: true          # TabNet
@@ -75,7 +75,7 @@ methods:
     grownet: true         # GrowNet
     dcn2: true            # Deep & Cross Network v2
     tabm: true            # TabM (Tabular Machines / Batch Ensembling)
-    
+
     # 5. Specialized & Advanced Architectures
     #    (Novel mechanisms like capsules, prototypes, or regularization)
     tabcaps: true         # TabCaps
@@ -85,7 +85,7 @@ methods:
     protogate: true       # ProtoGate
     tabautopnpnet: false  # TabAuto-PNPNet
     tabr: false           # TabR
-    limix: false          # LiMiX 
+    limix: false          # LiMiX
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -135,14 +135,14 @@ methods:
     mlp_plr: true         # MLP-PLR
     danets: true          # DANets
     switchtab: true       # SwitchTab
-    
+
     # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
     tabnet: true          # TabNet
     node: true            # Neural Oblivious Decision Ensembles
     grownet: true         # GrowNet
     dcn2: true            # Deep & Cross Network v2
     tabm: true            # TabM
-    
+
     # 5. Specialized & Advanced Architectures
     tangos: true          # TANGOS
     modernNCA: true       # ModernNCA

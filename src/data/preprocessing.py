@@ -165,9 +165,9 @@ def _load_or_preprocess(task: str, dataset: str) -> Tuple[Optional[np.ndarray], 
 def preprocess_dataset(task: str, dataset: str):
     """
     Entry point: preprocess or load dataset and return unsplit TALENT Level-0 arrays.
-    
+
     No cross-validation or splitting here.
-    No statistical preprocessing (PCA, outlier removal, constant columns) - 
+    No statistical preprocessing (PCA, outlier removal, constant columns) -
     those operations happen after splitting in data_feeder.py to prevent leakage.
     """
     if task not in {"pd", "lgd"}:

@@ -9,7 +9,7 @@ authors:
     given-names: Andreas
     email: andreas.goethals@kuleuven.be
     affiliation: "KU Leuven"
-    orcid: "https://orcid.org/0009-0001-5203-1306"   
+    orcid: "https://orcid.org/0009-0001-5203-1306"
 repository-code: "https://github.com/andreasgoethals/TabPFNCredit"
 license: MIT
 version: 0.3.0          # keep in sync with pyproject.toml [project] version

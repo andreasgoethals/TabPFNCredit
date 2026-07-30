@@ -387,7 +387,7 @@ class DataFeeder:
     # =========================================================================
     # POST-SPLIT PREPROCESSING (NO LEAKAGE)
     # =========================================================================
-    
+
     def _drop_near_constant_columns_post_split(
         self,
         N_train: Optional[np.ndarray],
@@ -402,10 +402,10 @@ class DataFeeder:
                List[int], List[int]]:
         """
         Drop near-constant columns based on TRAINING data statistics.
-        
+
         Identifies columns where a single value dominates (>threshold) in the
         training set, then drops those same columns from train/val/test.
-        
+
         Returns
         -------
         N_train, N_val, N_test, C_train, C_val, C_test : arrays with columns dropped
@@ -414,7 +414,7 @@ class DataFeeder:
         """
         num_cols_to_drop = []
         cat_cols_to_drop = []
-        
+
         # Check numerical columns
         if N_train is not None:
             n_rows = N_train.shape[0]
@@ -442,7 +442,7 @@ class DataFeeder:
                     max_freq = counts.max() / n_rows_cat
                     if max_freq > threshold:
                         cat_cols_to_drop.append(col_idx)
-        
+
         # Drop identified columns from all splits
         if num_cols_to_drop:
             num_cols_to_keep = [i for i in range(N_train.shape[1]) if i not in num_cols_to_drop]
@@ -452,7 +452,7 @@ class DataFeeder:
             logger.info(f"    Dropped {len(num_cols_to_drop)} near-constant numerical columns")
         else:
             num_cols_to_keep = list(range(N_train.shape[1])) if N_train is not None else []
-        
+
         if cat_cols_to_drop:
             cat_cols_to_keep = [i for i in range(C_train.shape[1]) if i not in cat_cols_to_drop]
             C_train = C_train[:, cat_cols_to_keep] if C_train is not None else None
@@ -461,7 +461,7 @@ class DataFeeder:
             logger.info(f"    Dropped {len(cat_cols_to_drop)} near-constant categorical columns")
         else:
             cat_cols_to_keep = list(range(C_train.shape[1])) if C_train is not None else []
-        
+
         return N_train, N_val, N_test, C_train, C_val, C_test, num_cols_to_keep, cat_cols_to_keep
 
     def _remove_outliers_post_split(
@@ -475,13 +475,13 @@ class DataFeeder:
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], np.ndarray, int]:
         """
         Remove extreme outliers from TRAINING data only, using training statistics.
-        
+
         Validation and test sets are NOT modified (no rows removed).
-        
+
         A value is flagged as an outlier if it meets BOTH conditions:
         1. RARE: In the extreme percentile tails (default: 0.1% / 99.9%)
         2. EXTREME: Very far from center (default: >5× IQR from median)
-        
+
         Returns
         -------
         N_train : array with outlier rows removed
@@ -494,37 +494,37 @@ class DataFeeder:
 
         n_total = len(N_train)
         outlier_mask = np.zeros(n_total, dtype=bool)
-        
+
         for col_idx in range(N_train.shape[1]):
             col_data = N_train[:, col_idx]
             valid_mask = ~np.isnan(col_data)
             valid_data = col_data[valid_mask]
-            
+
             if len(valid_data) < 20:
                 continue
-            
+
             # Calculate statistics from TRAINING data only
             median = np.median(valid_data)
             q1 = np.percentile(valid_data, 25)
             q3 = np.percentile(valid_data, 75)
             iqr = q3 - q1
-            
+
             if iqr == 0:
                 continue
-            
+
             # CONDITION 1: Rarity (percentile-based)
             lower_pct = np.percentile(valid_data, percentile_threshold * 100)
             upper_pct = np.percentile(valid_data, (1 - percentile_threshold) * 100)
             is_rare = (col_data < lower_pct) | (col_data > upper_pct)
-            
+
             # CONDITION 2: Extremity (magnitude-based)
             distance_from_median = np.abs(col_data - median)
             is_extreme = distance_from_median > magnitude_multiplier * iqr
-            
+
             # BOTH conditions must be met
             col_outliers = is_rare & is_extreme & valid_mask
             outlier_mask = outlier_mask | col_outliers
-        
+
         n_removed = outlier_mask.sum()
 
         if n_removed > 0:
@@ -583,12 +583,12 @@ class DataFeeder:
         n_num = N_train.shape[1] if N_train is not None else 0
         n_cat = C_train.shape[1] if C_train is not None else 0
         total_features = n_num + n_cat
-        
+
         if total_features <= target_features:
             return N_train, N_val, N_test, C_train, C_val, C_test
-        
+
         logger.info(f"    Applying PCA: {total_features} features → {target_features} components")
-        
+
         # Combine numerical and categorical features
         def combine_features(N, C):
             if N is not None and C is not None:
@@ -604,69 +604,69 @@ class DataFeeder:
                 C_float[C < 0] = np.nan
                 return C_float
             return None
-        
+
         X_train = combine_features(N_train, C_train)
         X_val = combine_features(N_val, C_val)
         X_test = combine_features(N_test, C_test)
-        
+
         # Impute missing values using TRAINING statistics
         col_means = np.nanmean(X_train, axis=0)
         col_means = np.nan_to_num(col_means, nan=0.0)  # Replace NaN means with 0
-        
+
         def impute_with_train_stats(X, col_means):
             X_imputed = X.copy()
             for col_idx in range(X.shape[1]):
                 nan_mask = np.isnan(X[:, col_idx])
                 X_imputed[nan_mask, col_idx] = col_means[col_idx]
             return X_imputed
-        
+
         X_train_imputed = impute_with_train_stats(X_train, col_means)
         X_val_imputed = impute_with_train_stats(X_val, col_means)
         X_test_imputed = impute_with_train_stats(X_test, col_means)
-        
+
         # Determine number of components
         n_samples = len(X_train_imputed)
         n_features = X_train_imputed.shape[1]
         n_components = min(target_features, n_samples - 1, n_features - 1)
         n_components = max(1, n_components)
-        
+
         # Fit PCA on TRAINING data only
         # Use fold-specific seed for reproducibility: self.seed + fold_id ensures
         # different folds get different but deterministic random states
         pca = PCA(n_components=n_components, random_state=self.seed + fold_id)
         X_train_pca = pca.fit_transform(X_train_imputed)
-        
+
         # Transform val and test using the fitted PCA
         X_val_pca = pca.transform(X_val_imputed)
         X_test_pca = pca.transform(X_test_imputed)
-        
+
         # Winsorize PCA components using TRAINING percentiles
         n_winsorized = 0
         for col_idx in range(n_components):
             # Calculate percentiles from TRAINING data only
             lower_bound = np.percentile(X_train_pca[:, col_idx], winsorize_limits[0] * 100)
             upper_bound = np.percentile(X_train_pca[:, col_idx], winsorize_limits[1] * 100)
-            
+
             # Count and clip values in train
             n_below = (X_train_pca[:, col_idx] < lower_bound).sum()
             n_above = (X_train_pca[:, col_idx] > upper_bound).sum()
             n_winsorized += n_below + n_above
             X_train_pca[:, col_idx] = np.clip(X_train_pca[:, col_idx], lower_bound, upper_bound)
-            
+
             # Apply same bounds to val and test
             X_val_pca[:, col_idx] = np.clip(X_val_pca[:, col_idx], lower_bound, upper_bound)
             X_test_pca[:, col_idx] = np.clip(X_test_pca[:, col_idx], lower_bound, upper_bound)
-        
+
         if n_winsorized > 0:
             pct_winsorized = n_winsorized / (len(X_train_pca) * n_components) * 100
             logger.info(
                 f"    Winsorized {n_winsorized} PCA values ({pct_winsorized:.2f}%) "
                 f"to [{winsorize_limits[0]*100:.1f}%, {winsorize_limits[1]*100:.1f}%] percentiles"
             )
-        
+
         var_explained = pca.explained_variance_ratio_.sum() * 100
         logger.info(f"    PCA: {n_components} components, {var_explained:.1f}% variance explained")
-        
+
         # Return PCA-transformed data (categoricals now absorbed into numerical)
         return X_train_pca, X_val_pca, X_test_pca, None, None, None
 
@@ -687,19 +687,19 @@ class DataFeeder:
         Apply all post-split preprocessing steps for a single fold.
         """
         logger.info(f"  Fold {fold_id}: Applying post-split preprocessing...")
-        
+
         # Step 1: Drop near-constant columns
         N_train, N_val, N_test, C_train, C_val, C_test, _, _ = \
             self._drop_near_constant_columns_post_split(
                 N_train, N_val, N_test, C_train, C_val, C_test
             )
-        
+
         # Step 2: Remove extreme outliers (from training only)
         if self.remove_outliers and N_train is not None:
             N_train, C_train, y_train, _ = self._remove_outliers_post_split(
                 N_train, C_train, y_train
             )
-        
+
         # Step 3: Apply PCA if needed
         if self.apply_pca and N_train is not None:
             total_features = (N_train.shape[1] if N_train is not None else 0) + \
@@ -715,9 +715,9 @@ class DataFeeder:
                 N_train, N_val, N_test = self._winsorize_features_post_split(
                     N_train, N_val, N_test
                 )
-        
+
         return N_train, N_val, N_test, C_train, C_val, C_test, y_train
-    
+
     def _winsorize_features_post_split(
         self,
         N_train: Optional[np.ndarray],
@@ -727,63 +727,63 @@ class DataFeeder:
     ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Winsorize extreme values in val/test sets using TRAINING percentiles.
-        
+
         This protects against extreme outliers without removing test samples.
         Training set is NOT modified (outliers already removed separately).
-        
+
         Parameters
         ----------
         winsorize_limits : tuple
             (lower, upper) percentiles for clipping (default: 0.1%, 99.9%)
-        
+
         Returns
         -------
         N_train, N_val, N_test : arrays with val/test features clipped
         """
         if N_train is None:
             return N_train, N_val, N_test
-        
+
         n_clipped_val = 0
         n_clipped_test = 0
-        
+
         for col_idx in range(N_train.shape[1]):
             col_data_train = N_train[:, col_idx]
             valid_mask = ~np.isnan(col_data_train)
             valid_data = col_data_train[valid_mask]
-            
+
             if len(valid_data) < 20:
                 continue
-            
+
             # Calculate percentiles from TRAINING data only
             lower_bound = np.percentile(valid_data, winsorize_limits[0] * 100)
             upper_bound = np.percentile(valid_data, winsorize_limits[1] * 100)
-            
+
             # Clip val and test (NOT train - already had outliers removed)
             if N_val is not None:
                 n_below = (N_val[:, col_idx] < lower_bound).sum()
                 n_above = (N_val[:, col_idx] > upper_bound).sum()
                 n_clipped_val += n_below + n_above
                 N_val[:, col_idx] = np.clip(N_val[:, col_idx], lower_bound, upper_bound)
-            
+
             if N_test is not None:
                 n_below = (N_test[:, col_idx] < lower_bound).sum()
                 n_above = (N_test[:, col_idx] > upper_bound).sum()
                 n_clipped_test += n_below + n_above
                 N_test[:, col_idx] = np.clip(N_test[:, col_idx], lower_bound, upper_bound)
-        
+
         if n_clipped_val > 0 or n_clipped_test > 0:
             logger.info(
                 f"    Winsorized features: {n_clipped_val} values in val, "
                 f"{n_clipped_test} values in test "
                 f"to [{winsorize_limits[0]*100:.1f}%, {winsorize_limits[1]*100:.1f}%] percentiles"
             )
-        
+
         return N_train, N_val, N_test
 
     # =========================================================================
     # MAIN ENTRY POINT
     # =========================================================================
-    
+
     def prepare(self) -> Dict[int, Tuple[Tuple[dict, dict, dict], Dict]]:
         """
         Load/preprocess dataset, optionally sample, split, and apply post-split preprocessing.
@@ -803,7 +803,7 @@ class DataFeeder:
             Mapping fold_id → ((N, C, y), info)
         """
         logger.info(f"Preparing data: {self.dataset} ({self.task.upper()})")
-        
+
         # 1️⃣ Load or preprocess dataset (NO statistical preprocessing yet)
         N, C, y, info = preprocess_dataset(self.task, self.dataset)
 
@@ -903,9 +903,9 @@ class DataFeeder:
             }
 
             folds[1] = ((N_dict, C_dict, y_dict), info_fold)
-            
+
             logger.info(f"Data prepared: {self.dataset} (1 fold)")
-            
+
             return folds
 
         # 6️⃣ Cross-validation (KFold/StratifiedKFold)

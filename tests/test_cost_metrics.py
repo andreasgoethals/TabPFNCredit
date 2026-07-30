@@ -1,9 +1,8 @@
-"""Tests for src.methods.cost_metrics (B9)."""
+"""Tests for src.methods.cost_metrics."""
 
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from src.methods.cost_metrics import (
     CostMatrix,

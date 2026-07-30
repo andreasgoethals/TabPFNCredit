@@ -27,6 +27,7 @@ project storage that the OOD file browser cannot).
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -499,6 +500,72 @@ def plot_sweep_curves(audit: Audit, task: str, metric: str = "AUC", ax=None):
 #  One-call driver (used by the notebook)
 # ============================================================================
 
+def evaluation_set_mismatches(
+    experiment: str,
+    results_root: Optional[Path | str] = None,
+) -> pd.DataFrame:
+    """Datasets whose methods were NOT scored on the same observations.
+
+    The benchmark's central comparability claim is that every method sees
+    byte-identical folds, so a dataset's *observed* target vector -- and hence
+    its test-fold row counts -- must be the same for every method. When a
+    preprocessing change lands and only some results are re-run, the stale files
+    keep the old dataset version and that claim quietly breaks: pooled means,
+    ranks and significance tests then mix two different evaluation sets.
+
+    Detection compares the per-fold ``fold_<k>_y_true`` lengths stored in each
+    npz. Sweep points legitimately differ in size (Experiment 2 caps rows,
+    Experiment 3 subsamples the minority class), so methods are grouped by
+    ``(task, dataset, sweep axis+value)``; ``__HPO`` shares the sweep group with
+    its untuned twin because tuning does not change the folds.
+
+    Returns one row per (group, distinct shape), empty when everything agrees.
+    """
+    root = Path(results_root) if results_root else _default_results_root()
+    exp_dir = root / experiment.lower()
+    groups: Dict[Tuple[str, str, str], Dict[Tuple[int, ...], List[str]]] = {}
+
+    for npz_path in sorted(exp_dir.glob("*/*/*.npz")):
+        task, dataset = npz_path.parts[-3], npz_path.parts[-2]
+        name = npz_path.stem
+        if "shard" in name:                      # a shard holds part of a cell
+            continue
+        axis = sweep_axis(name)
+        # __HPO is not a data axis -- it must land in the same group as its twin
+        key_axis = "" if axis is None or axis[0] == "HPO" else f"{axis[0]}={axis[1]:g}"
+        try:
+            with np.load(npz_path, allow_pickle=False) as npz:
+                folds = sorted(
+                    (int(m.group(1)), k)
+                    for k in npz.files
+                    if (m := re.fullmatch(r"fold_(\d+)_y_true", k))
+                )
+                if not folds:
+                    continue
+                shape = tuple(len(npz[k]) for _i, k in folds)
+        except Exception:                        # unreadable npz is `malformed`'s job
+            continue
+        groups.setdefault((task, dataset, key_axis), {}).setdefault(shape, []).append(name)
+
+    rows: List[Dict[str, Any]] = []
+    for (task, dataset, key_axis), shapes in sorted(groups.items()):
+        if len(shapes) < 2:
+            continue
+        ranked = sorted(shapes.items(), key=lambda kv: -len(kv[1]))
+        for rank, (shape, methods) in enumerate(ranked):
+            rows.append({
+                "task": task,
+                "dataset": _ds_display_name(dataset),
+                "sweep": key_axis or "-",
+                "total_rows": sum(shape),
+                "n_methods": len(methods),
+                "verdict": "majority" if rank == 0 else "MISMATCH",
+                "methods": ", ".join(sorted(methods)[:6])
+                           + (" ..." if len(methods) > 6 else ""),
+            })
+    return pd.DataFrame(rows)
+
+
 def run_full_audit(
     experiments: Sequence[str] = ("Experiment0", "Experiment1", "Experiment2", "Experiment3"),
     results_root: Optional[Path | str] = None,
@@ -538,6 +605,18 @@ def run_full_audit(
             print(f"\n-- {len(audit.unexpected)} STALE / not-in-config (showing up to 30) --")
             print(audit.stale_frame().head(30).to_string(index=False))
 
+        mismatch = evaluation_set_mismatches(exp, results_root=results_root)
+        if len(mismatch):
+            bad = int((mismatch["verdict"] == "MISMATCH").sum())
+            print(f"\n-- EVALUATION-SET MISMATCH: {bad} group(s) not scored on "
+                  f"the same observations --")
+            print("   Methods below disagree on the test folds, so pooled means, "
+                  "ranks and tests")
+            print("   for these datasets mix two dataset versions. Delete the "
+                  "minority rows'")
+            print("   results (src.utils.remove_results) and re-run them.")
+            print(mismatch.to_string(index=False))
+
         if show_plots:
             try:
                 import matplotlib.pyplot as plt
@@ -567,5 +646,6 @@ __all__ = [
     "Audit", "audit_experiment", "expected_points", "base_method", "sweep_axis",
     "metric_anomalies", "coverage_matrix",
     "plot_coverage_heatmap", "plot_fold_completeness",
-    "plot_metric_distributions", "plot_sweep_curves", "run_full_audit",
+    "plot_metric_distributions", "plot_sweep_curves",
+    "evaluation_set_mismatches", "run_full_audit",
 ]

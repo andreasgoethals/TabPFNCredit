@@ -221,8 +221,8 @@ tabfm = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/andreasgoethals/tabpfncredit"
-Issues = "https://github.com/andreasgoethals/tabpfncredit/issues"
+Homepage = "https://github.com/andreasgoethals/TabPFNCredit"
+Issues = "https://github.com/andreasgoethals/TabPFNCredit/issues"
 
 [project.scripts]
 tabpfncredit = "src.utils.cli:app"

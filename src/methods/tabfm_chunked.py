@@ -24,8 +24,8 @@ members share a forward pass. Peak activation memory scales with
 ``(context + n_eval) * n_features``.
 
 ``max_num_rows`` caps only the CONTEXT. Measured on an 80 GB H100 with a 10k
-context (jobs 61519948 / 61587874), every split up to 30k rows completed while
-these three died in the row interactor's feed-forward:
+context, every split up to 30k rows completed while these three died in the row
+interactor's feed-forward:
 
     hackerearth      106 485 rows x  35 features  ->  +18.22 GiB on top of 60.8
     home_credit       61 502 rows x 120 features  ->  +27.00 GiB
@@ -72,7 +72,7 @@ _ANNOUNCED = False
 #: forward pass raised CUDA OOM. TabFM's activation memory scales with
 #: rows x features, and a new ``ChunkedInference`` proxy is built for EVERY
 #: fold, so without this the OOM ladder re-probed the exact same failing size
-#: ten times per dataset (5 folds x test+val on job 61590876) -- each probe a
+#: ten times per dataset (5 folds x test+val) -- each probe a
 #: wasted forward attempt that runs until the allocator gives up. Keyed by
 #: feature count because one SLURM slot can run several datasets in one
 #: process; row count only transfers between splits of the same width.
@@ -188,7 +188,7 @@ class ChunkedInference:
         # width: walk the same halving ladder down, just without burning a
         # forward attempt per step. A smaller split than any known failure
         # still gets its one-pass try -- an OOM at 106k rows says nothing
-        # about 85k (which fit, on the same dataset, in job 61590876).
+        # about 85k, which fit on the same dataset.
         known_oom = _OOM_ROWS_BY_WIDTH.get(width)
         if (requested in (None, 0) and known_oom is not None
                 and chunk >= known_oom and chunk > _MIN_PREDICT_CHUNK):

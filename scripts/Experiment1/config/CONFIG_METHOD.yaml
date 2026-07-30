@@ -1,9 +1,9 @@
 # ============================================================
 # CONFIG_METHOD.yaml
 # ============================================================
-# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks. 
-# - Set each method to true to include it in the benchmark. 
-# - Set to false to exclude it. 
+# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks.
+# - Set each method to true to include it in the benchmark.
+# - Set to false to exclude it.
 # This configuration file uses TALENT's canonical model names.
 # ============================================================
 
@@ -30,7 +30,7 @@ methods:
     # -----------------------------
     # Deep / Neural / Transformer-based Methods
     # -----------------------------
-    
+
     # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
     tabpfn: true          # TabPFN v1 (classification)
     tabpfn_v2: true       # TabPFN v2 (classification)
@@ -64,14 +64,14 @@ methods:
     mlp_plr: true         # MLP-PLR
     danets: true          # DANets
     switchtab: true       # SwitchTab
-    
+
     # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
     tabnet: true          # TabNet
     node: false           # Neural Oblivious Decision Ensembles
     grownet: false        # GrowNet
     dcn2: true            # Deep & Cross Network v2
     tabm: true            # TabM
-    
+
     # 5. Specialized & Advanced Architectures
     tabcaps: false        # TabCaps
     tangos: true          # TANGOS
@@ -80,7 +80,7 @@ methods:
     protogate: false      # ProtoGate
     tabautopnpnet: false  # TabAuto-PNPNet
     tabr: false           # TabR
-    limix: false          # LiMiX 
+    limix: false          # LiMiX
 
   # ----------------------------------------------------------
   # Loss Given Default (LGD) – Regression Methods
@@ -130,14 +130,14 @@ methods:
     mlp_plr: true         # MLP-PLR
     danets: false         # DANets
     switchtab: false      # SwitchTab
-    
+
     # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
     tabnet: true          # TabNet
     node: false           # Neural Oblivious Decision Ensembles
     grownet: false        # GrowNet
     dcn2: true            # Deep & Cross Network v2
     tabm: true            # TabM
-    
+
     # 5. Specialized & Advanced Architectures
     tangos: true          # TANGOS
     modernNCA: true       # ModernNCA

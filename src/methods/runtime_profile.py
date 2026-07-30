@@ -146,8 +146,8 @@ _PROFILES: Dict[str, Profile] = {
     # plus the whole evaluation split), so it scales with the test-split size.
     # With one dataset per array task (TABPFN_MAX_CELLS_PER_SLOT=1) the slot
     # walltime comes from a SINGLE dataset's estimate, so this has to cover the
-    # largest dataset. Measured on H100-80GB at a 10k context (job 61519948),
-    # seconds per *single* model fit + evaluation:
+    # largest dataset. Measured on H100-80GB at a 10k context, seconds per
+    # *single* model fit + evaluation:
     # (datasets identified by shape only -- the calibration depends on the
     #  shape, and naming them would either leak a proprietary slug or
     #  hard-code an anonymised paper id that goes stale on renumbering)

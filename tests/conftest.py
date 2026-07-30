@@ -9,10 +9,9 @@ Auto-skips GPU-required methods when CUDA is unavailable -- ``pytest -m
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Tuple
 
 import numpy as np
 import pytest

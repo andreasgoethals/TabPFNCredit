@@ -292,13 +292,12 @@ class TestNothingTrackedLeaksAProprietarySlug:
     This catches the class of mistake the rest of this module guards against,
     but across the WHOLE tracked tree rather than a hand-picked module list --
     committed notebook outputs and generated markdown have both leaked slugs
-    before. ``scripts/*/config/CONFIG_DATA.yaml`` is exempted: those files
-    select datasets by their on-disk directory name, which the renaming spec
-    deliberately never changes, so the slug there is load-bearing.
-    """
+    before.
 
-    #: Files whose whole purpose is to name on-disk dataset directories.
-    EXEMPT = ("config/CONFIG_DATA.yaml",)
+    There are no exemptions. Every experiment's ``CONFIG_DATA.yaml`` selects
+    datasets by row count (``min_rows``) rather than by name, so no tracked file
+    needs to name an on-disk dataset directory at all.
+    """
 
     def test_no_tracked_file_names_a_proprietary_dataset(self):
         import subprocess
@@ -317,8 +316,6 @@ class TestNothingTrackedLeaksAProprietarySlug:
 
         offenders = []
         for rel in tracked:
-            if any(x in rel for x in self.EXEMPT):
-                continue
             path = PROJECT_ROOT / rel
             if not path.is_file():
                 continue

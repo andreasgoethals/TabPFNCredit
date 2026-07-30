@@ -353,10 +353,8 @@ def _build_talent_args(
     # ``general.batch_size`` is how many members go through one forward pass.
     # Memory therefore scales ~ batch_size x (context + test) rows. The stock
     # ``batch_size=1`` is the right setting here and is left untouched: a single
-    # member's sequence up to ~138k rows (GMSC full context + test) is PROVEN to
-    # fit in 80 GB (job 61479726 ran it without OOM). Raising batch_size just
-    # multiplies whole sequences per forward and OOM'd twice (batch 64: 115 GiB
-    # ask on full ctx; batch 8: 134 GiB; batch 64 + 10k ctx: 81 GiB).
+    # member's sequence of ~138k rows fits in 80 GB, whereas raising batch_size
+    # multiplies whole sequences per forward and asks for 81-134 GiB.
     #
     # ``max_num_rows`` (TabFM's OWN per-ensemble-member row subsampler) caps the
     # CONTEXT half of that sequence. 10k per member keeps the context cost flat
@@ -365,12 +363,11 @@ def _build_talent_args(
     # Same cap size as the Mitra / TabPFN-v2 registry caps -- disclose alongside
     # them in the paper.
     #
-    # It does NOT cap the test half, which is what actually decided life or
-    # death on jobs 61519948 / 61587874: with a 10k context, splits of
-    # 106k x 35 / 61k x 120 / 32k x 500 features each OOM'd (17-27 GiB short)
-    # while every split of <= 30k rows completed. That half is handled by
-    # ``src.methods.tabfm_chunked``, which scores the split in one pass by
-    # default and halves the chunk on CUDA OOM. Set
+    # It does NOT cap the test half, and that half is what decides whether a run
+    # survives: at a 10k context, splits of 106k x 35, 61k x 120 and 32k x 500
+    # features each ran 17-27 GiB short, while every split of <= 30k rows
+    # completed. It is handled by ``src.methods.tabfm_chunked``, which scores the
+    # split in one pass by default and halves the chunk on CUDA OOM. Set
     # ``general.predict_chunk_size`` to force a chunk size up front and skip the
     # probe. Do NOT raise ``batch_size`` on the big datasets.
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):

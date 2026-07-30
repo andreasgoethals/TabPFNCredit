@@ -13,9 +13,8 @@
 # placeholder so `data/` exists when the repo is freshly cloned.
 #
 # IMPORTANT: the leading slash anchors this to the REPO ROOT. Without it,
-# the pattern `data/` would also match `src/data/` and silently ignore
-# our source package there (that bug once stopped dataset_inventory.py
-# from being committed). Always anchor top-level dirs with a leading `/`.
+# `data/` would also match `src/data/` and silently ignore the source package
+# there. Always anchor top-level directories with a leading `/`.
 /data/
 !/data/.gitkeep
 
@@ -69,7 +68,7 @@ scripts/*/_generated/
 # ---- JupyterLab scratch ----
 .virtual_documents/
 
-# ---- Local AI assistant config (Claude Code) ----
+# ---- Local editor / tooling config ----
 .claude/
 
 # ---- Python: bytecode, build artifacts, editable-install metadata ----

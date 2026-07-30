@@ -510,3 +510,74 @@ class TestClassLegendPlacement:
         assert ax.get_title() == "before"
         assert ax.title.get_fontsize() == 13
         plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+#  Prediction-density paging + the A4 aspect ceiling
+# ---------------------------------------------------------------------------
+
+def test_density_pages_hold_four_datasets():
+    """The density figures page at 4, not at the binned grid's 6.
+
+    A density panel needs more room per row than a binned bin-mean panel, so its
+    page cap is its own constant. 14 PD datasets must give 4+4+4+2 and 7 LGD ones
+    4+3 -- both fill every page to the cap and leave no orphan.
+    """
+    cap = ep._DENSITY_ROWS_PER_PAGE
+    assert cap == 4
+    assert ep._page_sizes(14, cap) == [4, 4, 4, 2]
+    assert ep._page_sizes(7, cap) == [4, 3]
+    assert ep._page_sizes(4, cap) == [4]
+    assert ep._page_sizes(12, cap) == [4, 4, 4]
+    for n in range(1, 31):
+        sizes = ep._page_sizes(n, cap)
+        assert sum(sizes) == n, f"{n}: lost or duplicated rows -> {sizes}"
+        assert max(sizes) <= cap, f"{n}: a page exceeds the cap -> {sizes}"
+
+
+def test_density_pd_panel_fills_the_a4_page_without_overflowing():
+    """Four PD rows must fill the sheet, not two thirds of it.
+
+    Fonts scale with the figure's WIDTH alone (these are included at
+    \textwidth), so panel height is free: it buys page fill and nothing else.
+    Four rows at the old 2.8 in panel printed at ~65% of the usable height.
+    """
+    w, h = ep._DENSITY_PD_PANEL_SIZE
+    n_rows = n_cols = 4
+    aspect = (h * n_rows) / (w * n_cols)
+    assert aspect <= ep.A4_ASPECT_CEILING, (
+        f"a full density page would overflow A4 (aspect {aspect:.2f})")
+    assert aspect >= 0.90 * ep.A4_ASPECT_CEILING, (
+        f"a full density page wastes the sheet (aspect {aspect:.2f} vs ceiling "
+        f"{ep.A4_ASPECT_CEILING:.2f})")
+
+
+def test_lgd_density_panel_stays_square():
+    """LGD panels use set_aspect('equal'), so a non-square slot becomes a gap.
+
+    Extra height cannot be absorbed by an equal-aspect axes -- it reappears as
+    vertical space between rows -- so the LGD slot must stay close to square.
+    """
+    square_side = ep._PER_DATASET_PANEL_SIZE[1]
+    width = round(square_side * 1.05, 2)
+    assert width / square_side <= 1.06, "LGD slot drifted away from square"
+
+
+def test_hbar_height_is_capped_to_the_a4_page():
+    """A horizontal bar per method must not grow past the printable page.
+
+    34 PD methods used to give aspect 1.56 -> 245 mm printed against 229 mm of
+    usable height, which LaTeX absorbs by shrinking the labels.
+
+    The cap carries a safety margin because ``bbox_inches="tight"`` trims width
+    and height unequally: sizing exactly at the ceiling still measured 100.5% of
+    the page on the real figure, so the figsize aspect must stay under it.
+    """
+    limit = ep.A4_ASPECT_CEILING * ep._A4_ASPECT_SAFETY
+    assert ep._A4_ASPECT_SAFETY < 1.0, "the margin must actually reserve something"
+    for n in range(2, 80):
+        w, h = ep._hbar_figsize(n)
+        assert h / w <= limit + 1e-9, f"n={n}: aspect {h / w:.3f} over {limit:.3f}"
+    # and it must still GROW while there is room, or short charts get squashed
+    assert ep._hbar_figsize(10)[1] < ep._hbar_figsize(20)[1]
+    assert ep._hbar_figsize(34)[1] == ep._hbar_figsize(60)[1], "cap not binding"

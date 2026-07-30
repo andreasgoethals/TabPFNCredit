@@ -39,7 +39,11 @@ from __future__ import annotations
 
 import io
 from contextlib import redirect_stdout
-from typing import Callable, List, Sequence, Tuple
+from typing import (TYPE_CHECKING, Any, Callable, Dict, List, Optional,
+                    Sequence, Tuple)
+
+if TYPE_CHECKING:                    # pandas is imported lazily where it is used
+    import pandas as pd
 
 #: A report section: ``(heading, body)``.
 Section = Tuple[str, str]
