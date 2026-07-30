@@ -227,7 +227,34 @@ def _resolve_dataset_block(task: str, block: Any) -> Dict[str, bool]:
             raise ValueError(
                 f"dataset_{task}.min_rows must be an integer, got {block['min_rows']!r}"
             ) from exc
-        return {name: True for name in datasets_with_min_rows(task, min_rows)}
+        selected = datasets_with_min_rows(task, min_rows)
+
+        # Selecting by row count means a dataset that is missing from disk is
+        # not "missing", it is simply NOT SELECTED -- so the benchmark silently
+        # shrinks. That happened: deleting two processed datasets whose raw files
+        # were not on the cluster dropped them from every experiment, and
+        # `resubmit` then reported "nothing to do" for 203 deleted results.
+        #
+        # `expect_datasets` turns that into a hard error. It is a count, so it
+        # carries no dataset identity and is safe to publish.
+        expected = block.get("expect_datasets")
+        if expected is not None:
+            try:
+                expected = int(expected)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"dataset_{task}.expect_datasets must be an integer, "
+                    f"got {block['expect_datasets']!r}"
+                ) from exc
+            if len(selected) != expected:
+                raise ValueError(
+                    f"dataset_{task}: expected {expected} dataset(s) with "
+                    f">= {min_rows} rows but found {len(selected)}. A dataset is "
+                    f"unreadable or missing from data/raw and data/processed, so "
+                    f"it would be dropped from the experiment instead of failing. "
+                    f"Restore it (or update expect_datasets deliberately)."
+                )
+        return {name: True for name in selected}
     # Per-dataset toggle dict.
     return {k: True for k, v in block.items() if v}
 
