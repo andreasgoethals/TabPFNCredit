@@ -272,7 +272,7 @@ either gap yourself.
 
 ### Dataset display names and paper ordering
 
-On disk a dataset is a slug like `0009.bank_status`; that slug is the join key
+On disk a dataset is a slug like `0001.gmsc`; that slug is the join key
 for every result file, cached prediction and figure path, and it is **never
 renamed**. What a *reader* sees comes from
 `src/data/dataset_registry.py` (gitignored -- see below), the single

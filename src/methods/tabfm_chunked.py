@@ -54,7 +54,7 @@ from __future__ import annotations
 import gc
 import logging
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
@@ -67,6 +67,16 @@ _MIN_PREDICT_CHUNK = 512
 #: Set once per process so the mode is stated in the log without repeating it
 #: for all 5 folds x 2 splits.
 _ANNOUNCED = False
+
+#: Per-process OOM memory: feature count -> smallest row count whose single
+#: forward pass raised CUDA OOM. TabFM's activation memory scales with
+#: rows x features, and a new ``ChunkedInference`` proxy is built for EVERY
+#: fold, so without this the OOM ladder re-probed the exact same failing size
+#: ten times per dataset (5 folds x test+val on job 61590876) -- each probe a
+#: wasted forward attempt that runs until the allocator gives up. Keyed by
+#: feature count because one SLURM slot can run several datasets in one
+#: process; row count only transfers between splits of the same width.
+_OOM_ROWS_BY_WIDTH: Dict[int, int] = {}
 
 __all__ = [
     "ChunkedTabFMMethod",
@@ -158,6 +168,7 @@ class ChunkedInference:
     def _scored(self, fn, X, *args, **kwargs):
         global _ANNOUNCED
         n = len(X)
+        width = int(getattr(X, "shape", (n, 0))[1] or 0)
         requested = self._chunk_size
         # An explicit request is honoured verbatim, bounded only by the split.
         # _MIN_PREDICT_CHUNK is the floor of the OOM ladder below, NOT a minimum
@@ -173,12 +184,30 @@ class ChunkedInference:
                     else f"fixed chunks of {chunk}")
             print(f"[TabFM] chunked inference active ({mode}); split = {n} rows.")
 
+        # Skip pass sizes this process has ALREADY seen OOM at this feature
+        # width: walk the same halving ladder down, just without burning a
+        # forward attempt per step. A smaller split than any known failure
+        # still gets its one-pass try -- an OOM at 106k rows says nothing
+        # about 85k (which fit, on the same dataset, in job 61590876).
+        known_oom = _OOM_ROWS_BY_WIDTH.get(width)
+        if (requested in (None, 0) and known_oom is not None
+                and chunk >= known_oom and chunk > _MIN_PREDICT_CHUNK):
+            first = chunk
+            while chunk >= known_oom and chunk > _MIN_PREDICT_CHUNK:
+                chunk = max(_MIN_PREDICT_CHUNK, chunk // 2)
+            print(
+                f"[TabFM] starting at chunks of {chunk} (split = {first} rows; "
+                f"a {known_oom}-row pass hit CUDA OOM earlier in this run)."
+            )
+
         while True:
             try:
                 out = self._in_chunks(fn, X, chunk, *args, **kwargs)
             except Exception as exc:
                 if not is_cuda_oom(exc) or chunk <= _MIN_PREDICT_CHUNK:
                     raise
+                _OOM_ROWS_BY_WIDTH[width] = min(
+                    _OOM_ROWS_BY_WIDTH.get(width, chunk), chunk)
                 nxt = max(_MIN_PREDICT_CHUNK, chunk // 2)
                 print(
                     f"[TabFM] CUDA OOM scoring {chunk} rows in one pass "

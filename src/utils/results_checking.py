@@ -206,10 +206,29 @@ class Audit:
         return df
 
 
+def _ds_display_name(slug: str) -> str:
+    """Paper display name for ``slug`` (raw slug if the registry is absent)."""
+    try:
+        from src.data.dataset_names import display_name
+        return display_name(str(slug))
+    except Exception:  # pragma: no cover -- never break an audit over a label
+        return str(slug)
+
+
 def _combo_frame(combos: Sequence[Combo]) -> pd.DataFrame:
+    """Tabulate ``(task, dataset, method)`` combos for PRINTING.
+
+    Every caller feeds the result straight to ``print(... .to_string())``, so the
+    ``dataset`` column carries the PAPER DISPLAY NAME rather than the on-disk
+    slug, so the proprietary datasets are anonymised here exactly as they are in
+    every figure and table. Printing the slug leaked the real dataset identities
+    into the audit notebook's committed outputs -- the one tracked place they
+    appeared.
+    """
     if not combos:
         return pd.DataFrame(columns=["task", "dataset", "name", "base_method"])
     df = pd.DataFrame(combos, columns=["task", "dataset", "name"])
+    df["dataset"] = df["dataset"].map(_ds_display_name)
     df["base_method"] = df["name"].map(base_method)
     return df
 

@@ -60,8 +60,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -131,14 +133,74 @@ def resolve_targets(names: Sequence[str], notebooks_dir: Path = NOTEBOOKS_DIR) -
 #  Notebook clearing (stdlib only -- no nbformat dependency on the controller)
 # ============================================================================
 
+# ============================================================================
+#  Notebook file I/O that survives a cloud-sync client / AV scanner
+# ============================================================================
+#
+# This repo is often checked out inside a synced folder (OneDrive, Google Drive).
+# Those clients open a file for a few tens of milliseconds after it changes, and
+# so do AV scanners. With ``-j N`` several kernels rewrite their own notebook at
+# the same moment (nbconvert ``--inplace``), so a read or write that lands in
+# that window fails -- on Windows with ``OSError: [Errno 22] Invalid argument``
+# naming the .ipynb. Serial runs almost never see it; parallel runs did, seven
+# notebooks into a 12-notebook batch.
+#
+# Retrying is the right response: the condition is transient by construction and
+# clears in well under a second. Losing a 100-second notebook (and cancelling
+# the queue behind it) is not.
+
+#: Attempts, and the base for the exponential backoff between them.
+_IO_ATTEMPTS = 5
+_IO_BACKOFF_S = 0.2
+
+
+def _retry_io(action, path: Path, what: str):
+    """Run ``action`` , retrying transient OSErrors on ``path``."""
+    delay = _IO_BACKOFF_S
+    for attempt in range(1, _IO_ATTEMPTS + 1):
+        try:
+            return action()
+        except OSError as exc:
+            if attempt == _IO_ATTEMPTS:
+                raise OSError(
+                    f"could not {what} {path.name} after {_IO_ATTEMPTS} attempts "
+                    f"({type(exc).__name__}: {exc}). If this repo sits in a "
+                    f"OneDrive/Google Drive folder, pause syncing or exclude it "
+                    f"-- or rerun with -j 1."
+                ) from exc
+            time.sleep(delay)
+            delay *= 2
+
+
+def read_notebook_text(path: Path) -> str:
+    """``path.read_text`` with retries (see :func:`_retry_io`)."""
+    return _retry_io(lambda: path.read_text(encoding="utf-8"), path, "read")
+
+
+def write_notebook_text(path: Path, text: str) -> None:
+    """Atomically replace ``path``'s contents, with retries.
+
+    ``Path.write_text`` truncates the file and then fills it, so a concurrent
+    reader can see an empty or partial notebook. Writing a sibling temp file and
+    ``os.replace``-ing it is atomic on Windows and POSIX alike, which removes
+    that window entirely.
+    """
+    def _do() -> None:
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+
+    _retry_io(_do, path, "write")
+
+
 def clear_notebook(path: Path) -> None:
     """Strip every code cell's outputs and reset its execution count, in place."""
-    nb = json.loads(path.read_text(encoding="utf-8"))
+    nb = json.loads(read_notebook_text(path))
     for cell in nb.get("cells", []):
         if cell.get("cell_type") == "code":
             cell["outputs"] = []
             cell["execution_count"] = None
-    path.write_text(json.dumps(nb, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_notebook_text(path, json.dumps(nb, indent=1, ensure_ascii=False) + "\n")
 
 
 # ============================================================================
@@ -297,15 +359,30 @@ def _check_nbconvert(py: Path) -> None:
 
 
 def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
-                     kernel_name: str, verbose: bool = False,
-                     extra_env: Optional[Dict[str, str]] = None) -> None:
-    """Restart-and-run ``path`` in place with a fresh venv kernel (raises on failure).
+                     kernel_name: str, out_dir: Path, verbose: bool = False,
+                     extra_env: Optional[Dict[str, str]] = None) -> Path:
+    """Restart-and-run ``path`` with a fresh venv kernel; return the executed copy.
+
+    The executed notebook is written into ``out_dir`` (keep that OFF a synced
+    filesystem) and the input is left untouched -- see the comment on ``cmd``.
 
     Quiet by default: nbconvert's own chatter and the harmless Windows
     ``zmq`` ``add_reader`` RuntimeWarning are captured (shown only on failure).
     ``verbose=True`` streams everything live for debugging. ``extra_env`` adds
     variables to the kernel's environment (e.g. the skip-auto-summarize flag)."""
-    cmd = [str(py), "-m", "nbconvert", "--to", "notebook", "--execute", "--inplace",
+    # NOT --inplace. nbconvert would truncate + refill the .ipynb in place, and
+    # this repo commonly lives in a synced folder (OneDrive / Google Drive) whose
+    # client opens every changed file: with -j N that window is where reads and
+    # writes fail with EINVAL. Writing the executed copy to `out_dir` (a temp
+    # directory off the synced tree) means the synced notebook is replaced once,
+    # atomically, by the caller after execution -- never mid-run.
+    #
+    # The INPUT path stays the real notebook, so nbconvert still runs the kernel
+    # with cwd = notebooks/. That is required: the notebooks derive PROJECT_ROOT
+    # from Path.cwd(), so executing a copy elsewhere would break every relative
+    # path in them.
+    cmd = [str(py), "-m", "nbconvert", "--to", "notebook", "--execute",
+           "--output-dir", str(out_dir), "--output", path.name,
            "--log-level", "WARN",
            f"--ExecutePreprocessor.timeout={timeout}",
            f"--ExecutePreprocessor.kernel_name={kernel_name}"]
@@ -329,6 +406,14 @@ def execute_notebook(path: Path, py: Path, *, timeout: int, allow_errors: bool,
         subprocess.run(cmd, check=True, env=env)
     else:
         subprocess.run(cmd, check=True, env=env, capture_output=True, text=True)
+    executed = out_dir / path.name
+    if not executed.exists():                 # nbconvert changed its naming
+        candidates = sorted(out_dir.glob("*.ipynb"))
+        if not candidates:
+            raise FileNotFoundError(
+                f"nbconvert reported success but wrote no notebook into {out_dir}")
+        executed = candidates[0]
+    return executed
 
 
 # ============================================================================
@@ -417,21 +502,39 @@ def _process_notebook(nb_path: Path, *, py: Optional[Path], do_clear: bool,
     t0 = time.perf_counter()
     steps: List[str] = []
     block: Optional[str] = None
-    if do_clear:
+    # Clearing on disk is only worth a synced-file write when we are NOT about to
+    # execute: --execute re-runs every cell and replaces every output, and the
+    # result is copied back below, so a pre-clear would be a second write for no
+    # observable difference.
+    if do_clear and not do_execute:
         clear_notebook(nb_path)
         steps.append("cleared")
-    if do_execute:
-        execute_notebook(nb_path, py, timeout=timeout, allow_errors=allow_errors,
-                         kernel_name=kernel_name, verbose=verbose, extra_env=extra_env)
-        steps.append("ran")
-    if do_md and is_collected:
-        nb = json.loads(nb_path.read_text(encoding="utf-8"))
-        body = harvest_stdout(nb, include_results=include_results)
-        block = render_block(nb_path.stem, notebook_title(nb, nb_path.stem),
-                             nb_path.name, body, stamp)
-        steps.append(f"{len(body):,} chars")
-    elif do_md:
-        steps.append("not collected")
+    source = nb_path
+    tmp_dir: Optional[tempfile.TemporaryDirectory] = None
+    try:
+        if do_execute:
+            # tempfile uses %TEMP% / $TMPDIR -- local disk, never synced.
+            tmp_dir = tempfile.TemporaryDirectory(prefix="tabpfncredit_nb_")
+            source = execute_notebook(
+                nb_path, py, timeout=timeout, allow_errors=allow_errors,
+                kernel_name=kernel_name, out_dir=Path(tmp_dir.name),
+                verbose=verbose, extra_env=extra_env)
+            steps.append("ran")
+        if do_md and is_collected:
+            nb = json.loads(read_notebook_text(source))
+            body = harvest_stdout(nb, include_results=include_results)
+            block = render_block(nb_path.stem, notebook_title(nb, nb_path.stem),
+                                 nb_path.name, body, stamp)
+            steps.append(f"{len(body):,} chars")
+        elif do_md:
+            steps.append("not collected")
+        if do_execute:
+            # The ONE write the sync client sees for this notebook, and it is an
+            # atomic replace rather than a truncate-then-fill.
+            write_notebook_text(nb_path, read_notebook_text(source))
+    finally:
+        if tmp_dir is not None:
+            shutil.rmtree(tmp_dir.name, ignore_errors=True)
     return steps, block, time.perf_counter() - t0
 
 
@@ -643,7 +746,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         jobs = 1
 
     steps = "+".join(s for s, on in (("clear", do_clear), ("run", do_execute), ("collect", do_md)) if on)
-    print(f"{len(targets)} notebook(s) | {steps} | kernel: {py.name if py else '(none)'} "
+    # Report the interpreter and the KERNELSPEC separately. This line used to
+    # print ``py.name`` under the label "kernel:", i.e. "kernel: python.exe",
+    # which is the interpreter filename and not a kernelspec at all -- copying
+    # it into --kernel-name fails with NoSuchKernel.
+    print(f"{len(targets)} notebook(s) | {steps} | python: {py.name if py else '(none)'} "
+          f"| kernel: {args.kernel_name} "
           f"| jobs: {jobs} | md: {md_path.name if do_md else 'skipped'}")
 
     return run(targets, py=py, do_clear=do_clear, do_execute=do_execute, do_md=do_md,

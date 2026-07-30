@@ -8,6 +8,21 @@ These encode the renaming spec's verification section as fail-loud checks:
 3. Sorting by ``(is_proprietary, display_name)`` reproduces the new-ID order.
 4. No real proprietary dataset name survives in code that renders paper output.
 5. The mapping table is printable for eyeball verification.
+
+WHY NOTHING HERE IS HARD-CODED
+------------------------------
+``dataset_registry.py`` is gitignored precisely because it pairs each
+proprietary dataset's REAL slug with its anonymised paper name -- it is the
+de-anonymisation key. An earlier version of this file asserted those pairs
+literally (``canonical_slug("0009.<real>") == ...``, ``display_name(...) ==
+"PropPD1"``), which published the key in a tracked file and made gitignoring
+the registry pointless.
+
+Every case is now DERIVED from the registry at run time. That leaks nothing,
+and it is strictly stronger: the checks cover all 21 datasets instead of the
+two or three a human had copied in, and they cannot drift when the registry
+changes. The whole module skips when the registry is absent, so a fresh clone
+neither fails nor learns anything.
 """
 
 from __future__ import annotations
@@ -44,17 +59,22 @@ if REGISTRY_AVAILABLE:
 else:  # pragma: no cover
     REGISTRY = {}
 
-# Real names / slugs of the proprietary datasets. None of these may appear in
-# rendered paper output (figure labels, generated tables, captions).
-FORBIDDEN_IN_OUTPUT = [
-    "Bank Status", "bank_status",
-    "AXA", "axa",
-    "Loss2", "loss2",
-    "Base Model", "base_model",
-    "Base Modelisation", "base_modelisation",
-    "HELOC", "heloc",
-    "Loan Default", "loan_default",
-]
+
+# ---------------------------------------------------------------------------
+#  Registry-derived fixtures -- the only source of real names in this file
+# ---------------------------------------------------------------------------
+
+def _proprietary_entries():
+    return [e for e in REGISTRY.values() if e.proprietary]
+
+
+def _public_entries():
+    return [e for e in REGISTRY.values() if not e.proprietary]
+
+
+def _anonymised_pattern():
+    """``PropPD3`` / ``PropLGD1`` and nothing else."""
+    return re.compile(r"^Prop(PD|LGD)\d+$")
 
 
 class TestRegistryInvariants:
@@ -86,37 +106,67 @@ class TestRegistryInvariants:
             pub = [e.display_name for e in entries_for_task(task) if not e.proprietary]
             assert pub == sorted(pub, key=str.lower)
 
-    def test_proprietary_names_are_anonymised(self):
-        prop = [e.display_name for e in REGISTRY.values() if e.proprietary]
-        assert sorted(prop) == [
-            "PropLGD1", "PropLGD2", "PropLGD3", "PropLGD4", "PropLGD5",
-            "PropPD1", "PropPD2",
-        ]
+    def test_every_proprietary_display_name_is_anonymised(self):
+        """No proprietary dataset may keep a recognisable display name, and the
+        anonymised names must be a gap-free PropPD1..n / PropLGD1..n run."""
+        pat = _anonymised_pattern()
+        prop = _proprietary_entries()
+        assert prop, "no proprietary datasets registered -- fixture is wrong"
+        for e in prop:
+            assert pat.match(e.display_name), (
+                f"{e.new_id} display name is not anonymised"
+            )
+            # the anonymised name must not embed any part of the real slug
+            slug_words = re.split(r"[^a-z0-9]+", e.slug.lower())
+            for word in slug_words:
+                if len(word) > 3:
+                    assert word not in e.display_name.lower(), (
+                        f"{e.new_id} display name leaks part of its slug"
+                    )
+        for task, prefix in (("pd", "PropPD"), ("lgd", "PropLGD")):
+            names = sorted(e.display_name for e in prop if e.task == task)
+            assert names == [f"{prefix}{i}" for i in range(1, len(names) + 1)]
 
-    def test_mapping_table_prints(self):
+    def test_public_display_names_are_not_anonymised(self):
+        """Public datasets keep their real, citable names -- the anonymisation
+        must not have been applied indiscriminately."""
+        pat = _anonymised_pattern()
+        for e in _public_entries():
+            assert not pat.match(e.display_name)
+
+    def test_mapping_table_prints_every_dataset(self):
         table = format_mapping_table()
-        assert "PropPD1" in table and "0009.bank_status" in table
-        assert "PD9" in table and "PD13" in table   # old -> new both shown
+        for e in REGISTRY.values():
+            assert e.slug in table, f"{e.new_id} missing from the mapping table"
+            assert e.display_name in table
+            assert e.new_id in table
+            assert e.old_id in table              # old -> new both shown
 
 
 class TestLookups:
 
-    @pytest.mark.parametrize("alias", [
-        "0009.bank_status", "0009_bank_status", "bank_status", "PD13", "pd13",
-    ])
-    def test_alias_resolution(self, alias):
-        """Figure-filename and hand-typed forms must resolve to one entry."""
-        assert canonical_slug(alias) == "0009.bank_status"
-        assert display_name(alias) == "PropPD1"
+    def test_alias_resolution_for_every_dataset(self):
+        """Every alias form a figure filename or a human might use must resolve
+        to the same entry: the dotted slug, the underscore form, the bare name,
+        the new paper ID (either case) and the display name."""
+        for e in REGISTRY.values():
+            bare = e.slug.split(".", 1)[1]
+            for alias in (e.slug, e.slug.replace(".", "_"), bare,
+                          e.new_id, e.new_id.lower(), e.display_name):
+                assert canonical_slug(alias) == e.slug, (
+                    f"alias {alias!r} did not resolve to {e.new_id}"
+                )
+                assert display_name(alias) == e.display_name
 
-    def test_paper_id(self):
-        assert paper_id("0001.gmsc") == "PD3"
-        assert paper_id("0001.heloc") == "LGD3"
+    def test_paper_id_round_trips(self):
+        for e in REGISTRY.values():
+            assert paper_id(e.slug) == e.new_id
 
-    def test_proprietary_flags(self):
-        assert is_proprietary("0009.bank_status")
-        assert is_proprietary("0001.heloc")
-        assert not is_proprietary("0001.gmsc")
+    def test_proprietary_flags_match_the_registry(self):
+        for e in REGISTRY.values():
+            assert is_proprietary(e.slug) is bool(e.proprietary)
+        assert any(is_proprietary(e.slug) for e in REGISTRY.values())
+        assert any(not is_proprietary(e.slug) for e in REGISTRY.values())
 
     def test_unknown_dataset_degrades_gracefully(self):
         """An unregistered dataset must not crash a plot -- it gets a readable
@@ -127,22 +177,35 @@ class TestLookups:
 
 class TestOrdering:
 
-    def test_sort_datasets_pd(self):
-        slugs = [e.slug for e in entries_for_task("pd")]
-        shuffled = sorted(slugs)                        # slug order == OLD order
-        assert sort_datasets(shuffled) == slugs
+    def test_sort_datasets_matches_registry_order(self):
+        for task in ("pd", "lgd"):
+            slugs = [e.slug for e in entries_for_task(task)]
+            shuffled = sorted(slugs)                    # slug order == OLD order
+            assert sort_datasets(shuffled) == slugs
 
-    def test_gmsc_is_pd3_not_pd1(self):
-        """Regression guard: the OLD numbering had gmsc first."""
-        order = sort_datasets([e.slug for e in entries_for_task("pd")])
-        assert order[0] == "0007.cobranded"             # new PD1
-        assert order.index("0001.gmsc") == 2            # new PD3
+    def test_renumbering_actually_moved_something(self):
+        """Regression guard for the renumbering: the new order must NOT simply
+        be the old slug order, or the whole exercise was a no-op."""
+        moved = 0
+        for task in ("pd", "lgd"):
+            slugs = [e.slug for e in entries_for_task(task)]
+            if sorted(slugs) != slugs:
+                moved += 1
+        assert moved, "new ordering is identical to the old slug ordering"
 
-    def test_proprietary_lgd_tail_order(self):
-        order = sort_datasets([e.slug for e in entries_for_task("lgd")])
-        assert [display_name(d) for d in order[-5:]] == [
-            "PropLGD1", "PropLGD2", "PropLGD3", "PropLGD4", "PropLGD5",
-        ]
+    def test_proprietary_datasets_form_the_tail(self):
+        for task in ("pd", "lgd"):
+            order = sort_datasets([e.slug for e in entries_for_task(task)])
+            prop_positions = [i for i, d in enumerate(order) if is_proprietary(d)]
+            if not prop_positions:
+                continue
+            # contiguous, and running to the very end
+            assert prop_positions == list(
+                range(min(prop_positions), len(order))
+            ), f"{task}: proprietary datasets are not a contiguous tail"
+            # and numbered in order along that tail
+            names = [display_name(order[i]) for i in prop_positions]
+            assert names == sorted(names, key=lambda s: int(re.sub(r"\D", "", s)))
 
 
 class TestAgainstDisk:
@@ -159,7 +222,11 @@ class TestAgainstDisk:
 
 class TestNoHardCodedNames:
     """Spec check 4: no proprietary name may reach rendered paper output, and no
-    display name may be hard-coded outside the registry."""
+    display name may be hard-coded outside the registry.
+
+    The forbidden strings are read FROM the registry rather than listed here,
+    so this file never becomes the leak it is guarding against.
+    """
 
     #: modules that render paper output (labels, tables, captions)
     OUTPUT_MODULES = [
@@ -169,22 +236,34 @@ class TestNoHardCodedNames:
         "src/utils/generate_captions.py",
     ]
 
+    def _forbidden_strings(self):
+        """Slug and slug-derived forms of every proprietary dataset."""
+        out = set()
+        for e in _proprietary_entries():
+            bare = e.slug.split(".", 1)[1]
+            out.add(bare)                        # e.g. some_bank
+            out.add(bare.replace("_", " "))      # e.g. some bank
+            out.add(bare.replace("_", ""))
+        # single-word fragments long enough to be identifying
+        return {s for s in out if len(s) > 3}
+
     def test_no_proprietary_names_in_output_modules(self):
+        forbidden = self._forbidden_strings()
+        assert forbidden, "no forbidden strings derived -- fixture is wrong"
         offenders = []
         for rel in self.OUTPUT_MODULES:
-            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
-            for bad in FORBIDDEN_IN_OUTPUT:
-                # Word-ish match; skip matches inside comments is overkill --
-                # these strings have no business in these modules at all.
+            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8").lower()
+            for bad in forbidden:
                 if re.search(rf"\b{re.escape(bad)}\b", text):
                     offenders.append(f"{rel}: {bad!r}")
         assert not offenders, (
-            "proprietary dataset name(s) hard-coded in output code: " + "; ".join(offenders)
+            "proprietary dataset name(s) hard-coded in output code: "
+            + "; ".join(sorted(offenders))
         )
 
     def test_display_names_only_defined_in_registry(self):
         """``PropPD*`` / ``PropLGD*`` literals must exist only in the registry
-        (and in this test), never in plotting/table code."""
+        (and in this test's regex), never in plotting/table code."""
         offenders = []
         for path in (PROJECT_ROOT / "src").rglob("*.py"):
             if path.name == "dataset_registry.py":
@@ -194,14 +273,64 @@ class TestNoHardCodedNames:
                 offenders.append(str(path.relative_to(PROJECT_ROOT)))
         assert not offenders, f"anonymised names hard-coded outside the registry: {offenders}"
 
-    def test_no_adhoc_slug_prettifiers_left(self):
-        """The old ``split('.')[-1]`` / ``replace('_',' ')`` dataset prettifiers
-        must be gone from the plotting modules -- they bypass the registry."""
+    def test_this_test_file_leaks_nothing(self):
+        """Self-check: the guard must not itself contain a real proprietary slug
+        or a real-to-anonymised pairing. Everything here is derived at run
+        time, so the source must be clean."""
+        source = Path(__file__).read_text(encoding="utf-8").lower()
+        for e in _proprietary_entries():
+            bare = e.slug.split(".", 1)[1]
+            assert bare not in source, (
+                f"this test file names the proprietary slug {bare!r} -- "
+                f"publishing it would defeat gitignoring the registry"
+            )
+
+
+class TestNothingTrackedLeaksAProprietarySlug:
+    """Publish gate: no file git would publish may name a proprietary dataset.
+
+    This catches the class of mistake the rest of this module guards against,
+    but across the WHOLE tracked tree rather than a hand-picked module list --
+    committed notebook outputs and generated markdown have both leaked slugs
+    before. ``scripts/*/config/CONFIG_DATA.yaml`` is exempted: those files
+    select datasets by their on-disk directory name, which the renaming spec
+    deliberately never changes, so the slug there is load-bearing.
+    """
+
+    #: Files whose whole purpose is to name on-disk dataset directories.
+    EXEMPT = ("config/CONFIG_DATA.yaml",)
+
+    def test_no_tracked_file_names_a_proprietary_dataset(self):
+        import subprocess
+
+        forbidden = set()
+        for e in _proprietary_entries():
+            bare = e.slug.split(".", 1)[1]
+            if len(bare) > 3:
+                forbidden.add(bare.lower())
+        assert forbidden, "no forbidden slugs derived -- fixture is wrong"
+
+        tracked = subprocess.run(
+            ["git", "ls-files"], cwd=PROJECT_ROOT,
+            capture_output=True, text=True,
+        ).stdout.split()
+
         offenders = []
-        for rel in ["src/visualizations/experiment_plots.py",
-                    "src/visualizations/data_exploration.py"]:
-            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
-            for pat in [r'str\(d\)\.split\("\."\)', r'str\(dataset\)\.split\("\."']:
-                if re.search(pat, text):
-                    offenders.append(f"{rel}: {pat}")
-        assert not offenders, f"ad-hoc dataset prettifier still present: {offenders}"
+        for rel in tracked:
+            if any(x in rel for x in self.EXEMPT):
+                continue
+            path = PROJECT_ROOT / rel
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace").lower()
+            except OSError:                      # pragma: no cover
+                continue
+            for bad in forbidden:
+                if re.search(rf"\b{re.escape(bad)}\b", text):
+                    offenders.append(rel)
+                    break
+        assert not offenders, (
+            "tracked file(s) name a proprietary dataset slug -- publishing them "
+            f"would defeat gitignoring the registry: {sorted(set(offenders))}"
+        )

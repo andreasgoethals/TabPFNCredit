@@ -94,8 +94,8 @@ pip install -e ".[hpc]"
 ## 2. Stage foundation-model weights
 
 VSC **compute nodes have no outbound internet**, so foundation models
-(TabPFN v2/v2.5/v3, TabICL, TabDPT, MITRA, HyperFast) cannot download their
-weights at run time. Download them once on a machine that *does* have
+(TabPFN v2/v2.5/v3, TabICL/TabICL v2, TabDPT, MITRA, TabFM, HyperFast) cannot
+download their weights at run time. Download them once on a machine that *does* have
 internet, upload the folder, and provision it on the cluster.
 
 > Only running classical / deep methods (XGBoost, CatBoost, FT-Transformer,
@@ -107,10 +107,16 @@ internet, upload the folder, and provision it on the cluster.
 python -m src.utils.fetch_weights                 # -> ./checkpoints  (several GB)
 # or a subset:
 python -m src.utils.fetch_weights --only tabpfn_v3 tabicl_v2
-# opt-in models that are toggled off in every CONFIG_METHOD.yaml (e.g. TabFM)
-# are NOT part of the default fetch -- name them explicitly:
-python -m src.utils.fetch_weights --only tabfm
+# a few models are OPT-IN: heavy enough that they are excluded from the default
+# fetch regardless of whether a CONFIG_METHOD.yaml enables them. `--list` shows
+# which, and they must be named explicitly:
+python -m src.utils.fetch_weights --list
+python -m src.utils.fetch_weights --only <model>
 ```
+
+> Check `scripts/*/config/CONFIG_METHOD.yaml` for which methods an experiment
+> actually enables, and stage the weights for every foundation model among
+> them. A missing weight fails the job fast with a clear error.
 
 > **Fetching on the VSC login node?** Pass
 > `--checkpoints-dir /lustre1/project/stg_00211/TabPFNCredit/checkpoints` so the
@@ -212,6 +218,9 @@ harmless.
 | `TABPFN_CPU_CORES_PER_TASK` | 18 | Cores per CPU array task (half a node → two tasks pack per node). Set 36 for a whole node. |
 | `TABPFN_GPU_SPREAD` | 1 | Spill whole cells between `gpu_a100` ↔ `gpu_h100` when one queue is overloaded. Set 0 to pin work to its home partition (H100 costs ~4× the credits of A100). |
 | `TABPFN_GENIUS_GPUS` | unset | Offload (MOVE) **small-data** GPU work (Experiment 2's row-capped and Experiment 3's subsampled sweeps) to the idle Genius fleet: set to `gpu_v100`. Only points with a row cap ≤ `TABPFN_GENIUS_ROW_CAP` (default 60000) or a sampling target move; full-dataset foundation fits never do. **P100 is not usable** — the project's torch 2.8 CUDA wheels ship `sm_70+` kernels only, and Pascal is `sm_60` (a `gpu_p100` request is ignored with a warning). Cross-cluster arrays do not gate the primary dependency chain — re-run `tabpfncredit summarize` after they finish. |
+| `TABPFN_MAX_CELLS_PER_SLOT` | unset (pack by cost) | Hard cap on how many `(dataset, method)` cells share one array task. `1` gives **one dataset per task**, which is what an expensive method needs: the slot's wall-time request is then derived from a single dataset's estimate instead of a packed bundle, so a slow dataset gets the whole budget rather than being killed partway through a shared slot. |
+| `TABPFN_CHECKPOINTS_DIR` | unset | Default for `fetch_weights --checkpoints-dir`. Set it to the project-storage path when fetching on a login node so the weights land off the small `$VSC_DATA` quota. |
+| `TABPFN_SLURM_NOTIFY_EMAIL` | unset | Address for SLURM `--mail-user` on the generated jobs; no mail directives are emitted when unset. |
 | `TABPFN_REPLICATE_PARTITIONS` | unset | **Aggressive mode**: COPY the small-data GPU work to every listed partition (e.g. `gpu_v100,cpu`) *in addition to* its wICE home, racing all queues at once. Every point is skipped at run time if its result already exists, and replicas traverse the work from different ends, so duplicate compute stays small. CPU replicas only take points with a row cap ≤ `TABPFN_CPU_FOUNDATION_ROW_CAP` (default 10000; in-context fits on CPU are slow) with cost estimates scaled by `TABPFN_CPU_FOUNDATION_SLOWDOWN` (default 10×). Run `tabpfncredit resubmit` once more after everything finishes to mop up any points lost to cross-cluster write races on the packed Exp 2/3 files. Takes precedence over `TABPFN_GENIUS_GPUS`. |
 
 ---

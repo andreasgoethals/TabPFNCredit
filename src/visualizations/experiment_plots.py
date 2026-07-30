@@ -1217,6 +1217,18 @@ _PER_DATASET_ROWS_PER_PAGE = 6
 #: keep the two in step if you change either.
 _PER_DATASET_PANEL_SIZE = (3.1, 2.8)
 
+#: Ridge geometry for the binary (PD) prediction-density panels, in units of the
+#: y distance between the two class rows. The ridge height USED to be a fraction
+#: of the x range -- a length in prediction units applied to a distance in
+#: outcome units -- which left ~half of every panel empty once predictions
+#: spanned the full 0-100%. Expressing it against the separation makes the two
+#: densities nearly meet: 0.92 leaves a visible 8%-of-separation gap so the grey
+#: class baselines still read as separators.
+_RIDGE_SEPARATION = 100.0
+_RIDGE_HEIGHT_FRAC = 0.92
+#: Breathing room below the lower baseline and above the upper ridge.
+_RIDGE_MARGIN_FRAC = 0.05
+
 
 #: A final page with fewer than this many rows is spread away instead of being
 #: emitted. Set to 2, i.e. ONLY a single-row last page is rebalanced: that keeps
@@ -1462,7 +1474,13 @@ def per_dataset_prediction_density(
     Returns one path PER PAGE (7 datasets each).
     """
     task = task.lower()
-    panel_size = panel_size or _PER_DATASET_PANEL_SIZE
+    if panel_size is None:
+        # The LGD panels are square (set_aspect("equal") below), so a slot wider
+        # than it is tall can never be filled and the slack shows up as
+        # horizontal gaps between columns. Trim the width toward the height.
+        panel_size = (_PER_DATASET_PANEL_SIZE if task == "pd"
+                      else (round(_PER_DATASET_PANEL_SIZE[1] * 1.05, 2),
+                            _PER_DATASET_PANEL_SIZE[1]))
     if methods is None:
         baseline = "LogReg" if task == "pd" else "LinearRegression"
         methods = ("tabpfn_v3", "tabicl_v2", "catboost", baseline)
@@ -1533,14 +1551,22 @@ def per_dataset_prediction_density(
                         if dens is None or not np.isfinite(dens).any():
                             continue
                         dens = dens / dens.max()          # per-class, so both are visible
-                        base = 100.0 * cls
-                        ax.fill_between(grid, base, base + 0.42 * (lim[1] - lim[0]) * dens,
-                                        color=color, alpha=0.30 if cls == 0 else 0.55,
-                                        lw=1.2, edgecolor=color, ls=ls, zorder=2 + int(cls))
+                        base = _RIDGE_SEPARATION * cls
+                        ax.fill_between(
+                            grid, base,
+                            base + _RIDGE_HEIGHT_FRAC * _RIDGE_SEPARATION * dens,
+                            color=color, alpha=0.30 if cls == 0 else 0.55,
+                            lw=1.2, edgecolor=color, ls=ls, zorder=2 + int(cls))
                         ax.axhline(base, color="0.6", lw=0.8, zorder=1)
-                    ax.set_yticks([0.0, 100.0])
-                    ax.set_yticklabels(["0 (no default)", "1 (default)"])
-                    ax.set_ylim(-0.10 * (lim[1] - lim[0]), 100.0 + 0.5 * (lim[1] - lim[0]))
+                    ax.set_yticks([0.0, _RIDGE_SEPARATION])
+                    # "0 (no default)" / "1 (default)" spelled out cost a wide
+                    # left margin on all 24 panels; the axis label says
+                    # "actual outcome", so the bare indicator is unambiguous.
+                    ax.set_yticklabels(["0", "1"])
+                    margin = _RIDGE_MARGIN_FRAC * _RIDGE_SEPARATION
+                    ax.set_ylim(
+                        -margin,
+                        _RIDGE_SEPARATION * (1.0 + _RIDGE_HEIGHT_FRAC) + margin)
                     ax.set_xlim(lim)
                 else:
                     prediction, actual = pairs[(dataset, method)]

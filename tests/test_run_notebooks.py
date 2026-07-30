@@ -194,20 +194,156 @@ def test_venv_python_detection(tmp_path):
 
 def test_execute_notebook_disables_per_save_caption_refresh(tmp_path, monkeypatch):
     seen = {}
-
-    def fake_run(*args, **kwargs):
-        seen["env"] = kwargs["env"]
-
-    monkeypatch.setattr(rn.subprocess, "run", fake_run)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
     nb = tmp_path / "n.ipynb"
     nb.write_text(json.dumps(_nb()), encoding="utf-8")
 
-    rn.execute_notebook(
+    def fake_run(cmd, *args, **kwargs):
+        seen["env"] = kwargs["env"]
+        seen["cmd"] = list(cmd)
+        # stand in for nbconvert writing the executed copy
+        (out_dir / nb.name).write_text(json.dumps(_nb()), encoding="utf-8")
+
+    monkeypatch.setattr(rn.subprocess, "run", fake_run)
+
+    executed = rn.execute_notebook(
         nb,
         Path("python"),
         timeout=-1,
         allow_errors=False,
         kernel_name="python3",
+        out_dir=out_dir,
     )
 
     assert seen["env"]["TABPFNCREDIT_AUTO_CAPTIONS"] == "0"
+    assert executed == out_dir / nb.name
+
+
+def test_execute_notebook_never_writes_into_the_source_tree(tmp_path, monkeypatch):
+    """The repo is often inside a OneDrive/Google Drive folder. nbconvert must
+    NOT use --inplace: truncating + refilling the .ipynb mid-run is exactly the
+    window where a sync client makes reads and writes fail with EINVAL. It must
+    write to --output-dir instead, and read the notebook from its real location
+    so the kernel's cwd stays notebooks/ (the notebooks derive PROJECT_ROOT from
+    Path.cwd())."""
+    seen = {}
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    nb = tmp_path / "notebooks" / "n.ipynb"
+    nb.parent.mkdir()
+    nb.write_text(json.dumps(_nb()), encoding="utf-8")
+    before = nb.read_text(encoding="utf-8")
+
+    def fake_run(cmd, *args, **kwargs):
+        seen["cmd"] = list(cmd)
+        (out_dir / nb.name).write_text(json.dumps(_nb()), encoding="utf-8")
+
+    monkeypatch.setattr(rn.subprocess, "run", fake_run)
+    rn.execute_notebook(nb, Path("python"), timeout=-1, allow_errors=False,
+                        kernel_name="python3", out_dir=out_dir)
+
+    cmd = seen["cmd"]
+    assert "--inplace" not in cmd, "--inplace writes into the synced tree"
+    assert "--output-dir" in cmd
+    assert str(out_dir) in cmd
+    assert str(nb) in cmd, "must read the notebook in place (kernel cwd)"
+    assert nb.read_text(encoding="utf-8") == before, "source notebook was modified"
+
+
+def test_execute_notebook_fails_loudly_if_nothing_was_written(tmp_path, monkeypatch):
+    """A silent success with no output file would let the caller copy back a
+    stale notebook."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    nb = tmp_path / "n.ipynb"
+    nb.write_text(json.dumps(_nb()), encoding="utf-8")
+    monkeypatch.setattr(rn.subprocess, "run", lambda *a, **k: None)
+
+    with pytest.raises(FileNotFoundError, match="wrote no notebook"):
+        rn.execute_notebook(nb, Path("python"), timeout=-1, allow_errors=False,
+                            kernel_name="python3", out_dir=out_dir)
+
+
+# ---------------------------------------------------------------------------
+#  Cloud-sync / AV resilience
+# ---------------------------------------------------------------------------
+#
+# This repo is often checked out inside a OneDrive/Google Drive folder. Those
+# clients (and AV scanners) hold a file open for tens of milliseconds after it
+# changes, so with `-j N` a notebook read/write can fail with a transient
+# OSError -- observed on Windows as
+# "OSError: [Errno 22] Invalid argument: '<notebook>.ipynb'", which killed a
+# 12-notebook run at notebook 7 and cancelled the 5 behind it.
+
+
+class TestTransientIoIsRetried:
+
+    def test_read_recovers_after_transient_failures(self, tmp_path, monkeypatch):
+        nb = tmp_path / "N.ipynb"
+        nb.write_text('{"cells": []}', encoding="utf-8")
+        calls = {"n": 0}
+        real = Path.read_text
+
+        def flaky(self, *a, **k):
+            if self == nb:
+                calls["n"] += 1
+                if calls["n"] <= 2:                     # fail twice, then work
+                    raise OSError(22, "Invalid argument")
+            return real(self, *a, **k)
+
+        monkeypatch.setattr(Path, "read_text", flaky)
+        monkeypatch.setattr(rn, "_IO_BACKOFF_S", 0.0)   # keep the test fast
+
+        assert rn.read_notebook_text(nb) == '{"cells": []}'
+        assert calls["n"] == 3, "should have retried twice before succeeding"
+
+    def test_read_gives_up_with_an_actionable_message(self, tmp_path, monkeypatch):
+        nb = tmp_path / "N.ipynb"
+        nb.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(Path, "read_text",
+                            lambda self, *a, **k: (_ for _ in ()).throw(
+                                OSError(22, "Invalid argument")))
+        monkeypatch.setattr(rn, "_IO_BACKOFF_S", 0.0)
+
+        with pytest.raises(OSError) as excinfo:
+            rn.read_notebook_text(nb)
+        msg = str(excinfo.value)
+        assert "N.ipynb" in msg
+        assert "OneDrive" in msg or "Drive" in msg, "must hint at the real cause"
+        assert "-j 1" in msg, "must offer the workaround"
+
+    def test_write_is_atomic_and_leaves_no_temp_file(self, tmp_path):
+        nb = tmp_path / "N.ipynb"
+        nb.write_text("old", encoding="utf-8")
+        rn.write_notebook_text(nb, "new")
+        assert nb.read_text(encoding="utf-8") == "new"
+        assert list(tmp_path.glob("*.tmp")) == [], "temp file left behind"
+
+    def test_a_failed_write_does_not_truncate_the_notebook(self, tmp_path, monkeypatch):
+        """Path.write_text truncates first, so a crash mid-write loses the
+        notebook. The temp-file + os.replace path must leave the original
+        intact instead."""
+        nb = tmp_path / "N.ipynb"
+        nb.write_text("original", encoding="utf-8")
+        monkeypatch.setattr(rn.os, "replace",
+                            lambda *a, **k: (_ for _ in ()).throw(
+                                OSError(22, "Invalid argument")))
+        monkeypatch.setattr(rn, "_IO_BACKOFF_S", 0.0)
+
+        with pytest.raises(OSError):
+            rn.write_notebook_text(nb, "replacement")
+        assert nb.read_text(encoding="utf-8") == "original"
+
+    def test_clear_notebook_round_trips_through_the_resilient_path(self, tmp_path):
+        nb = tmp_path / "N.ipynb"
+        nb.write_text(json.dumps({
+            "cells": [{"cell_type": "code", "source": ["1+1\n"],
+                       "outputs": [{"output_type": "stream", "text": "2"}],
+                       "execution_count": 7}],
+            "metadata": {}, "nbformat": 4, "nbformat_minor": 5,
+        }), encoding="utf-8")
+        rn.clear_notebook(nb)
+        out = json.loads(nb.read_text(encoding="utf-8"))
+        assert out["cells"][0]["outputs"] == []
+        assert out["cells"][0]["execution_count"] is None

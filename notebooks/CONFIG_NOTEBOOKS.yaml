@@ -23,8 +23,8 @@
 # Method names are TALENT's canonical keys, exactly as in CONFIG_METHOD.yaml.
 
 exclude:
-  pd: []                # e.g. [tabfm] to hide a method from every PD analysis notebook
-  lgd: []
+  pd: [tabfm]                # e.g. [tabfm] to hide a method from every PD analysis notebook
+  lgd: [tabfm]
 
 champions:
   pd:

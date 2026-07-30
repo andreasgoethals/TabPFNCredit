@@ -148,13 +148,16 @@ _PROFILES: Dict[str, Profile] = {
     # walltime comes from a SINGLE dataset's estimate, so this has to cover the
     # largest dataset. Measured on H100-80GB at a 10k context (job 61519948),
     # seconds per *single* model fit + evaluation:
-    #     taiwan_creditcard  6.0k test rows,  23 feat ->  194 s
-    #     heloc (LGD)       11.6k,             8      ->  147 s
-    #     cobranded         16.0k,            47      ->  434 s
-    #     loan_default      21.1k,           500*     ->  697 s
-    #     vehicle_loan      46.6k,            35      -> 1401 s
+    # (datasets identified by shape only -- the calibration depends on the
+    #  shape, and naming them would either leak a proprietary slug or
+    #  hard-code an anonymised paper id that goes stale on renumbering)
+    #     PD    6.0k test rows,   23 features ->  194 s
+    #     LGD  11.6k,              8          ->  147 s
+    #     PD   16.0k,             47          ->  434 s
+    #     PD   21.1k,            500*         ->  697 s
+    #     PD   46.6k,             35          -> 1401 s
     #     (*capped by max_num_features)
-    # Extrapolating to the largest split (hackerearth, 106k x 35) gives ~3200 s
+    # Extrapolating to the largest split (106k rows x 35 features) gives ~3200 s
     # per fold. 6000 s keeps ~2x headroom on that -- a ~11 h request rather than
     # the 25 h the old 14000 asked for. The old number was calibrated against
     # runs that unknowingly refit 15x per fold (TALENT's packaged seed_num=15,

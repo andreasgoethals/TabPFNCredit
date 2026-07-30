@@ -81,11 +81,14 @@ def _make_oom() -> Exception:
 
 
 @pytest.fixture(autouse=True)
-def _reset_announcement():
-    """The "chunked inference active" banner prints once per process."""
+def _reset_process_state():
+    """The banner prints once per process, and the OOM memory carries learned
+    pass sizes across proxies -- both must not leak between tests."""
     tabfm_chunked._ANNOUNCED = False
+    tabfm_chunked._OOM_ROWS_BY_WIDTH.clear()
     yield
     tabfm_chunked._ANNOUNCED = False
+    tabfm_chunked._OOM_ROWS_BY_WIDTH.clear()
 
 
 def _proxy(chunk_size=None, *, oom_above=None):
@@ -247,6 +250,79 @@ class TestOomRecovery:
     def test_mode_is_announced_even_without_an_oom(self, capsys):
         _proxy().predict_proba(_frame(100))
         assert "[TabFM] chunked inference active" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+#  OOM memory -- probes must not repeat across folds
+# ---------------------------------------------------------------------------
+
+class TestOomMemory:
+    """Job 61590876 completed, but burned an OOM probe on EVERY fold and split
+    (10 in one slot) because each fold's fresh proxy re-discovered the same
+    failing pass size. The per-process memory kills the repeats."""
+
+    def test_second_fold_skips_the_known_failing_size(self):
+        """Fold 1 discovers; fold 2 (a new proxy, same split size) must go
+        straight to the working chunk with zero OOMs."""
+        fold1 = _proxy(oom_above=1500)
+        fold1.predict_proba(_frame(4000))
+        assert fold1.wrapped.calls[0] == 4000          # the discovery probe
+
+        fold2 = _proxy(oom_above=1500)                 # fresh proxy, as per fold
+        fold2.predict_proba(_frame(4000))
+        assert 4000 not in fold2.wrapped.calls, "re-probed a known-OOM size"
+        assert 2000 not in fold2.wrapped.calls, "re-probed a known-OOM size"
+        assert fold2.wrapped.calls == [1000, 1000, 1000, 1000]
+
+    def test_smaller_split_still_gets_its_one_pass_try(self):
+        """An OOM at 106k rows says nothing about 85k: the val split must still
+        try a single pass (and here succeed), exactly as on hackerearth."""
+        test_split = _proxy(oom_above=90_000)
+        test_split.predict_proba(_frame(100_000))      # OOM -> chunks of 50k
+        val_split = _proxy(oom_above=90_000)
+        val_split.predict_proba(_frame(85_000))
+        assert val_split.wrapped.calls == [85_000], "one clean pass expected"
+
+    def test_intermediate_split_learns_its_own_boundary(self):
+        """home_credit's val (49k) OOM'd even though it was below the test
+        split's failing size (61k): the ladder must still engage, then teach the
+        NEXT fold's val to skip straight to its working chunk."""
+        fold1_val = _proxy(oom_above=40_000)
+        fold1_val.predict_proba(_frame(49_202))
+        assert fold1_val.wrapped.calls[0] == 49_202    # honest first try
+
+        fold2_val = _proxy(oom_above=40_000)
+        fold2_val.predict_proba(_frame(49_202))
+        assert fold2_val.wrapped.calls[0] == 24_601    # skipped the probe
+
+    def test_memory_is_keyed_by_feature_width(self):
+        """One slot can run several datasets in one process; an OOM on a
+        120-feature dataset must not pre-shrink a 35-feature one."""
+        wide = ChunkedInference(_StubModel(oom_above=1500), chunk_size=None)
+        wide.predict_proba(pd.DataFrame({
+            "num_0": np.arange(4000.0),
+            "num_1": np.arange(4000.0)}))               # width 2 -> OOM recorded
+        narrow = _proxy()                                        # width 1
+        narrow.predict_proba(_frame(4000))
+        assert narrow.wrapped.calls == [4000], "inherited another width's OOM"
+
+    def test_explicit_chunk_size_is_not_preshrunk_by_the_memory(self):
+        """An explicit ``predict_chunk_size`` is a caller's decision: it must be
+        attempted verbatim even when the memory says a smaller pass OOM'd.
+        (The OOM ladder still rescues it afterwards, as everywhere else.)"""
+        _proxy(oom_above=1500).predict_proba(_frame(4000))       # seed memory
+        forced = _proxy(chunk_size=3000, oom_above=1500)
+        out = forced.predict_proba(_frame(4000))
+        assert forced.wrapped.calls[0] == 3000, "explicit size was pre-shrunk"
+        assert out.shape == (4000, 2)
+
+    def test_skip_is_announced(self, capsys):
+        _proxy(oom_above=1500).predict_proba(_frame(4000))
+        capsys.readouterr()
+        _proxy(oom_above=1500).predict_proba(_frame(4000))
+        out = capsys.readouterr().out
+        assert "starting at chunks of" in out
+        assert "earlier in this run" in out
 
 
 # ---------------------------------------------------------------------------

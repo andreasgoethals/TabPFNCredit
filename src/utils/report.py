@@ -122,3 +122,54 @@ def notebook_report(
 
 
 __all__ = ["Section", "capture", "section", "notebook_report"]
+
+
+# ---------------------------------------------------------------------------
+#  In-notebook previews (rendered, NOT printed)
+# ---------------------------------------------------------------------------
+#
+# Every notebook has exactly ONE printed report, at the end, and that is what
+# ``run_notebooks`` harvests into results/All_Results.md. Consolidating to that
+# single report meant deleting the per-cell ``print`` calls -- which left cells
+# that compute a result and show nothing, sitting under a markdown header
+# promising an analysis. They read as "this cell did not run".
+#
+# ``preview`` closes that gap without breaking the one-report rule: it goes
+# through IPython's DISPLAY channel, and the harvester collects stdout only
+# (``harvest_stdout(..., include_results=False)``). So the value is visible in
+# the notebook and absent from All_Results.md, which is exactly what we want --
+# the report remains the single source of the printed record.
+
+def preview(value: Any, *, label: Optional[str] = None) -> None:
+    """Render ``value`` in the notebook without printing it.
+
+    Falls back to no-op-safe behaviour outside IPython (e.g. under pytest), so
+    calling it from a plain Python process is harmless.
+    """
+    try:
+        from IPython.display import display  # noqa: PLC0415 -- optional dep
+    except ImportError:                       # pragma: no cover -- not in a kernel
+        return
+    try:
+        if label:
+            from IPython.display import Markdown
+            display(Markdown(f"**{label}**"))
+        display(value)
+    except Exception:                         # pragma: no cover -- never break a run
+        pass
+
+
+def omnibus_frame(**tests: Dict[str, float]) -> "pd.DataFrame":
+    """Tidy one or more omnibus-test result dicts into a comparable table.
+
+    ``omnibus_frame(Friedman=f, **{"Aligned ranks": fa}, Quade=qu)`` -> one row
+    per test, so the notebook can show them side by side under its header.
+    """
+    import pandas as pd
+
+    rows = {name: dict(result) for name, result in tests.items() if result}
+    frame = pd.DataFrame(rows).T
+    return frame.round(6)
+
+
+__all__ += ["preview", "omnibus_frame"]
