@@ -29,7 +29,7 @@ unchanged.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as _dataclass_replace
 from typing import Any, Optional, Set
 
 # Re-export TALENT's enums so legacy `from src.methods.method_config import
@@ -118,6 +118,53 @@ LOGIT_METHODS: MethodSet = derive_method_set(output_type=OutputType.LOGITS)
 PROBABILITY_METHODS: MethodSet = derive_method_set(output_type=OutputType.PROBABILITIES)
 CLASS_LABEL_METHODS: MethodSet = derive_method_set(output_type=OutputType.CLASS_LABELS)
 
+# ----------------------------------------------------------------------------
+#  Registry correction: methods TALENT marks tunable but cannot be tuned
+# ----------------------------------------------------------------------------
+#
+# TALENT's registry sets supports_hpo=True for NCM and NaiveBayes, but their
+# implementation opens with ``assert(not args.tune)`` -- so every ``__HPO`` point
+# for them fails with a bare AssertionError. It is not a run that needs retrying:
+# the point can never succeed, and the planner would keep requesting it forever
+# ("missing" on every gap scan).
+#
+# Corrected here rather than in the fork so it deploys with a plain git pull, and
+# in the REGISTRY rather than only in the derived sets so every consumer agrees
+# (the resubmit planner, the SLURM generator and spec.validate_args all read it).
+_HPO_UNSUPPORTED: MethodSet = {"NCM", "NaiveBayes"}
+for _name in sorted(_HPO_UNSUPPORTED):
+    _spec = METHOD_REGISTRY.get(_name)
+    if _spec is not None and _spec.supports_hpo:
+        METHOD_REGISTRY[_name] = _dataclass_replace(_spec, supports_hpo=False)
+
+# ----------------------------------------------------------------------------
+#  Capacity row caps: methods too slow to train on the largest datasets
+# ----------------------------------------------------------------------------
+#
+# A TRAINING-side ceiling, applied through the same path as TALENT's own
+# ``train_row_limit`` (see method_runner: it is passed to fold construction, so
+# validation and TEST folds keep every row). Every method is therefore still
+# scored on identical observations -- the property METHOD_TEST_VAL_LIMITS exists
+# to protect -- while the fit stays affordable.
+#
+# ``tangos`` needs this. At 20 HPO trials it is 21 fits per fold; on Hackerearth
+# (340,753 training rows) one fold had not finished in 37 h, so a 5-fold tuned run
+# is ~150-200 h and no wall-time extension reaches it. It previously "worked" only
+# under a 100,000-row WHOLE-DATASET cap, which also shrank the test folds to
+# 20,000 against 106,486 for every other method -- exactly the comparability bug
+# this replaces. 50,000 training rows lands near 27 h; 100,000 would be ~54 h and
+# miss the wall again.
+#
+# A cap is a ceiling, so it needs no dataset threshold: it binds only where the
+# training split is already larger (above ~78k rows, since train = 64% of N). It
+# binds on 8 PD datasets and no LGD dataset, and must be disclosed in the paper
+# next to the in-context caps.
+_CAPACITY_ROW_CAPS: dict = {"tangos": 50_000}
+for _name, _cap in sorted(_CAPACITY_ROW_CAPS.items()):
+    _spec = METHOD_REGISTRY.get(_name)
+    if _spec is not None and _spec.train_row_limit != _cap:
+        METHOD_REGISTRY[_name] = _dataclass_replace(_spec, train_row_limit=_cap)
+
 # HPO support
 NO_HPO_METHODS: MethodSet = derive_method_set(supports_hpo=False)
 HPO_METHODS: MethodSet = derive_method_set(supports_hpo=True)
@@ -129,10 +176,16 @@ _FOUNDATION_NAMES = {
     "tabpfn", "tabpfn_v2", "tabpfn_v2_5", "tabpfn_v3", "tabpfn_real",
     "tabicl", "tabicl_v2", "mitra", "limix", "tabdpt", "tabfm", "hyperfast", "tabptm",
 }
+# A train_row_limit normally means "in-context learner with a bounded context",
+# hence the inference below. Methods in _CAPACITY_ROW_CAPS carry one purely
+# because they are slow, so they must be excluded: without this, capping tangos
+# would relabel it a foundation model in every figure, legend and family-level
+# statistic.
 FOUNDATION_METHODS: MethodSet = {
     name for name in METHOD_REGISTRY
     if name in _FOUNDATION_NAMES
-    or METHOD_REGISTRY[name].train_row_limit is not None
+    or (METHOD_REGISTRY[name].train_row_limit is not None
+        and name not in _CAPACITY_ROW_CAPS)
 }
 
 # The TabPFN family, derived from the canonical name prefix.

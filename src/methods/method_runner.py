@@ -64,7 +64,7 @@ from src.methods.method_config import (
 from src.methods.method_metrics import enrich_pd_metrics, enrich_lgd_metrics
 from src.methods.cost_metrics import cost_sensitive_summary
 from src.methods.tabfm_chunked import install as install_tabfm_chunked_inference
-from src.methods.sklearn_compat import install_sklearn_validate_data_shim
+from src.methods.sklearn_compat import install_sklearn_compat
 from src.utils.paths import cache_root
 from src.utils.runtime_quiet import configure_quiet_runtime
 
@@ -334,12 +334,14 @@ def _build_talent_args(
         overrides.setdefault("max_epoch", max_epoch)
         overrides.setdefault("batch_size", batch_size)
 
-    # scikit-learn 1.6 removed BaseEstimator._validate_data, which TALENT's
-    # vendored TabICL v1 still calls in BOTH arms of its own version check --
-    # every tabicl fit dies with AttributeError on the cluster, where TabFM
-    # forces sklearn >= 1.6. Restore it before any estimator is built; this is a
-    # no-op on sklearn < 1.6 and is idempotent.
-    install_sklearn_validate_data_shim()
+    # TALENT's vendored wrappers were written against scikit-learn < 1.6, which
+    # the cluster no longer has (TabFM forces >= 1.6; it is currently on 1.9):
+    #   * TabICL v1 calls BaseEstimator._validate_data, removed in 1.6
+    #   * tabpfn / tabpfn_v2 / tabpfn_real / realmlp pass check_X_y(
+    #     force_all_finite=...), renamed in 1.6 and removed in 1.8
+    # Both are restored here, before any estimator is built. No-ops on older
+    # sklearn, and idempotent.
+    install_sklearn_compat()
 
     args = TALENT.build_args(
         method,

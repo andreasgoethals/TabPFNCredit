@@ -107,3 +107,59 @@ class TestFoundationMethods:
         for m in ("tabicl", "tabicl_v2", "tabdpt", "mitra", "limix"):
             if m in METHOD_REGISTRY:
                 assert m in FOUNDATION_METHODS, f"{m} should be a foundation model"
+
+
+# ---------------------------------------------------------------------------
+#  Registry corrections: HPO support and capacity row caps
+# ---------------------------------------------------------------------------
+
+def test_ncm_and_naivebayes_are_not_tunable():
+    """TALENT marks them supports_hpo=True but they assert `not args.tune`.
+
+    Left uncorrected, every __HPO point for them fails with a bare
+    AssertionError and the resubmit planner requests it again on every gap scan.
+    """
+    from src.methods.method_config import HPO_METHODS, NO_HPO_METHODS, METHOD_REGISTRY
+
+    for name in ("NCM", "NaiveBayes"):
+        assert METHOD_REGISTRY[name].supports_hpo is False, name
+        assert name not in HPO_METHODS and name in NO_HPO_METHODS, name
+
+
+def test_tangos_has_a_training_row_cap():
+    """tangos cannot train on the largest datasets within any wall time.
+
+    21 fits per fold at n_trials=20; one fold on Hackerearth's 340,753 training
+    rows had not finished in 37 h. The cap is on TRAINING rows only, so test and
+    validation folds keep every row and all methods stay comparable.
+    """
+    from src.methods.method_config import METHOD_ROW_LIMITS
+
+    assert METHOD_ROW_LIMITS.get("tangos") == 50_000
+
+
+def test_a_capacity_cap_does_not_relabel_a_method_as_a_foundation_model():
+    """FOUNDATION_METHODS infers from train_row_limit; capped-for-speed methods
+    must be excluded or they appear as foundation models in every figure."""
+    from src.methods.method_config import (FOUNDATION_METHODS, METHOD_REGISTRY,
+                                           _CAPACITY_ROW_CAPS)
+
+    assert _CAPACITY_ROW_CAPS, "fixture is wrong -- no capacity caps declared"
+    for name in _CAPACITY_ROW_CAPS:
+        assert METHOD_REGISTRY[name].train_row_limit is not None
+        assert name not in FOUNDATION_METHODS, (
+            f"{name} is capped for runtime, not an in-context learner")
+    # the real foundation family is untouched
+    for name in ("tabpfn_v3", "tabicl_v2", "mitra", "tabdpt"):
+        assert name in FOUNDATION_METHODS, name
+
+
+def test_capacity_cap_applies_to_tuned_and_untuned_alike():
+    """Both variants must train on the same rows, or the HPO-effect number
+    would mix 'tuning helped' with 'trained on less data'."""
+    from src.methods.method_config import HPO_METHODS, METHOD_ROW_LIMITS
+
+    # the cap lives on the method, not on the __HPO suffix, so it necessarily
+    # applies to both -- assert the method is still tunable so both exist
+    assert "tangos" in HPO_METHODS
+    assert METHOD_ROW_LIMITS.get("tangos") == 50_000

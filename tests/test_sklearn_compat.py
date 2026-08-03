@@ -84,12 +84,88 @@ def test_degrades_when_neither_api_is_available(monkeypatch):
     assert compat.install_sklearn_validate_data_shim() is False
 
 
-def test_method_runner_installs_the_shim():
-    """The hook must actually be wired into the run path, not merely exist."""
+# The run path calls the composite install_sklearn_compat(); that wiring is
+# asserted by test_install_sklearn_compat_runs_both_shims below.
+
+
+# ---------------------------------------------------------------------------
+#  force_all_finite -> ensure_all_finite (renamed 1.6, removed 1.8)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(autouse=True)
+def _fresh_validator_flag(monkeypatch):
+    monkeypatch.setattr(compat, "_VALIDATORS_PATCHED", False)
+
+
+def _new_style(X=None, y=None, *, ensure_all_finite=True, **kw):
+    """Stands in for sklearn >= 1.8: the old kwarg no longer exists."""
+    _new_style.seen = {"ensure_all_finite": ensure_all_finite, **kw}
+    return X, y
+
+
+def test_finite_kwarg_is_translated(monkeypatch):
+    import sklearn.utils.validation as skv
+
+    monkeypatch.setattr(skv, "check_X_y", _new_style, raising=False)
+    assert compat.install_sklearn_finite_kwarg_shim() is True
+
+    # exactly the call TALENT's realmlp / tabpfn wrappers make
+    skv.check_X_y([[1.0]], [0], force_all_finite="allow-nan", multi_output=True)
+    assert _new_style.seen["ensure_all_finite"] == "allow-nan", (
+        "the value is load-bearing: these methods accept NaN, so dropping it "
+        "would make validation reject the data")
+    assert _new_style.seen["multi_output"] is True
+
+
+def test_already_imported_module_is_rebound(monkeypatch):
+    """The wrappers bind check_X_y as a module global at import time."""
+    import sys
+    import types
+
+    import sklearn.utils.validation as skv
+
+    vendored = types.ModuleType("_fake_vendored_wrapper")
+    vendored.check_X_y = _new_style
+    monkeypatch.setitem(sys.modules, "_fake_vendored_wrapper", vendored)
+    monkeypatch.setattr(skv, "check_X_y", _new_style, raising=False)
+
+    assert compat.install_sklearn_finite_kwarg_shim() is True
+    assert vendored.check_X_y is not _new_style, "stale binding was not rebound"
+    vendored.check_X_y([[1.0]], [0], force_all_finite=False)
+    assert _new_style.seen["ensure_all_finite"] is False
+
+
+def test_no_op_when_the_old_kwarg_still_exists(monkeypatch):
+    """sklearn < 1.8 accepts force_all_finite; leave it alone."""
+    import sklearn.utils.validation as skv
+
+    def old_style(X=None, y=None, *, force_all_finite=True, **kw):
+        return X, y
+
+    monkeypatch.setattr(skv, "check_X_y", old_style, raising=False)
+    monkeypatch.setattr(skv, "check_array", old_style, raising=False)
+    assert compat.install_sklearn_finite_kwarg_shim() is False
+    assert skv.check_X_y is old_style
+
+
+def test_finite_shim_is_idempotent(monkeypatch):
+    import sklearn.utils.validation as skv
+
+    monkeypatch.setattr(skv, "check_X_y", _new_style, raising=False)
+    assert compat.install_sklearn_finite_kwarg_shim() is True
+    first = skv.check_X_y
+    monkeypatch.setattr(compat, "_VALIDATORS_PATCHED", False)
+    compat.install_sklearn_finite_kwarg_shim()
+    assert skv.check_X_y is first, "double-wrapped"
+
+
+def test_install_sklearn_compat_runs_both_shims():
     import inspect
 
     from src.methods import method_runner
 
-    source = inspect.getsource(method_runner)
-    assert "install_sklearn_validate_data_shim()" in source, (
-        "the shim is never called -- TabICL v1 would still fail on sklearn >= 1.6")
+    source = inspect.getsource(compat.install_sklearn_compat)
+    assert "install_sklearn_validate_data_shim()" in source
+    assert "install_sklearn_finite_kwarg_shim()" in source
+    assert "install_sklearn_compat()" in inspect.getsource(method_runner), (
+        "the shims are never called from the run path")

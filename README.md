@@ -337,7 +337,13 @@ empty, so no method's validation or test fold is ever subsampled: a per-method
 cap would mean comparing methods on different rows. Only the *training* side may
 be capped (`METHOD_ROW_LIMITS`, from TALENT's registry, plus TabFM's
 `max_num_rows` context cap), which changes what a model learns from, not what it
-is measured on. A consequence worth knowing when results are reused: because the
+is measured on. One cap is ours rather than TALENT's: **TANGOS trains on at most
+50,000 rows** (`_CAPACITY_ROW_CAPS` in `src/methods/method_config.py`). At 20 HPO
+trials it is 21 fits per fold, and on the largest PD dataset a single fold did not
+finish in 37 h, so a tuned run is out of reach of any wall time. The cap binds on
+the 8 PD datasets whose training split exceeds it and on no LGD dataset, applies
+to the tuned and untuned variants alike so their comparison stays clean, and — being
+a training cap — leaves every method scored on the same rows. A consequence worth knowing when results are reused: because the
 evaluation set is a property of the dataset alone, the observed target mean of a
 dataset must be *byte-identical across methods*. If it is not, some result files
 predate a preprocessing change and are stale —
