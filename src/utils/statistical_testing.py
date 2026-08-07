@@ -1137,6 +1137,7 @@ def statistical_report(
     task_name: str = "",
     higher_is_better: bool = True,
     focus: Optional[Sequence[str]] = None,
+    control: Optional[str] = None,
     alpha: float = 0.05,
 ) -> str:
     """One copy-pasteable plain-text report of EVERY test in the statistical
@@ -1205,13 +1206,57 @@ def statistical_report(
     except Exception as exc:  # noqa: BLE001
         out.append(f"\n[7] All-pairwise APVs — unavailable ({exc})")
 
+    # [8] must ALWAYS appear. It used to be emitted only when `focus` named at
+    # least two methods present in the matrix -- and no caller passed `focus`, so
+    # the battery silently stopped at [7] while the section header promised a
+    # "Bayesian ROPE" analysis. The numbers existed on screen (the notebooks
+    # render them through the display channel) but never reached this report or
+    # All_Results.md, so they could not be audited. When no focus is given, fall
+    # back to the best-ranked methods rather than printing nothing.
     foc = [m for m in (focus or []) if m in matrix.columns]
+    auto = ""
+    if len(foc) < 2:
+        foc = [m for m in ranks.sort_values().index[:4]]
+        auto = " (auto-selected: the 4 best-ranked methods; pass focus= to choose)"
     if len(foc) >= 2:
-        out.append(f"\n[8] Bayesian signed-rank test (ROPE = +/-0.01) for focus methods {foc}:")
+        out.append(f"\n[8] Bayesian signed-rank test (ROPE = +/-0.01) for "
+                   f"{[str(m) for m in foc]}{auto}:")
         for x, y in itertools.combinations(foc, 2):
             r = bayesian_signed_rank_test(matrix[x], matrix[y], rope=0.01)
             out.append(f"      {x:14s} vs {y:14s}: P({x} better) = {r['P_right']:.3f}, "
                        f"P(equivalent) = {r['P_rope']:.3f}, P({y} better) = {r['P_left']:.3f}")
+    else:
+        out.append(f"\n[8] Bayesian signed-rank test — unavailable "
+                   f"(needs >= 2 methods, matrix has {k}).")
+
+    # [9] The champion notebooks compare everything against one control with
+    # Bonferroni-Dunn. That table was previewed in the notebook but never
+    # printed, so it was missing from All_Results.md too.
+    if control is not None:
+        if control not in matrix.columns:
+            out.append(f"\n[9] Control comparison — unavailable "
+                       f"(control {control!r} not among the {k} methods).")
+        else:
+            try:
+                cd_bd = bonferroni_dunn_cd(k, N, alpha)
+                ctrl = control_apv_table(matrix, control=control,
+                                         higher_is_better=higher_is_better)
+                out.append(f"\n[9] Control comparison — every method vs "
+                           f"{control} (Bonferroni-Dunn CD = {cd_bd:.3f}, alpha = {alpha}):")
+                # Print the table rather than picking one p-value column: the
+                # procedures disagree in power, and a reader auditing the paper
+                # needs to see which one a claim rests on.
+                wanted = ["method", "z", "p_unadjusted", "bonferroni_dunn", "holm",
+                          "finner", "li"]
+                show = ctrl[[c for c in wanted if c in ctrl.columns]].copy()
+                for line in show.round(4).to_string(index=False).splitlines():
+                    out.append("      " + line)
+                if "bonferroni_dunn" in ctrl.columns:
+                    n_sig = int((ctrl["bonferroni_dunn"] < alpha).sum())
+                    out.append(f"      -> {n_sig} of {len(ctrl)} differ significantly "
+                               f"from {control} (Bonferroni-Dunn, alpha = {alpha}).")
+            except Exception as exc:  # noqa: BLE001
+                out.append(f"\n[9] Control comparison — unavailable ({exc})")
 
     out.append(rule)
     text = "\n".join(out)

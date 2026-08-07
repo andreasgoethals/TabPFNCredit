@@ -96,3 +96,40 @@ def test_no_undefined_names(nb_path: Path, tmp_path: Path):
         f"{nb_path.name} uses names nothing imports or defines:\n  "
         + "\n  ".join(u.replace(str(flat), nb_path.name) for u in undefined)
     )
+
+
+# ---------------------------------------------------------------------------
+#  A report section must deliver what its title promises
+# ---------------------------------------------------------------------------
+#
+# The printed report is what reaches results/All_Results.md, so a section titled
+# "... Bayesian ROPE" that prints no ROPE block makes the paper unauditable. That
+# happened: statistical_report only emitted the block when `focus=` named >= 2
+# methods, and no notebook passed it.
+
+def _report_calls(nb_path: Path) -> str:
+    nb = json.loads(nb_path.read_text(encoding="utf-8"))
+    return "\n".join("".join(c.get("source", []))
+                     for c in nb.get("cells", []) if c.get("cell_type") == "code")
+
+
+@pytest.mark.parametrize("nb_path", NOTEBOOKS, ids=lambda p: p.stem)
+def test_statistical_sections_pass_what_they_promise(nb_path: Path):
+    src = _report_calls(nb_path)
+    if "statistical_report" not in src:
+        pytest.skip("no statistical report in this notebook")
+
+    call = src[src.index("st.statistical_report"):]
+    call = call[:call.index("))") + 2] if "))" in call else call
+
+    titles = " ".join(re.findall(r"section\(\s*['\"]([^'\"]+)", src)).lower()
+
+    if "rope" in titles or "bayesian" in titles:
+        assert "focus=" in call, (
+            f"{nb_path.name} promises a Bayesian ROPE section but does not pass "
+            f"focus= to statistical_report, so the block is auto-selected rather "
+            f"than the methods the notebook actually shows")
+    if "control" in titles:
+        assert "control=" in call, (
+            f"{nb_path.name} promises a control-based section but does not pass "
+            f"control= to statistical_report, so the control table is never printed")

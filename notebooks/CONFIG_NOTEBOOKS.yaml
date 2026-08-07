@@ -35,5 +35,5 @@ champions:
   lgd:
     - tabpfn_v3         # foundation-model champion (also the control method)
     - catboost          # gradient-boosting champion
-    - tabm              # deep-tabular champion
+    - realmlp              # deep-tabular champion
     - LinearRegression  # classical champion
