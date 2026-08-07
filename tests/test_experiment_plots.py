@@ -277,12 +277,14 @@ def test_page_sizes_respect_the_a4_row_cap_and_avoid_orphans():
     """Rows per page must never exceed the A4-filling cap, must account for
     every dataset, and must not leave a near-empty final page.
 
-    The cap comes from measured geometry: at 4 method columns these figures are
-    ~1.39 (grid) / ~1.35 (density) tall relative to their width, so 6 rows fill
-    ~97% of an A4 text block and 7 rows overflow it.
+    Six rows would fill an A4 text block almost exactly (7 overflows it), but the
+    binned grid pages at FOUR to match the prediction-density figure: the two show
+    the same datasets x methods layout and must page identically.
     """
     cap = ep._PER_DATASET_ROWS_PER_PAGE
-    assert cap == 6, "the A4 measurement in the module docstring implies 6 rows"
+    assert cap == 4, "the binned grid must page like the density figure"
+    assert cap == ep._DENSITY_ROWS_PER_PAGE, (
+        "the two per-dataset figures must page identically")
     for n in range(1, 31):
         sizes = ep._page_sizes(n, cap)
         assert sum(sizes) == n, f"{n}: lost or duplicated rows -> {sizes}"
@@ -293,11 +295,20 @@ def test_page_sizes_respect_the_a4_row_cap_and_avoid_orphans():
 
 
 def test_page_sizes_known_splits():
+    """The real splits at the configured cap of 4."""
     cap = ep._PER_DATASET_ROWS_PER_PAGE
-    assert ep._page_sizes(6, cap) == [6]          # exactly one full page
-    assert ep._page_sizes(7, cap) == [4, 3]       # 6+1 would orphan a lone row
-    assert ep._page_sizes(12, cap) == [6, 6]      # two full pages, no rebalance
-    assert ep._page_sizes(14, cap) == [6, 6, 2]   # fill first, half-page last
+    assert ep._page_sizes(4, cap) == [4]              # exactly one full page
+    assert ep._page_sizes(7, cap) == [4, 3]           # 7 LGD datasets
+    assert ep._page_sizes(12, cap) == [4, 4, 4]       # three full pages
+    assert ep._page_sizes(14, cap) == [4, 4, 4, 2]    # 14 PD datasets
+
+
+def test_page_sizes_algorithm_at_other_caps():
+    """The chunking rules themselves, independent of the configured cap."""
+    assert ep._page_sizes(6, 6) == [6]                # exactly one full page
+    assert ep._page_sizes(7, 6) == [4, 3]             # 6+1 would orphan a lone row
+    assert ep._page_sizes(12, 6) == [6, 6]            # two full pages, no rebalance
+    assert ep._page_sizes(14, 6) == [6, 6, 2]         # fill first, half-page last
 
 
 def test_rows_per_page_argument_is_late_bound(monkeypatch):

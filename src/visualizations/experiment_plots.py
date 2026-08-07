@@ -1237,11 +1237,17 @@ def calibration_decile_curve(
 #:        7   1.68 -> 268 mm     1.63 -> 261 mm   <-- OVERFLOWS the page
 #: So 6 rows fills an A4 page almost exactly while 7 overflows it by ~17%
 #: (7 rows had to be scaled down to fit, shrinking the tick labels with it).
-#: 14 PD datasets therefore give pages of 6 + 6 + 2, and 7 LGD datasets 6 + 1.
 #:
-#: This cap applies to the BINNED-GRID figure. The prediction-density figures use
-#: :data:`_DENSITY_ROWS_PER_PAGE` (4) with their own taller PD panel; see there.
-_PER_DATASET_ROWS_PER_PAGE = 6
+#: FOUR is used anyway, matching :data:`_DENSITY_ROWS_PER_PAGE`: six rows of
+#: 4 panels each is legible in principle but dense to read on paper, and the two
+#: per-dataset figures showing the same datasets x methods layout should page
+#: identically. 14 PD datasets give 4 + 4 + 4 + 2 and 7 LGD datasets 4 + 3.
+#:
+#: The height cannot be reclaimed the way the density figure reclaims it. These
+#: panels are ``set_aspect("equal", adjustable="box")`` because they carry a y = x
+#: diagonal, so a taller slot becomes vertical gap rather than larger axes. Four
+#: rows therefore use ~70% of the sheet, which is the cost of the wider layout.
+_PER_DATASET_ROWS_PER_PAGE = 4
 
 #: Per-panel size in inches. The height is the lever that sets the aspect above;
 #: keep the two in step if you change either.
