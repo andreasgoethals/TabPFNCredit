@@ -3114,7 +3114,7 @@ def foundation_vs_baseline_scatter(
 # ---------------------------------------------------------------------------
 
 # Preferred column order per task (only those actually present are shown).
-_PD_METRIC_ORDER = ["AUC", "Gini", "KS", "AP_normalized", "F1", "Accuracy",
+_PD_METRIC_ORDER = ["AUC", "Gini", "KS", "AP_adjusted", "F1", "Accuracy",
                     "Balanced_Accuracy", "MCC", "Brier", "ECE", "LogLoss"]
 _LGD_METRIC_ORDER = ["R2", "RMSE", "MAE", "Spearman_Corr", "Pearson_Corr"]
 
@@ -3418,12 +3418,12 @@ def _resolve_mean_column(df: pd.DataFrame, metric: str) -> str:
     )
 
 
-_METRIC_PRETTY = {"R2": "R²", "AP_NORMALIZED": "Normalized AP"}
+_METRIC_PRETTY = {"R2": "R²", "AP_ADJUSTED": "Adjusted AP"}
 
 
 def _pretty_metric(metric: str) -> str:
-    """Display name for a metric (e.g. ``R2`` -> ``R²``, ``AP_normalized`` ->
-    ``Normalized AP``). Column lookups and file names keep the raw key; only
+    """Display name for a metric (e.g. ``R2`` -> ``R²``, ``AP_adjusted`` ->
+    ``Adjusted AP``). Column lookups and file names keep the raw key; only
     what the reader sees is prettified."""
     return _METRIC_PRETTY.get(str(metric).upper(), str(metric))
 

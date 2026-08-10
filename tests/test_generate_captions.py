@@ -25,8 +25,8 @@ KNOWN = [
     "pd_learning_curve_auc_relative_smooth", "lgd_learning_curve_r2_zoom",
     "pd_learning_curve_auc_combined", "pd_learning_curve_auc_combined_less",
     "pd_learning_curve_auc_combined_more", "lgd_learning_curve_r2_combined",
-    "pd_imbalance_curve_ap_normalized", "pd_imbalance_curve_ap_normalized_smooth",
-    "pd_imbalance_curve_auc_zoom", "pd_imbalance_curve_ap_normalized_zoom",
+    "pd_imbalance_curve_ap_adjusted", "pd_imbalance_curve_ap_adjusted_smooth",
+    "pd_imbalance_curve_auc_zoom", "pd_imbalance_curve_ap_adjusted_zoom",
     "pd_imbalance_curve_auc_combined",
     "pd_row_limit_0003_vehicle_loan_auc", "pd_minority_proportion_0002_taiwan_creditcard_auc",
     "pd_pama", "pd_pama_min2wins", "pd_cd_auc", "pd_winloss", "pd_significance",
@@ -44,7 +44,7 @@ def test_known_stems_are_recognised():
 def test_display_names_and_multitoken_metrics_parse():
     _, cap = caption_for("pd_tabpfn_v3_vs_catboost_scatter_auc")
     assert "TabPFN-3" in cap and "CatBoost" in cap
-    _, cap = caption_for("pd_imbalance_curve_ap_normalized")
+    _, cap = caption_for("pd_imbalance_curve_ap_adjusted")
     assert "Curves average scores" in cap
 
 

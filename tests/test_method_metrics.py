@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -76,3 +78,74 @@ class TestLGDMetrics:
         m = calculate_lgd_metrics(y_true, y_pred)
         assert np.isnan(m["MAPE"])
         assert m["MAPE_n_zeros_excluded"] == 5
+
+
+# ---------------------------------------------------------------------------
+#  Adjusted Average Precision
+# ---------------------------------------------------------------------------
+#
+# The reported key is AP_adjusted (paper label "Adjusted AP"). It was previously
+# called AP_normalized and described as prevalence-invariant and attributed to
+# Flach & Kull; the quantity is unchanged but that framing overstated it, so both
+# the name and the wording are pinned here.
+
+class TestAdjustedAveragePrecision:
+
+    @staticmethod
+    def _dev(y_true, scores):
+        from src.methods.method_metrics import average_precision_deviation
+        return average_precision_deviation(np.asarray(y_true), np.asarray(scores))
+
+    def test_exactly_these_keys(self):
+        out = self._dev([0, 0, 1, 1], [0.1, 0.2, 0.8, 0.9])
+        assert set(out) == {"AP", "AP_baseline", "AP_minus_baseline", "AP_adjusted"}
+        assert "AP_normalized" not in out, "the old key must be gone"
+
+    def test_formula_is_exact(self):
+        out = self._dev([0, 0, 0, 1, 1, 1, 1], [0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 0.9])
+        ap, pi = out["AP"], out["AP_baseline"]
+        assert out["AP_minus_baseline"] == pytest.approx(ap - pi)
+        assert out["AP_adjusted"] == pytest.approx((ap - pi) / (1.0 - pi))
+
+    def test_baseline_is_the_positive_prevalence(self):
+        out = self._dev([0, 0, 0, 1], [0.4, 0.3, 0.2, 0.1])
+        assert out["AP_baseline"] == pytest.approx(0.25)
+
+    def test_perfect_ranking_maps_to_one(self):
+        out = self._dev([0, 0, 1, 1], [0.1, 0.2, 0.9, 0.95])
+        assert out["AP"] == pytest.approx(1.0)
+        assert out["AP_adjusted"] == pytest.approx(1.0)
+
+    def test_random_ranking_sits_near_zero(self):
+        """The reference point the adjustment maps to 0."""
+        rng = np.random.default_rng(0)
+        y = np.repeat([0, 1], [900, 100])
+        vals = [self._dev(y, rng.random(len(y)))["AP_adjusted"] for _ in range(30)]
+        assert abs(float(np.mean(vals))) < 0.05
+
+    def test_single_class_yields_nan_but_records_the_baseline(self):
+        out = self._dev([1, 1, 1], [0.2, 0.5, 0.9])
+        assert np.isnan(out["AP"]) and np.isnan(out["AP_adjusted"])
+        assert out["AP_baseline"] == pytest.approx(1.0)
+
+    def test_pd_metric_bundle_exposes_the_adjusted_key(self):
+        """The full PD bundle is what gets written to every result file."""
+        from src.methods.method_metrics import calculate_pd_metrics
+        y = np.array([0, 0, 1, 1, 0, 1])
+        p = np.array([0.1, 0.2, 0.7, 0.9, 0.3, 0.6])
+        m = calculate_pd_metrics(y, p, (p >= 0.5).astype(int), threshold=0.5)
+        assert "AP_adjusted" in m and "AP_normalized" not in m
+        assert m["AP_adjusted"] == pytest.approx(
+            (m["AP"] - m["AP_baseline"]) / (1.0 - m["AP_baseline"]))
+
+    def test_documentation_does_not_overclaim(self):
+        """No prevalence-invariance claim and no Flach & Kull attribution."""
+        from src.methods import method_metrics
+
+        source = Path(method_metrics.__file__).read_text(encoding="utf-8").lower()
+        for banned in ("prevalence-invariant", "prevalence invariant", "flach",
+                       "ap_normalized", "normalized ap"):
+            assert banned not in source, f"{banned!r} still present"
+        assert "does not remove all dependence on prevalence" in source or \
+               "not make the metric independent" in source, \
+               "the limitation must be stated explicitly"

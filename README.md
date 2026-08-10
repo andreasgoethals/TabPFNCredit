@@ -49,7 +49,7 @@ table.
 - [2. Command-line interface](#2-command-line-interface)
   - [Maintenance and analysis utilities](#maintenance-and-analysis-utilities-run-manually)
 - [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
-  - [Average Precision, baseline-corrected](#average-precision-baseline-corrected)
+  - [Adjusted Average Precision](#adjusted-average-precision)
   - [Dataset display names and paper ordering](#dataset-display-names-and-paper-ordering)
   - [LGD targets are clipped to `[0, 1]`](#lgd-targets-are-clipped-to-0-1)
 - [4. The four experiments](#4-the-four-experiments)
@@ -222,7 +222,7 @@ ones accept `--dry-run` to preview first.
 
 | Task | Type | Datasets | Headline metrics |
 |---|---|---|---|
-| **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, AP / AP_normalized, Expected_Loss_Normalized |
+| **PD** (Probability of Default) | Binary classification | 14 | AUC, Gini, KS, F1, Brier, ECE, AP / AP_adjusted, Expected_Loss_Normalized |
 | **LGD** (Loss Given Default) | Regression on `[0, 1]` | 7 | R², RMSE, MAE, Pearson_Corr, Spearman_Corr |
 
 The headline benchmark enables 38 distinct methods (62 (task, method)
@@ -251,25 +251,26 @@ placement, in-context row limit, HPO support) comes from TALENT's
 packing decisions for SLURM. Toggle methods on or off per experiment in
 `scripts/Experiment*/config/CONFIG_METHOD.yaml`.
 
-### Average Precision, baseline-corrected
+### Adjusted Average Precision
 
-Average Precision (area under the precision–recall curve) has a no-skill
-baseline equal to the positive prevalence π — so a raw AP of 0.30 is
-excellent on a 1%-default dataset but worthless on a 30%-default one, and
-raw AP cannot be compared across datasets. Every PD fold therefore also
-records the **normalised deviation**
+Average Precision (area under the precision–recall curve) has a random-ranking
+reference value equal to the positive prevalence π, and a maximum of 1 — so a raw
+AP of 0.30 is excellent on a 1%-default dataset but poor on a 30%-default one,
+and the two reference points sit at different places on every dataset. Every PD
+fold therefore also records **Adjusted AP**
 
 ```
-AP_normalized = (AP − π) / (1 − π)
+AP_adjusted = (AP − π) / (1 − π)
 ```
 
-which is 0 for a no-skill ranker and 1 for a perfect one regardless of
-prevalence (Flach & Kull, *Precision-Recall-Gain Curves*, NeurIPS 2015).
-This — not the raw absolute gap `AP − π` (which ignores how much headroom
-`1 − π` is even available) nor the unbounded ratio `AP / π` — is the
-quantity to compare across datasets. All four (`AP`, `AP_baseline` = π,
-`AP_minus_baseline`, `AP_normalized`) are stored so you can recompute
-either gap yourself.
+which places random ranking at 0 and perfect ranking at 1 on every dataset. That
+rescaling aligns the reference points, which is what makes the reported values
+readable side by side; it does **not** remove all dependence on prevalence, so
+adjusted values from datasets with very different π should still be read with
+that in mind. It is preferred over the raw absolute gap `AP − π` (which ignores
+how much headroom `1 − π` is available) and over the unbounded ratio `AP / π`.
+All four (`AP`, `AP_baseline` = π, `AP_minus_baseline`, `AP_adjusted`) are stored
+so you can recompute either gap yourself.
 
 ### Dataset display names and paper ordering
 
@@ -581,7 +582,7 @@ what is stored on disk.
 | `Experiment1.5-LGD-Stat` | Full all-learner statistical analysis (LGD): the same battery as 1.2, on **R²**. |
 | `Experiment1.6-LGD-FamilyStat` | **Champion-level** statistical analysis (LGD): **TabPFN-3**, **CatBoost**, **TabM**, **Linear Regression** (the `champions` list in `notebooks/CONFIG_NOTEBOOKS.yaml`). Same structure as 1.3; with only 7 LGD datasets the **Bayesian ROPE** result is emphasised over the (low-power) frequentist tests. |
 | `Experiment2.1-PD` / `Experiment2.2-LGD` | Learning curves (split by task): AUC (PD) / R² (LGD) vs **dataset size** (`row_limit` caps the rows before the CV split), in four pooled views (raw curve · raw curve with a lower-right inset zooming the shaded `rows <= 1000` region · moving average · moving average over transparent raw points), **per-dataset** raw-point plots, a data-efficiency table, and a summary of the metric's **evolution** across the whole sweep. |
-| `Experiment3` | Imbalance-robustness curves (PD): AUC and prevalence-corrected **AP_normalized** vs minority-class proportion, in the same four pooled views, with the lower-right inset zooming the shaded `minority proportion <= 0.025` region, plus per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
+| `Experiment3` | Imbalance-robustness curves (PD): AUC and **Adjusted AP** vs minority-class proportion, in the same four pooled views, with the lower-right inset zooming the shaded `minority proportion <= 0.025` region, plus per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files: missing, incomplete, malformed, anomalous and not-in-config results, plus an **evaluation-set mismatch** check that fails loudly if a dataset's methods were not all scored on the same observations (the signature of results carried over from before a preprocessing change). |
 
 **Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook with the project venv kernel, collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` once after a successful run. Notebooks execute **in parallel** (`-j N`, default min(4, CPUs)) — each is an independent kernel process with its own figure directory and its own `All_Results.md` section, and the shared per-experiment summary CSVs are rebuilt once up front instead of once per kernel (which also speeds up `-j 1` runs). Direct VS Code/Jupyter notebook runs refresh `figures/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Individual_Method_Runner` is skipped entirely; `Results_Checking` is re-run as a QA pass but its output is not collected into `All_Results.md`. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.

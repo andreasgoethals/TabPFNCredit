@@ -190,20 +190,24 @@ def calculate_pd_metrics(
     metrics["KS"] = ks_statistic(y_true, pos_proba) if pos_proba is not None else float("nan")
     metrics["Optimal_Threshold"] = float(threshold) if threshold is not None else float("nan")
 
-    # ---- Average Precision (area under PR curve) + baseline deviation ----
+    # ---- Average Precision (area under PR curve) + adjusted AP ----
     #
-    # The no-skill baseline of AP equals the positive-class prevalence pi
-    # (scikit-learn: "with random predictions, the AP is the fraction of
-    # positive samples"). Because pi differs per dataset, RAW AP is not
-    # comparable across datasets. The principled, bounded, prevalence-
-    # invariant cross-dataset metric is the NORMALIZED deviation
-    #     AP_normalized = (AP - pi) / (1 - pi)
-    # which maps no-skill -> 0 and perfect -> 1 (Flach & Kull, NeurIPS 2015,
-    # "Precision-Recall-Gain Curves"). We store, for transparency:
+    # Ordinary AP has a random-ranking reference value equal to the
+    # positive-class prevalence pi (scikit-learn: "with random predictions, the
+    # AP is the fraction of positive samples"), and its maximum is 1. Since pi
+    # differs per dataset, those two reference points sit at different places on
+    # every dataset. The adjusted form
+    #     AP_adjusted = (AP - pi) / (1 - pi)
+    # rescales the range so that random ranking maps to 0 and perfect ranking to
+    # 1 on every dataset. Aligning the reference points is all it does: it does
+    # NOT remove all dependence on prevalence, and adjusted values from datasets
+    # with very different pi should still be compared with that in mind.
+    # We store, for transparency:
     #   AP             -- raw average precision
-    #   AP_baseline    -- pi, the positive-class prevalence (the AP baseline)
-    #   AP_minus_baseline -- AP - pi (absolute lift above no-skill)
-    #   AP_normalized  -- (AP - pi) / (1 - pi)  <-- PRIMARY cross-dataset metric
+    #   AP_baseline    -- pi, the positive-class prevalence (AP's random-ranking
+    #                     reference value)
+    #   AP_minus_baseline -- AP - pi (absolute lift above random ranking)
+    #   AP_adjusted    -- (AP - pi) / (1 - pi)  <-- reported cross-dataset metric
     metrics.update(average_precision_deviation(y_true, pos_proba))
 
     return metrics
@@ -212,18 +216,22 @@ def calculate_pd_metrics(
 def average_precision_deviation(
     y_true: np.ndarray, pos_proba: Optional[np.ndarray]
 ) -> Dict[str, float]:
-    """Average precision + its prevalence baseline and the normalized deviation.
+    """Average precision, its random-ranking reference, and the adjusted form.
 
-    Returns a dict with ``AP``, ``AP_baseline`` (the positive-class
-    prevalence pi, which is AP's no-skill level), ``AP_minus_baseline``
-    (``AP - pi``), and ``AP_normalized`` = ``(AP - pi) / (1 - pi)`` -- the
-    bounded, prevalence-invariant metric to compare across datasets.
+    Returns a dict with ``AP``, ``AP_baseline`` (the positive-class prevalence
+    pi, which is AP's random-ranking reference value), ``AP_minus_baseline``
+    (``AP - pi``), and ``AP_adjusted`` = ``(AP - pi) / (1 - pi)``.
+
+    The adjustment places random ranking at 0 and perfect ranking at 1 on every
+    dataset, which makes the reported values easier to read side by side. It
+    aligns those reference points only; it does not make the metric independent
+    of prevalence.
     """
     out: Dict[str, float] = {
         "AP": float("nan"),
         "AP_baseline": float("nan"),
         "AP_minus_baseline": float("nan"),
-        "AP_normalized": float("nan"),
+        "AP_adjusted": float("nan"),
     }
     y_true = np.asarray(y_true).ravel()
     if pos_proba is None or len(y_true) == 0 or len(np.unique(y_true)) < 2:
@@ -239,7 +247,7 @@ def average_precision_deviation(
     if ap == ap:  # not NaN
         out["AP_minus_baseline"] = ap - pi
         # (1 - pi) == 0 only if everything is positive (excluded above).
-        out["AP_normalized"] = (ap - pi) / (1.0 - pi) if pi < 1.0 else float("nan")
+        out["AP_adjusted"] = (ap - pi) / (1.0 - pi) if pi < 1.0 else float("nan")
     return out
 
 

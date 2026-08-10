@@ -102,8 +102,9 @@ def sweep_axis(name: str) -> Optional[Tuple[str, float]]:
 #  Metric sanity rules
 # ============================================================================
 
-# Metrics that must live in [0, 1] (per task). AP_normalized & R2 may be
-# negative (worse than baseline), so they are checked separately.
+# Metrics that must live in [0, 1] (per task). AP_adjusted & R2 may be
+# negative (worse than the random-ranking reference), so they are checked
+# separately.
 _UNIT_INTERVAL_PD = ("AUC", "Brier", "ECE", "AP", "F1", "KS", "Accuracy")
 _NONNEG_LGD = ("RMSE", "MAE")
 
@@ -136,9 +137,9 @@ def metric_anomalies(task: str, metrics: Dict[str, Any]) -> List[str]:
             v = fval(k)
             if v is not None and not math.isnan(v) and not (-1e-9 <= v <= 1 + 1e-9):
                 issues.append(f"{k} out of [0,1] ({v:.3f})")
-        apn = fval("AP_normalized")
+        apn = fval("AP_adjusted")
         if apn is not None and not math.isnan(apn) and apn > 1 + 1e-9:
-            issues.append(f"AP_normalized>1 ({apn:.3f})")
+            issues.append(f"AP_adjusted>1 ({apn:.3f})")
     else:  # lgd regression
         r2 = fval("R2")
         if r2 is not None and not math.isnan(r2) and r2 < -1.0:
