@@ -673,7 +673,7 @@ def _is_redundant_proprietary_stem(stem: str, available: set) -> bool:
     for slug, entry in registry().items():
         if not entry.proprietary:
             continue
-        # numbered forms plus the BARE name (``corr_heloc``). Safe because a
+        # numbered forms plus the BARE name (e.g. ``corr_<slug>``). Safe because a
         # stem is only dropped when its neutral twin actually exists on disk.
         for form in (slug.replace(".", "_"), slug, slug.partition(".")[2]):
             if form in stem:

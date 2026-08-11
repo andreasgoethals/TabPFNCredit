@@ -324,7 +324,12 @@ class TestNothingTrackedLeaksAProprietarySlug:
             except OSError:                      # pragma: no cover
                 continue
             for bad in forbidden:
-                if re.search(rf"\b{re.escape(bad)}\b", text):
+                # NOT \b: '_' is a word character, so \b<slug>\b matches neither
+                # "corr_<slug>" nor "pd_row_limit_<slug>_auc". Both forms really
+                # did reach the public repo -- one in a code comment, the others
+                # in printed figure paths inside committed notebook output. An
+                # underscore has to count as a break.
+                if re.search(rf"(?<![a-z0-9]){re.escape(bad)}(?![a-z0-9])", text):
                     offenders.append(rel)
                     break
         assert not offenders, (
@@ -418,6 +423,12 @@ class TestNothingTrackedLeaksAProprietaryColumnName:
         if not private:
             pytest.skip("proprietary datasets not present locally")
 
+        # '_' IS treated as a word character here, unlike the slug gate above.
+        # The two leak differently: a slug leaks underscore-joined inside a
+        # filename ("pd_row_limit_<slug>_auc"), whereas a column name leaks as a
+        # standalone token in prose or a literal. Dropping '_' here only produced
+        # false positives -- an ordinary variable name that happens to contain a
+        # column word is not a schema disclosure.
         pattern = re.compile(
             r"(?<![A-Za-z0-9_])(" +
             "|".join(re.escape(c) for c in sorted(private, key=len, reverse=True)) +

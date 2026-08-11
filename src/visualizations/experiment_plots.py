@@ -2356,22 +2356,15 @@ def per_dataset_sweep_curves(
                      fontsize=TITLE_FS, fontweight="bold")
         ax.legend(loc="lower right", fontsize=LEGEND_FS, framealpha=0.92)
         plt.tight_layout()
-        # Filename keeps the on-disk slug so existing \includegraphics paths in
-        # the LaTeX keep working (the slug never appears in the compiled PDF).
-        stem = f"{task_name.lower()}_{sweep_axis}_{str(dataset).replace('.', '_')}_{metric.lower()}"
-        # For a PROPRIETARY dataset also write a neutral, anonymised copy
-        # (spec rule 3) so the figure can be \included without the real dataset
-        # name appearing in the path. Written BEFORE _save, which closes the
-        # figure. Same rendered content -- title/labels are already anonymised.
-        if out_dir is not None and _ds_proprietary(dataset):
-            neutral = (
-                f"{task_name.lower()}_{sweep_axis}_"
-                f"{_ds_name(dataset).lower()}_{metric.lower()}"
-            )
-            Path(out_dir).mkdir(parents=True, exist_ok=True)
-            neutral_path = Path(out_dir) / f"{neutral}.pdf"
-            fig.savefig(neutral_path, bbox_inches="tight", dpi=200)
-            paths.append(neutral_path)
+        # A PROPRIETARY dataset is named ONLY by its anonymised display name.
+        # The slug-named file used to be written too, so old \includegraphics
+        # paths kept resolving -- but the notebooks print the list of saved
+        # paths, so the real slug landed in committed notebook output and was
+        # published. A figure filename is not worth that.
+        proprietary = _ds_proprietary(dataset)
+        safe_key = (_ds_name(dataset).lower() if proprietary
+                    else str(dataset).replace(".", "_"))
+        stem = f"{task_name.lower()}_{sweep_axis}_{safe_key}_{metric.lower()}"
         p = _save(fig, out_dir, stem)
         if p:
             paths.append(p)
