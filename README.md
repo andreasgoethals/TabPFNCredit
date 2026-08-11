@@ -455,7 +455,9 @@ TabPFNCredit/
 │   │   ├── method_metrics.py           # PD / LGD metric helpers
 │   │   ├── cost_metrics.py             # expected loss + profit curves
 │   │   ├── runtime_profile.py          # tier + sec/fold per method (drives SLURM)
-│   │   └── tabfm_chunked.py            # memory-safe TabFM inference (chunk + OOM retry)
+│   │   ├── tabfm_chunked.py            # memory-safe TabFM inference (chunk + OOM retry)
+│   │   └── sklearn_compat.py           # shims for APIs scikit-learn 1.6-1.8 removed
+│   │                                   #   (TabICL v1, TabPFN family, RealMLP)
 │   ├── utils/
 │   │   ├── cli.py                      # `tabpfncredit` Typer CLI (the entry point)
 │   │   ├── paths.py                    # central path resolution (repo / project storage)
@@ -471,6 +473,7 @@ TabPFNCredit/
 │   │   ├── run_notebooks.py            # clear + restart-run all notebooks -> All_Results.md
 │   │   ├── generate_captions.py        # auto-write the single figures/CAPTIONS.md
 │   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
+│   │   ├── report.py                   # the one printed report per analysis notebook
 │   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
 │   │   └── verify_inference_chunking.py  # check chunked == single-pass inference
 │   └── visualizations/
@@ -594,7 +597,7 @@ what is stored on disk.
 ```bash
 pytest tests/                 # whole suite, well under a minute
 pytest tests/ -m smoke        # end-to-end runs of cheap methods on synthetic data
-pytest tests/ -m "not gpu"    # CI invocation -- auto-skips GPU-only tests
+pytest tests/ -m "not gpu"    # CI invocation (no test needs a GPU today)
 ```
 
 Coverage includes the registry-derived method sets, the PD / LGD metric helpers,

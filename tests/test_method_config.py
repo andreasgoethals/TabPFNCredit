@@ -82,7 +82,6 @@ class TestForbidsCatIndicesBugFix:
 class TestDeriveMethodSet:
 
     def test_filter_by_supports_hpo(self):
-        from TALENT.model.method_registry import Hardware
         hpo_off = derive_method_set(supports_hpo=False)
         assert hpo_off == NO_HPO_METHODS
 

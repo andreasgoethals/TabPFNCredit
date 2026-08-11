@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 #  Metric + dataset display
 # ---------------------------------------------------------------------------
+# The KEYS are load-bearing: they build _METRIC_RE below, the alternation every
+# caption rule matches a figure filename against. A metric missing from here
+# matches no rule and silently falls back to a generic caption -- so a rename
+# must be applied to the key, not only to the label. The values are display
+# strings kept for captions that name their metric; no rule uses one today.
 METRIC_DISPLAY = {
     "auc": r"\(\mathrm{AUC}\)",
     "brier": "Brier score",
@@ -71,10 +76,6 @@ METRIC_ORDER = [
 # Longest-first alternation so a multi-token metric matches before its prefix.
 _METRIC_RE = "|".join(sorted(METRIC_DISPLAY, key=len, reverse=True))
 TASK_DISPLAY = {"pd": "PD", "lgd": "LGD"}
-
-
-def _metric(m: str) -> str:
-    return METRIC_DISPLAY.get(m, _latex_escape(m.upper()))
 
 
 def _metric_rank(m: str) -> int:

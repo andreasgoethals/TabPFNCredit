@@ -331,3 +331,131 @@ class TestNothingTrackedLeaksAProprietarySlug:
             "tracked file(s) name a proprietary dataset slug -- publishing them "
             f"would defeat gitignoring the registry: {sorted(set(offenders))}"
         )
+
+
+class TestNothingTrackedLeaksAProprietaryColumnName:
+    """Publish gate: no tracked file may disclose a proprietary dataset's schema.
+
+    The sibling gate above guards dataset NAMES. The raw column names are just as
+    sensitive -- they describe the data provider's internal schema -- and they
+    live in two gitignored places (``dataset_preprocessing.py`` and each
+    dataset's files under ``data/``), so a copy-paste into tracked code, a
+    docstring, or a committed notebook output would publish them.
+
+    Identifiers come from the authoritative source: each proprietary dataset's
+    processed ``info.json`` plus its raw CSV header. Two subtractions keep this
+    from crying wolf:
+
+    * columns a PUBLIC dataset also uses are not secret;
+    * generic credit vocabulary ("age", "term", "income") says nothing about a
+      schema, and a wide proprietary CSV really does contain columns literally
+      named "AUTO" and "Source".
+
+    What remains are DISTINCTIVE identifiers -- >= 6 characters and carrying
+    structure (an underscore, a digit, or camelCase) -- which is what a schema
+    disclosure actually looks like.
+
+    Skips when the datasets are not present (a fresh clone, or CI).
+    """
+
+    GENERIC = {
+        "age", "term", "date", "amount", "income", "balance", "limit", "loan",
+        "credit", "score", "rate", "ratio", "value", "target", "default",
+        "status", "type", "code", "index", "count", "total", "purpose",
+        "housing", "savings", "employment", "duration", "history", "gender",
+        "region", "city", "state", "country", "year", "month", "flag", "number",
+        "utilization", "principal", "interest", "price", "cost", "other",
+        "unknown", "missing", "dropped", "retained", "source", "auto",
+    }
+
+    @staticmethod
+    def _distinctive(name: str) -> bool:
+        """Looks like a schema identifier rather than an English word."""
+        if len(name) < 6:
+            return False
+        return ("_" in name or any(c.isdigit() for c in name)
+                or re.search(r"[a-z][A-Z]", name) is not None)
+
+    @classmethod
+    def _columns_of(cls, task: str, slug: str) -> set:
+        import csv as _csv
+        import json as _json
+
+        cols = set()
+        info = PROJECT_ROOT / "data" / "processed" / task / slug / "info.json"
+        if info.exists():
+            meta = _json.loads(info.read_text(encoding="utf-8"))
+            for key in ("numerical_cols", "categorical_cols"):
+                cols.update(meta.get(key) or [])
+        raw = PROJECT_ROOT / "data" / "raw" / task / f"{slug}.csv"
+        if raw.exists():
+            with raw.open(newline="", encoding="utf-8", errors="ignore") as fh:
+                cols.update(h.strip() for h in next(_csv.reader(fh), []) if h.strip())
+        return cols
+
+    def _private_columns(self):
+        from src.data.dataset_registry import REGISTRY, is_proprietary
+
+        private, public = set(), set()
+        for slug in REGISTRY:
+            if not isinstance(slug, str):
+                continue
+            task = ("lgd" if (PROJECT_ROOT / "data" / "processed" / "lgd" / slug).exists()
+                    else "pd")
+            cols = self._columns_of(task, slug)
+            (private if is_proprietary(slug) else public).update(cols)
+        public_lower = {c.lower() for c in public}
+        return {c for c in private
+                if c.lower() not in public_lower
+                and c.lower() not in self.GENERIC
+                and re.fullmatch(r"[A-Za-z][\w .\-]*", c)
+                and self._distinctive(c)}
+
+    def test_no_tracked_file_names_a_proprietary_column(self):
+        import subprocess
+
+        private = self._private_columns()
+        if not private:
+            pytest.skip("proprietary datasets not present locally")
+
+        pattern = re.compile(
+            r"(?<![A-Za-z0-9_])(" +
+            "|".join(re.escape(c) for c in sorted(private, key=len, reverse=True)) +
+            r")(?![A-Za-z0-9_])", re.I)
+
+        tracked = subprocess.run(
+            ["git", "ls-files"], cwd=PROJECT_ROOT,
+            capture_output=True, text=True,
+        ).stdout.split()
+
+        offenders = {}
+        for rel in tracked:
+            path = PROJECT_ROOT / rel
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:                          # pragma: no cover
+                continue
+            found = {m.group(1).lower() for m in pattern.finditer(text)}
+            if found:
+                offenders[rel] = len(found)
+
+        assert not offenders, (
+            "tracked file(s) disclose proprietary raw column names -- the count "
+            f"of distinct identifiers per file is shown: {offenders}"
+        )
+
+    def test_the_private_modules_are_not_tracked(self):
+        """Both sources of the schema must stay out of git."""
+        import subprocess
+
+        tracked = set(subprocess.run(
+            ["git", "ls-files"], cwd=PROJECT_ROOT,
+            capture_output=True, text=True,
+        ).stdout.split())
+        for rel in ("src/data/dataset_preprocessing.py",
+                    "src/data/dataset_registry.py"):
+            assert rel not in tracked, (
+                f"{rel} is tracked; it names proprietary schema / the "
+                f"de-anonymisation key and must be gitignored")

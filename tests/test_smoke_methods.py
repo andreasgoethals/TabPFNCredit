@@ -27,7 +27,6 @@ _SMOKE_METHODS_LGD = ["LinearRegression", "RandomForest", "knn", "xgboost"]
 
 def _make_tiny_dataset_dir(tmp_path, task: str, N, C, y):
     """Write a TALENT-format dataset directory under tmp_path."""
-    from pathlib import Path
     import json
 
     dataset_dir = tmp_path / "data" / "synthetic"

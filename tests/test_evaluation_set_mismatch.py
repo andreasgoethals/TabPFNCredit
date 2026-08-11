@@ -18,7 +18,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from src.utils.results_checking import evaluation_set_mismatches
 

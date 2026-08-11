@@ -50,9 +50,9 @@ def test_find_raw_path_prefers_the_first_root(monkeypatch, tmp_path):
     first, second = tmp_path / "repo" / "data", tmp_path / "staging" / "data"
     for root in (first, second):
         (root / "raw" / "lgd").mkdir(parents=True)
-        (root / "raw" / "lgd" / "0001.heloc.csv").write_text("x\n", encoding="utf-8")
+        (root / "raw" / "lgd" / "0001.demo_lgd.csv").write_text("x\n", encoding="utf-8")
     monkeypatch.setattr(paths, "data_roots", lambda: [first, second])
-    assert paths.find_raw_path("lgd", "0001.heloc") == first / "raw" / "lgd" / "0001.heloc"
+    assert paths.find_raw_path("lgd", "0001.demo_lgd") == first / "raw" / "lgd" / "0001.demo_lgd"
 
 
 def test_find_raw_path_falls_through_to_the_second_root(monkeypatch, tmp_path):
@@ -60,9 +60,9 @@ def test_find_raw_path_falls_through_to_the_second_root(monkeypatch, tmp_path):
     first, second = tmp_path / "repo" / "data", tmp_path / "staging" / "data"
     (first / "raw" / "lgd").mkdir(parents=True)          # exists but empty
     (second / "raw" / "lgd").mkdir(parents=True)
-    (second / "raw" / "lgd" / "0001.heloc.csv").write_text("x\n", encoding="utf-8")
+    (second / "raw" / "lgd" / "0001.demo_lgd.csv").write_text("x\n", encoding="utf-8")
     monkeypatch.setattr(paths, "data_roots", lambda: [first, second])
-    assert paths.find_raw_path("lgd", "0001.heloc") == second / "raw" / "lgd" / "0001.heloc"
+    assert paths.find_raw_path("lgd", "0001.demo_lgd") == second / "raw" / "lgd" / "0001.demo_lgd"
 
 
 def test_missing_dataset_still_returns_none(monkeypatch, tmp_path):
