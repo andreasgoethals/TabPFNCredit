@@ -288,9 +288,10 @@ source of truth for three things:
   order, then the proprietary ones. Sorting by slug (the old numbering) is a bug.
 
 No display name may be hard-coded anywhere else. Plotting code calls
-`display_name()` / `sort_key()`; per-dataset figures of proprietary datasets are
-additionally written under a neutral filename (e.g. `pd_row_limit_proppd1_auc.pdf`)
-so the real name never appears in a path used by the paper. Print the current
+`display_name()` / `sort_key()`, and a proprietary dataset's per-dataset figures
+are named only by its display name (e.g. `pd_row_limit_proppd1_auc.pdf`), so the
+real slug never reaches a figure path, a caption `\label`, or the notebook
+output that records where a figure was written. Print the current
 old → new mapping with:
 
 ```bash

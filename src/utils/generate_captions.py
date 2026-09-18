@@ -661,12 +661,16 @@ def _is_redundant_proprietary_stem(stem: str, available: set) -> bool:
     r"""True if ``stem`` names a PROPRIETARY dataset by its real slug AND a
     neutral-filename twin exists.
 
-    ``per_dataset_sweep_curves`` (and the correlation cell) write two identical
-    PDFs for a proprietary dataset: the historical slug-named file, kept so
-    existing ``\includegraphics`` paths resolve, and a neutral copy named after
-    the anonymised display name. Only the neutral one belongs in CAPTIONS.md --
-    otherwise the real dataset name would appear in the filename header and in
-    the generated ``\label``, both of which get copied into the paper source.
+    The Data_Exploration correlation cell writes two identical PDFs for a
+    proprietary dataset: a neutral copy named after the anonymised display name,
+    plus the slug-named file so older ``\includegraphics`` paths keep resolving.
+    Only the neutral one belongs in CAPTIONS.md -- otherwise the real dataset
+    name would appear in the filename header and in the generated ``\label``,
+    both of which get copied into the paper source.
+
+    ``per_dataset_sweep_curves`` no longer writes the slug-named twin at all
+    (it names proprietary datasets only by their display name), so this also
+    acts as a guard against slug-named leftovers from an earlier run.
     """
     from src.data.dataset_names import display_name as _ds_display, registry
 
