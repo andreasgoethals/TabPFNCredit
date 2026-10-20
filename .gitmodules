@@ -1,0 +1,4 @@
+[submodule "vsc-library"]
+	path = vsc-library
+	url = https://github.com/andreasgoethals/VSC_Library.git
+	branch = main

@@ -110,7 +110,7 @@ tabpfncredit experiment Experiment0
 ```bash
 ssh <your.cluster>
 module purge
-module load cluster/genius/login                   # KU Leuven VSC: unlocks the Python module
+# Use the current login-node module environment; Genius is retired.
 module load Python/3.12.3-GCCcore-13.3.0            # 'module spider Python/3.12' to find the exact name
 
 cd <your_repo_clone>
@@ -624,3 +624,6 @@ This repository builds on the [TALENT](https://github.com/LAMDA-Tabular/TALENT)
 tabular-learning toolkit and the foundation-model packages it wraps
 (`tabpfn`, `tabicl`, `tabdpt`, …); each retains its own license and should be
 cited separately when used.
+
+Shared HPC guidance is available in the read-only [VSC Library](vsc-library/README.md);
+project-specific cluster instructions belong in [docs/VSC.md](docs/VSC.md).
