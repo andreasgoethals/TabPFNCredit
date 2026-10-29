@@ -188,6 +188,38 @@ needed); DNS/timeouts/refused connections indicate network/service issues, not p
 Host-key failures require trusted verification. Missing markers or a remote command error require channel/
 command diagnosis. Do not retry uncertain mutations. Check live VSC status/firewall guidance when relevant.
 
+### Development and VSC validation loop
+
+1. **Edit locally**, then run relevant local tests, lint and any affected notebooks. Fix failures
+   before deployment; keep dependency/container specifications reproducible in Git.
+2. **Review, commit and push** the tested revision when authorized. Record its commit and library
+   pins. Do not use ad hoc remote edits or untracked file copies as the deployed implementation.
+3. **Use SSH to update the DATA checkout** with `git pull --ff-only`; first verify its branch,
+   clean state and that no active/queued/resumable job needs its current revision. Otherwise use
+   a separate DATA checkout. Verify the remote commit equals the intended published revision and
+   inspect pinned submodules before testing; never pull into a checkout still used by jobs.
+4. **Test extensively on the actual VSC target through Slurm**, within the task's authorization.
+   Local passes do not replace container/architecture, CPU/GPU, native I/O, numerical, integration,
+   checkpoint/restart and publication tests relevant to the change. Define coverage and pass criteria;
+   start bounded, then expand after gates pass. Parallelize independent checks under the speed policy.
+   Keep dependencies in PROJECT containers, retained assets/results on PROJECT and temporary work
+   on native SCRATCH. Consult the read-only VSC Library and current official guidance when unsure.
+5. **Inspect the evidence directly**: read `.log` files, stderr, Slurm states/exit codes, resource
+   use and required artifacts for every submitted test. Investigate warnings, incomplete coverage
+   and failed/missing outputs; submission or exit 0 alone is insufficient. Record revision, image
+   hash, configs, job IDs, results and unresolved limits in manifests and agent memory. Fix locally
+   and repeat this loop, preserving successful evidence and compatible resume state.
+6. **Finish with cleanup**, not abandoned files: track temporary checkouts, scripts, transfers,
+   test artifacts and workspaces created on every tier. Publish/verify retained evidence first,
+   confirm no active/queued/resumable consumer, then remove only the exact obsolete owned paths.
+   Keep a compact ledger of cleanup completed or deferred, with the reason and next action.
+   Preserve required DATA records, PROJECT assets/containers and backups; never wipe shared roots.
+
+Use the task's existing compute/install/migration authorization; scoped cleanup of its own disposable
+work is part of finishing it, after the checks above. A documentation-only change needs local document
+checks rather than an unrelated VSC campaign. Report local and actual VSC
+validation separately; if required cluster testing is blocked or unauthorized, state what remains.
+
 ### VSC storage policy
 
 These are **our project choices**, informed by VSC guidance, not universal VSC storage defaults.
