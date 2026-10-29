@@ -3,10 +3,9 @@
 # run_all_experiments.sh -- chain every TabPFNCredit experiment on the VSC
 # ============================================================================
 #
-# This is the single script you `scp` to the VSC (or check out via git) and
-# invoke as the orchestrator for a full benchmark sweep. It is *idempotent*:
-# experiments that are already complete skip their cells, so re-running this
-# after a partial failure is safe.
+# Compatibility orchestrator for an already validated deployment. It submits
+# jobs immediately. Read docs/VSC.md before use; never run it alongside an
+# existing campaign without checking pending/running work and result identity.
 #
 # Default behaviour (no arguments) -- run all four experiments in sequence,
 # each waiting on the previous via SLURM ``--dependency=afterok``:
@@ -26,8 +25,8 @@
 # ``tabpfncredit experiment <NAME>`` which:
 #   1. Reads the experiment's YAML configs.
 #   2. Auto-preprocesses any dataset that is missing under data/processed.
-#   3. Wipes scripts/<Experiment>/_generated/ to drop stale SLURM scripts.
-#   4. Regenerates fresh SLURM scripts sized to each VSC partition.
+#   3. Creates a unique run directory under scripts/<Experiment>/_generated/.
+#   4. Generates scripts and plans without replacing earlier runs' files.
 #   5. Submits every per-partition array via ``sbatch`` (with --dependency
 #      pointing at the previous experiment's primary array IDs).
 #   6. Prints a colon-separated dependency string of the primary array job IDs;
@@ -37,9 +36,8 @@
 # Each experiment's methods come from its own
 # ``scripts/<Experiment>/config/CONFIG_METHOD.yaml`` -- they are NOT
 # auto-derived from Experiment 0's outcomes. After Experiment 0 finishes,
-# inspect ``results/experiment0/summaries/`` and edit
-# ``scripts/Experiment1/config/CONFIG_METHOD.yaml`` to enable only the
-# methods that actually worked.
+# inspect ``<results>/summaries/experiment0_*.csv``. Scientific configuration
+# changes require a separate decision; do not rewrite the paper's method set.
 # ============================================================================
 
 set -euo pipefail
@@ -50,6 +48,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+
+# VSC dependencies live in the immutable PROJECT image; Slurm RPCs run on host.
+if [ -n "${VSC_DATA:-}" ] && [ "${TABPFN_VSC_PROFILE:-container}" != legacy ]; then
+    tabpfncredit() { bash "${REPO_ROOT}/scripts/vsc.sh" "$@"; }
+fi
 
 # ----------------------------------------------------------------------------
 # Make sure the `tabpfncredit` console script is on PATH.
@@ -85,7 +88,7 @@ if ! command -v tabpfncredit >/dev/null 2>&1; then
     echo "ERROR: 'tabpfncredit' is not on PATH and could not be auto-activated." >&2
     echo "Activate your environment first, e.g.:" >&2
     echo "    source ${REPO_ROOT}/tabpfncreditvenv/bin/activate" >&2
-    echo "(and run 'pip install -e \".[hpc]\"' if you haven't installed yet)." >&2
+    echo "For a new VSC deployment, prepare the PROJECT container described in docs/VSC.md." >&2
     exit 1
 fi
 

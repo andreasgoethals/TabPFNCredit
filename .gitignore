@@ -50,13 +50,14 @@
 /figures/
 
 # ---- Generated SLURM scripts + plans (re-emitted every `experiment` run) ----
-# The CLI wipes + regenerates these per submission, so they must never be
-# committed (stale copies are misleading). README documents them as gitignored.
+# The CLI creates run-specific plans per submission. Keep them outside Git,
+# but preserve plans referenced by active, queued or resumable jobs.
 scripts/*/_generated/
 
 # ---- Foundation-model weights (downloaded by src/utils/fetch_weights.py) ----
 # Multi-GB; uploaded to the VSC manually, never committed.
 /checkpoints/
+/runtimes/
 
 # ---- Runtime weights placed at the repo root on the VSC (HyperFast) ----
 # scripts/setup_vsc_checkpoints.sh drops hyperfast.ckpt under model/models/...

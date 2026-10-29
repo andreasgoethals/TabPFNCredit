@@ -15,8 +15,8 @@ What `experiment` does
 1. Load the experiment's three YAML configs.
 2. Filter the (dataset, method, task) cells by the optional
    ``--task`` / ``--dataset`` / ``--method`` flags.
-3. Auto-preprocess any dataset that is needed but not yet cached under
-   ``data/processed/<task>/<dataset>/``.
+3. Auto-preprocess missing data for execution. Explicit ``--no-submit`` only
+   generates Slurm plans; it does not preprocess, train or submit work.
 4. **Locally** (no ``$VSC_INSTITUTE_CLUSTER``): run each cell in-process,
    then summarize. No SLURM, no scratch directories.
 5. **On the VSC** (``$VSC_INSTITUTE_CLUSTER`` set): write run-specific
@@ -442,15 +442,6 @@ def _run_cells_locally(experiment: str, cells: Sequence[dict], config: dict) -> 
 #  VSC runner (auto-sbatch)
 # ============================================================================
 
-def _wipe_generated_dir(out_dir: Path) -> None:
-    """Remove every ``*.slurm`` / ``*_plan.json`` file under ``out_dir``."""
-    if not out_dir.exists():
-        return
-    for pattern in ("*.slurm", "*_plan.json"):
-        for path in out_dir.glob(pattern):
-            path.unlink()
-
-
 def _sbatch(script: Path, *, dependency: Optional[str] = None) -> str:
     """Submit ``script`` via ``sbatch --parsable``; return the NUMERIC job ID.
 
@@ -475,6 +466,27 @@ def _sbatch(script: Path, *, dependency: Optional[str] = None) -> str:
         raise RuntimeError(f"sbatch produced no job id: {' '.join(shlex.quote(c) for c in cmd)}")
     # Keep only the numeric job id, dropping any ``;cluster`` suffix.
     return raw.split(";", 1)[0]
+
+
+def _record_host_jobs(jobs, *, after_job_id=None) -> None:
+    """Export ready jobs to the host launcher; container never needs Slurm libraries."""
+    target = os.environ.get("TABPFN_HOST_JOB_MANIFEST")
+    if not target:
+        return
+    import json
+
+    path = Path(target)
+    records = json.loads(path.read_text()) if path.exists() else []
+    primary = PARTITIONS["cpu"].cluster
+    records.extend({
+        "path": str(job.path),
+        "cluster": PARTITIONS[job.partition_key].cluster,
+        "dependency": f"afterok:{after_job_id}"
+        if after_job_id and PARTITIONS[job.partition_key].cluster == primary else None,
+    } for job in jobs)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(records, indent=2), encoding="utf-8")
+    temporary.replace(path)
 
 
 def _run_experiment_vsc(
@@ -557,6 +569,7 @@ def _run_experiment_vsc(
         "`tabpfncredit summarize --experiment <name>`.[/dim]"
     )
 
+    _record_host_jobs(jobs, after_job_id=after_job_id)
     if not submit:
         console.print("\n[bold]--no-submit[/bold]: not submitting. To submit:")
         for j in jobs:
@@ -605,7 +618,7 @@ def cmd_experiment(
     method: Optional[str] = typer.Option(None, help="Run only cells for this method name."),
     submit: Optional[bool] = typer.Option(
         None,
-        help="Force on/off the auto-sbatch step. Default: on when on VSC, off locally.",
+        help="--no-submit generates Slurm plans only; --submit submits them. Default: VSC submission or local execution.",
     ),
     after: Optional[str] = typer.Option(
         None,
@@ -641,7 +654,7 @@ def cmd_experiment(
     # 1) Preprocess any missing dataset. Datasets whose raw file isn't on
     #    this machine are skipped (with a warning) and their cells dropped,
     #    so a missing dataset can't abort the whole sweep.
-    unavailable = _preprocess_if_needed(cells)
+    unavailable = set() if submit is False else _preprocess_if_needed(cells)
     if unavailable:
         cells = [c for c in cells if (c["task"], c["dataset"]) not in unavailable]
         console.print(
@@ -655,8 +668,9 @@ def cmd_experiment(
         )
         raise typer.Exit(code=1)
 
-    # 2) Run locally or via SLURM.
-    use_slurm = submit if submit is not None else _on_vsc()
+    # Explicit --no-submit is planning only, including on a login node.
+    # Without either flag, preserve the existing local/VSC dispatch.
+    use_slurm = submit is not None or _on_vsc()
 
     if use_slurm:
         _run_experiment_vsc(
@@ -779,6 +793,7 @@ def cmd_resubmit(
                 f"{j.n_array_slots} slot(s), {j.walltime}/slot)"
             )
 
+        _record_host_jobs(jobs)
         if not do_submit:
             console.print("  not submitting (local / --no-submit). To submit on the VSC:")
             for j in jobs:
@@ -845,6 +860,40 @@ def cmd_summarize(
 #  `slurm-task` -- workhorse called by the generated SLURM scripts
 # ============================================================================
 
+def _verify_publication(experiment, slot, config, base, plan_path, array_id):
+    """Verify durable point coverage and publish a receipt before scratch retirement."""
+    import hashlib
+    import json
+    import zipfile
+
+    for item in slot:
+        kwargs = dict(base=base, experiment=experiment.lower(), task=item["task"],
+                      dataset=item["dataset"], expected_folds=config["split"]["cv_splits"])
+        name = item.get("name") or item["method"]
+        if experiment.lower() in ("experiment2", "experiment3"):
+            complete = has_complete_packed_point(**kwargs, method_base=item["method"], point_name=name)
+        else:
+            complete = has_complete_result(**kwargs, method=name)
+            arrays = base / experiment.lower() / item["task"] / item["dataset"] / (name + ".npz")
+            if arrays.exists():
+                with zipfile.ZipFile(arrays) as archive:
+                    if archive.testzip() is not None:
+                        raise RuntimeError(f"Corrupt prediction archive: {arrays}")
+        if not complete:
+            raise RuntimeError(f"Results are incomplete: {item['task']}/{item['dataset']}/{name}")
+    job = os.environ["SLURM_JOB_ID"]
+    path = _PROJECT_ROOT / "logs/manifests/publications" / f"{job}_{array_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = dict(status="published", points=len(slot), plan=str(plan_path),
+                  plan_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(),
+                  workspace=str(Path(os.environ["TMPDIR"]).parent),
+                  image=os.environ.get("TABPFN_CONTAINER_IMAGE"), results=str(base))
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    temporary.replace(path)
+    console.print(f"Verified publication: {path}")
+
+
 @app.command("slurm-task", hidden=True)
 def cmd_slurm_task(
     experiment: str = typer.Option(...),
@@ -856,6 +905,7 @@ def cmd_slurm_task(
              "scripts/<exp>/_generated/<exp>_<partition>_plan.json",
     ),
     verbose: bool = typer.Option(False),
+    verify_only: bool = typer.Option(False, help="Verify saved points and publish the completion receipt."),
 ) -> None:
     """Run the (dataset, method, task) cells for ONE array slot. (Internal.)"""
     if plan_path is None:
@@ -885,6 +935,10 @@ def cmd_slurm_task(
     configure_quiet_runtime()
     config = load_config(experiment)
     results_root = _results_root()
+
+    if verify_only:
+        _verify_publication(experiment, slot, config, results_root, plan_path, array_id)
+        return
 
     # Unique-per-array-task shard id so Experiment 2/3 cells split across many
     # tasks each write their OWN packed shard file (sole writer, no lock). The
@@ -967,7 +1021,9 @@ def cmd_doctor() -> None:
     table.add_column("Key")
     table.add_column("Value")
     for key in ("VSC_HOME", "VSC_DATA", "VSC_SCRATCH", "VSC_INSTITUTE_CLUSTER",
+                "TABPFN_VSC_PROFILE", "TABPFN_PROJECT_ROOT", "VSC_PROJECT_ROOT",
                 "TABPFN_STAGING_ROOT", "TABPFN_RESULTS_ROOT", "TABPFN_CACHE_ROOT",
+                "TABPFN_CONTAINER_IMAGE",
                 "SLURM_JOB_ID", "SLURM_ARRAY_TASK_ID", "CUDA_VISIBLE_DEVICES"):
         table.add_row(key, os.environ.get(key, "(unset)"))
     console.print(table)

@@ -1,0 +1,26 @@
+{
+  "image": "tabpfncredit-runtime-20261029-cli-fixed.sif",
+  "sha256": "cc479a249b6e808355e2cf468741713e1990fe8873e362185835dfa171f70d8a",
+  "python": "3.12.3",
+  "source_revision": "bce86921142321bfcc0ceef47a0220e212b11e64",
+  "vsc_library_pin": "0ed4ffa89d312b9bb6411681b6a14f81672439f3",
+  "scientific_packages": "config/vsc/requirements.txt",
+  "vcs_sources": {
+    "TALENT": {
+      "url": "https://github.com/andreasgoethals/TALENT",
+      "vcs_info": {
+        "commit_id": "2bbe6fe81f2aacd44ac9d25633f915bd2b036a21",
+        "requested_revision": "main",
+        "vcs": "git"
+      }
+    },
+    "tabpfn": {
+      "url": "https://github.com/PriorLabs/tabPFN.git",
+      "vcs_info": {
+        "commit_id": "cbb11b82bc38d9bef81f77957b623841edcd75c2",
+        "requested_revision": "main",
+        "vcs": "git"
+      }
+    }
+  }
+}

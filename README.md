@@ -107,45 +107,30 @@ tabpfncredit experiment Experiment0
 
 ### 1.2 HPC install (SLURM cluster)
 
-```bash
-ssh <your.cluster>
-module purge
-# Use the current login-node module environment; Genius is retired.
-module load Python/3.12.3-GCCcore-13.3.0            # 'module spider Python/3.12' to find the exact name
+Follow **[docs/VSC.md](docs/VSC.md)** for access, storage, runtime preparation
+and submission. New VSC deployments keep the Git checkout on DATA, persistent
+assets and immutable dependency containers on PROJECT, and temporary work on
+native scratch. `bash scripts/vsc.sh --help` uses the validated container;
+`bash scripts/vsc.sh experiment Experiment0 --no-submit` generates a safe
+submission preview. Omit `--no-submit` only for an authorized experiment.
 
-cd <your_repo_clone>
-python -m venv tabpfncreditvenv
-source tabpfncreditvenv/bin/activate
-pip install -e ".[hpc]"
-```
+The existing venv/Conda interfaces remain compatible with historical deployments
+and workstation use. VSC submits from the host and runs workers in the immutable
+PROJECT image; exact package versions and provenance are under
+[`config/vsc/`](config/vsc/).
+`pyproject.toml` uses dependency ranges and TALENT `main`; reinstalling it does
+not recreate the paper's exact environment. Local installation above is unchanged.
 
-Submit the full benchmark — Experiments 0 → 1 → 2 → 3, chained with SLURM
-`--dependency=afterok`:
-
-```bash
-bash scripts/run_all_experiments.sh
-```
-
-Pass one or more experiment names to run only those (list order is the
-chain order):
-
-```bash
-bash scripts/run_all_experiments.sh Experiment0
-bash scripts/run_all_experiments.sh Experiment2 Experiment3
-```
-
-> **Running on the KU Leuven VSC?** Read **[VSC_RUN.md](VSC_RUN.md)**
-> first. Compute nodes there have no internet, so foundation-model weights
-> must be staged once before running; that guide also covers how sweeps
-> shard across array tasks under the wall-time and submission limits, and
-> how to resume a partial run.
+`scripts/run_all_experiments.sh [Experiment0 ...]` retains its existing immediate
+submission and same-cluster dependency chain. Use it only for an authorized,
+validated deployment; it is not a preview or a runtime installer.
 
 ### 1.3 Install profiles
 
 | Profile | For | What it gives you |
 |---|---|---|
 | `local` | Laptop / workstation | CPU PyTorch + faiss-cpu + dev tools |
-| `hpc` | SLURM cluster | CUDA-12 PyTorch + annoy + dev tools. For CUDA 11.8 GPUs append `--index-url https://download.pytorch.org/whl/cu118`. |
+| `hpc` | Cluster runtime preparation | PyTorch + annoy + dev tools; resolve and record exact versions/CUDA compatibility when building the approved PROJECT image. |
 
 A single `pip install -e ".[local]"` (or `".[hpc]"`) installs the project,
 TALENT, and all dependencies. Method-specific optional extras (currently
@@ -158,9 +143,9 @@ into the source tree.
 ### 1.4 Adapting to a non-VSC cluster
 
 The generated SLURM scripts target the VSC wICE partitions
-(`batch_sapphirerapids` CPU, A100, H100) by default; the Genius specs stay
-in the table for manual use but are never picked automatically (torch 2.8
-dropped Pascal/P100 support). On a different SLURM cluster, edit the
+(`batch_sapphirerapids` CPU, A100, H100) by default. Legacy Genius specs and
+optional offload/replica controls remain for historical compatibility; the
+container profile rejects retired Genius routes. On a different SLURM cluster, adapt the
 `PARTITIONS` table in `src/utils/slurm_generator.py` to match your
 cluster's CPU / memory / GPU caps and wall-time limits.
 
@@ -179,8 +164,8 @@ tabpfncredit experiment <ExperimentName>
 
 What `experiment` does:
 
-1. Auto-preprocess any dataset not yet cached under
-   `data/processed/<task>/<dataset>/`.
+1. Auto-preprocess missing datasets for execution. With explicit `--no-submit`,
+   generate Slurm scripts/plans only; do not preprocess, train or submit.
 2. **Locally**: run every selected cell in-process, then summarize.
 3. **On an HPC cluster**: write run-specific per-partition SLURM scripts
    under `scripts/<Experiment>/_generated/`, `sbatch` them, and print the
@@ -195,10 +180,11 @@ Helper commands:
 | `tabpfncredit list [--architecture deep\|classical] [--hardware cpu\|gpu] [--show-profile]` | Print registered methods, optionally filtered; `--show-profile` adds runtime tier + target partition. |
 | `tabpfncredit doctor` | Print environment variables, torch / CUDA info, and the results root. |
 
-Re-running `tabpfncredit experiment <name>` is always safe: completed points
-are skipped (one result file per point is the resume unit). `resubmit` does
-the same thing more efficiently when most of an experiment is already done —
-it queues only the missing work instead of re-sharding everything.
+Completed points are skipped when their expected folds are present, including
+points stored in packed shards. Reuse requires the same inputs, scientific
+configuration and runtime: result names do not fingerprint those inputs.
+Before resubmitting, inspect pending/running jobs to avoid duplicate writers.
+`resubmit` queues missing points instead of regenerating completed work.
 
 ### Maintenance and analysis utilities (run manually)
 
@@ -212,7 +198,7 @@ ones accept `--dry-run` to preview first.
 | `python -m src.utils.run_notebooks` | Clears, restart-runs every analysis notebook with the project venv kernel — **in parallel** (`-j N`, default min(4, CPUs); each notebook is its own kernel process) with the per-experiment summary CSVs rebuilt once up front — collects each one's printed output into `results/All_Results.md`, and regenerates the figure captions once after a successful run. `--list`, `-v` (implies `-j 1`), `--md-only`. | After downloading results, to refresh every figure + the results dump in one command. |
 | `python -m src.utils.generate_captions` | Writes a single `figures/CAPTIONS.md` with a paper-ready caption per figure, split into one chapter per notebook (in notebook order) and titled by figure file name. `--dry-run`. | Standalone caption refresh. Direct VS Code/Jupyter notebook runs also refresh this file after saving project figures. |
 | `python -m src.utils.remove_results` | Prunes result files by `--experiment` / `--task` / `--dataset` / `--method` / `--hpo` / `--no-hpo` / `--folds`, then drops (or, with `--resummarize`, rebuilds) the affected summary CSVs. `--dry-run`. | To delete an obsolete or buggy method/dataset's results before re-running. |
-| `python -m src.utils.fetch_weights` | Downloads the foundation-model checkpoints into `checkpoints/`. `--list`, `--only <models>`, `--skip <models>`. | **Once, locally**, before staging weights to the cluster (see `VSC_RUN.md`). |
+| `python -m src.utils.fetch_weights` | Downloads the foundation-model checkpoints into `checkpoints/`. `--list`, `--only <models>`, `--skip <models>`. | With download authorization, before staging weights to PROJECT (see [docs/VSC.md](docs/VSC.md)). |
 
 (The pipeline commands — `tabpfncredit experiment / resubmit / summarize / list / doctor` — are in the table above.)
 
@@ -486,7 +472,7 @@ TabPFNCredit/
 │   │   ├── config/CONFIG_{DATA,METHOD,EXPERIMENT}.yaml
 │   │   └── _generated/                 # SLURM scripts (auto-emitted, gitignored)
 │   ├── run_all_experiments.sh          # submit the full chained HPC sweep
-│   └── setup_vsc_checkpoints.sh        # provision uploaded checkpoints/ on the VSC
+│   └── setup_vsc_checkpoints.sh        # historical writable-runtime setup only
 │
 ├── notebooks/                          # thin viewers calling src.visualizations
 │   ├── CONFIG_NOTEBOOKS.yaml           # per-task method filters for the notebooks
@@ -524,23 +510,30 @@ already processed `data/processed/` arrays.
 
 ## 7. Result storage and logging
 
-Each `(experiment, task, dataset, method[, sweep_point])` tuple produces
-one JSON + one npz under `$TABPFN_RESULTS_ROOT` (on an HPC cluster this points
-at the large project storage; locally it defaults to `./results`):
+Results use `$TABPFN_RESULTS_ROOT` when supplied; otherwise they resolve to
+available project storage or local `./results`. The container profile requires
+PROJECT storage and refuses a fallback to DATA. Experiments 0/1 store one
+JSON plus prediction arrays in an NPZ per method/HPO variant:
 
 ```
 ${TABPFN_RESULTS_ROOT|./results}/<experiment>/<task>/<dataset>/<method>.json
 ${TABPFN_RESULTS_ROOT|./results}/<experiment>/<task>/<dataset>/<method>.npz
 ```
 
-Sweep points get a suffix on the method name:
+Examples:
 
 ```
 results/experiment1/pd/0001.gmsc/xgboost.json            # NO_HPO
 results/experiment1/pd/0001.gmsc/xgboost__HPO.json       # HPO
-results/experiment2/pd/<dataset>/tabpfn_v3__row20000.json
-results/experiment3/pd/<dataset>/tabicl_v2__min0p0025.json
+results/experiment2/pd/<dataset>/tabpfn_v3__shard_<jobid>_<task>.json
+results/experiment3/pd/<dataset>/tabicl_v2__shard_<jobid>_<task>.json
 ```
+
+Experiments 2/3 pack metrics for sweep points into JSON, with one shard per
+array task (or an unsharded `<method>.json`). Point keys retain suffixes such
+as `__row20000` and `__min0p0025`. Readers combine shards and retain support
+for legacy per-point files. This infrastructure update does not change either
+format or aggregation.
 
 Two CSVs are aggregated locally at the end of an `experiment` call. On the VSC,
 run `tabpfncredit summarize --experiment <name>` after the arrays finish, or
@@ -555,8 +548,8 @@ Logging uses Python's standard `logging` (run with `--verbose` for
 INFO-level: start, finish, headline metric, per-fold minority counts). On
 an HPC cluster each array slot's
 stdout/stderr is captured by SLURM under `logs/<experiment>/` on the general
-data storage (`$VSC_DATA`), named per job + array id — kept off the project
-storage so logs always persist.
+data storage (`$VSC_DATA`), named per job + array id. Retained numerical results
+remain on PROJECT; keep independent backups of irreplaceable outputs.
 
 Figures are saved as **PDF only** to `figures/<experiment>/<plot>.pdf` and
 rendered inline in the notebook outputs. Every notebook wipes its own figure

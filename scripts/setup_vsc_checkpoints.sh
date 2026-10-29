@@ -2,6 +2,10 @@
 # ============================================================================
 # setup_vsc_checkpoints.sh -- provision uploaded weights on the VSC (OFFLINE)
 # ============================================================================
+# LEGACY writable-environment helper, retained for reproducibility. It copies
+# assets into the installed package and DATA checkout; do not use it for new
+# container deployments. See docs/VSC.md for the PROJECT migration/validation
+# gate. Running this script is a mutation, not an inspection step.
 # Run this ONCE on the VSC after you have:
 #   1. Downloaded weights locally with `python -m src.utils.fetch_weights`, and
 #   2. Uploaded the resulting `checkpoints/` folder to EITHER this repo's root

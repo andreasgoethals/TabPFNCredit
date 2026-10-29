@@ -1,50 +1,9 @@
-"""SLURM script generator for the VSC (Genius + wICE) clusters.
+"""Generate Slurm scripts and stable point plans for the experiment CLI.
 
-Designed against the VSC documentation. Highlights:
-
-* **Results land on the shared project storage** (``$TABPFN_STAGING_ROOT``,
-  large and non-purged) so the small general data storage cannot fill mid-run.
-  The **regenerable joblib cache goes to ``$VSC_SCRATCH``** -- the project
-  storage is inode-limited (~150k inodes/TB) and a cache of many tiny files
-  would exhaust it. **Logs deliberately stay on the general data storage**
-  (the repo root) -- tiny and must persist. Datasets and checkpoints are read
-  from the repo first, then the project storage.
-* **CPU + memory right-sized per partition** so the job uses the
-  documented per-GPU caps efficiently (P100: 9c/45 GB, A100: 18c/126 GB,
-  H100: 16c/187 GB).
-* **Shebang ``#!/bin/bash -l``** so ``~/.bashrc`` and the cluster module
-  are sourced (the docs are explicit about this).
-* **``--clusters=`` (plural)** instead of the legacy ``--cluster=``.
-* **``module --force purge`` then explicit load** -- docs warn that
-  loading modules in ``~/.bashrc`` is fragile.
-* **``--gpu_cmode=shared``** (default) lets multiple short methods share
-  one GPU when packed together.
-* **Deterministic stagger** based on ``SLURM_ARRAY_TASK_ID`` (no random
-  thundering-herd).
-* **Per-array-slot packing**: cheap methods (FAST/MEDIUM tier) get
-  bundled to reduce scheduler overhead -- the VSC docs explicitly
-  recommend merging work items < 3-4 min.
-* **Worker-framework hint**: when an experiment has more than ~500 cells
-  the generator prints a notice suggesting Worker-NG as a more efficient
-  submission path.
-
-Layout
-------
-``tabpfncredit slurm-generate --experiment ExperimentN`` emits one
-``.slurm`` file per partition under ``scripts/ExperimentN/_generated/``.
-Each script:
-
-1. Sets up the environment (``module --force purge``, conda activate).
-2. ``cd "$VSC_DATA/TabPFNCredit"`` and exports ``TABPFN_RESULTS_ROOT`` /
-   ``TABPFN_CACHE_ROOT`` onto the shared project storage.
-3. Reads its global task ID from ``SLURM_ARRAY_TASK_ID``.
-4. Invokes ``tabpfncredit slurm-task`` with the partition and array id;
-   the CLI looks up the cell assigned to that slot in the partition's
-   ``_plan.json`` and runs it through ``run_talent_method`` +
-   ``save_method``.
-
-The user only ever calls ``tabpfncredit slurm-generate`` then ``sbatch``
-on the generated files.
+The legacy runtime remains the default for existing paper campaigns.
+``TABPFN_VSC_PROFILE=container`` selects the new DATA/PROJECT/scratch
+deployment policy without changing point planning or scientific arguments.
+See ``docs/VSC.md`` for migration and real-cluster validation requirements.
 """
 
 from __future__ import annotations
@@ -53,7 +12,7 @@ import math
 import os
 import shlex
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from textwrap import dedent
 from typing import List, Optional
 
@@ -96,8 +55,7 @@ def _cache_root_bash() -> str:
     """Quoted bash expr for the regenerable-cache root on ``$VSC_SCRATCH``.
 
     Caches are many tiny files; the project storage is inode-limited
-    (~150k inodes/TB), so the joblib folds cache goes to scratch (the
-    purge-after-28-days parallel FS meant for regenerable job I/O) instead.
+    so the joblib folds cache goes to scratch for regenerable job I/O instead.
     """
     return '"${VSC_SCRATCH:-/tmp}/tabpfncredit/cache"'
 
@@ -481,6 +439,7 @@ def _sbatch_header(
     log_dir: str,
     mail_email: str = "",
     gpu_cmode: Optional[str] = None,
+    container: bool = False,
 ) -> str:
     """Build the #SBATCH block for one batch."""
     if n_gpus:
@@ -511,8 +470,11 @@ def _sbatch_header(
         lines.append(f"#SBATCH --gpus-per-node={n_gpus}")
         if gpu_cmode:
             lines.append(f"#SBATCH --gpu_cmode={gpu_cmode}")
+    # New deployments use the partition's memory allocation per requested CPU.
+    # Keep the historical resource request unchanged for existing campaigns.
+    if not container:
+        lines.append(f"#SBATCH --mem={mem_mb}M")
     lines.extend([
-        f"#SBATCH --mem={mem_mb}M",
         f"#SBATCH --time={walltime}",
         f"#SBATCH --output={log_dir}/{job_name}_%A_%a.out",
         f"#SBATCH --error={log_dir}/{job_name}_%A_%a.err",
@@ -547,6 +509,195 @@ def _python_invocation(experiment: str, partition_key: str, plan_path: Path) -> 
             --array-id "${{SLURM_ARRAY_TASK_ID}}" \\
             --plan-path {shlex.quote(str(plan_path))}
         """)
+
+
+def _container_settings() -> Optional[dict[str, str]]:
+    """Snapshot explicit settings; new shared-root aliases never change legacy paths."""
+    profile = os.environ.get("TABPFN_VSC_PROFILE", "legacy").strip().lower() or "legacy"
+    if profile not in ("legacy", "container"):
+        raise ValueError("TABPFN_VSC_PROFILE must be legacy or container")
+    if profile == "legacy":
+        if "TABPFN_STAGING_ROOT" not in os.environ and any(
+                key in os.environ for key in ("TABPFN_PROJECT_ROOT", "VSC_PROJECT_ROOT")):
+            raise ValueError("Shared PROJECT root aliases require TABPFN_VSC_PROFILE=container "
+                             "for generated jobs; legacy jobs must use TABPFN_STAGING_ROOT explicitly")
+        return None
+    if "TABPFN_STAGING_ROOT" in os.environ:
+        staging = os.environ["TABPFN_STAGING_ROOT"].strip()
+    else:
+        shared_key = next((key for key in ("TABPFN_PROJECT_ROOT", "VSC_PROJECT_ROOT")
+                           if key in os.environ), "")
+        shared = os.environ[shared_key].strip() if shared_key else ""
+        if shared_key and not shared:
+            raise ValueError(f"{shared_key} must name an existing shared PROJECT root")
+        staging = str(PurePosixPath(shared) / "TabPFNCredit") if shared else ""
+    settings = {
+        "TABPFN_VSC_PROFILE": "container",
+        "TABPFN_STAGING_ROOT": staging,
+        "TABPFN_RESULTS_ROOT": os.environ.get("TABPFN_RESULTS_ROOT") or f"{staging}/results",
+        "TABPFN_CONTAINER_IMAGE": os.environ.get("TABPFN_CONTAINER_IMAGE", "").strip(),
+        "TABPFN_CONTAINER_PYTHON": os.environ.get("TABPFN_CONTAINER_PYTHON", "python").strip(),
+        "TABPFN_APPTAINER_MODULE": os.environ.get("TABPFN_APPTAINER_MODULE", "").strip(),
+        "VSC_DATA": os.environ.get("VSC_DATA", "").strip(),
+    }
+    settings["TABPFN_RESULTS_ROOT"] = settings["TABPFN_RESULTS_ROOT"].strip()
+    for key in ("TABPFN_STAGING_ROOT", "TABPFN_RESULTS_ROOT", "TABPFN_CONTAINER_IMAGE", "VSC_DATA"):
+        if not settings[key] or not PurePosixPath(settings[key]).is_absolute():
+            raise ValueError(f"Container profile requires an absolute {key}")
+        if any(c in settings[key] for c in ":,\n\r"):
+            raise ValueError(f"{key} contains unsupported bind-path characters")
+    if not PurePosixPath(settings["TABPFN_CONTAINER_IMAGE"]).suffix == ".sif":
+        raise ValueError("TABPFN_CONTAINER_IMAGE must name a versioned immutable .sif image")
+    if not settings["TABPFN_CONTAINER_PYTHON"]:
+        raise ValueError("TABPFN_CONTAINER_PYTHON cannot be empty")
+    for key in ("VSC_SCRATCH_LUSTRE1", "VSC_SCRATCH_GPFS1",
+                "VSC_PROJECT_LUSTRE1", "VSC_PROJECT_GPFS1"):
+        if os.environ.get(key):
+            settings[key] = os.environ[key].strip()
+    return settings
+
+
+def _container_prologue(settings: dict[str, str], cluster: str, n_gpus: int) -> str:
+    """Fail closed on storage/runtime mistakes before invoking scientific code."""
+    native_var = {"wice": "VSC_SCRATCH_LUSTRE1", "mindwell": "VSC_SCRATCH_GPFS1"}[cluster]
+    project_var = {"wice": "VSC_PROJECT_LUSTRE1", "mindwell": "VSC_PROJECT_GPFS1"}[cluster]
+    snapshot = "\n".join(f"export {key}={shlex.quote(value)}" for key, value in settings.items())
+    return snapshot + "\n" + dedent(f"""\
+        set -euo pipefail
+        fail() {{ echo "ERROR: $*" >&2; exit 1; }}
+        within() {{ case "$1/" in "$2/"*) return 0 ;; *) return 1 ;; esac; }}
+        REPO_ROOT={shlex.quote(_REPO_ROOT)}
+        DATA_ALIAS="$VSC_DATA"
+        PROJECT_ALIAS="$TABPFN_STAGING_ROOT"
+        SCRATCH_ALIAS="${{VSC_SCRATCH:-}}"
+        REPO_ROOT="$(readlink -e "$REPO_ROOT")" || fail "DATA checkout is missing"
+        DATA_ROOT="$(readlink -e "$VSC_DATA")" || fail "VSC_DATA is unavailable"
+        within "$REPO_ROOT" "$DATA_ROOT" || fail "Actual checkout must reside on DATA"
+        GIT_ROOT="$(git -C "$REPO_ROOT" rev-parse --absolute-git-dir)" || fail "Not a Git checkout"
+        GIT_ROOT="$(readlink -e "$GIT_ROOT")"
+        within "$GIT_ROOT" "$DATA_ROOT" || fail "Git metadata must reside on DATA"
+        COMMON_GIT="$(git -C "$REPO_ROOT" rev-parse --git-common-dir)"
+        [[ "$COMMON_GIT" = /* ]] || COMMON_GIT="$REPO_ROOT/$COMMON_GIT"
+        COMMON_GIT="$(readlink -e "$COMMON_GIT")"
+        within "$COMMON_GIT" "$DATA_ROOT" || fail "Shared Git metadata must reside on DATA"
+        cd "$REPO_ROOT"
+
+        export TABPFN_STAGING_ROOT="$(readlink -e "$TABPFN_STAGING_ROOT")"
+        [[ -d "$TABPFN_STAGING_ROOT" && -w "$TABPFN_STAGING_ROOT" ]] || fail "PROJECT directory is unavailable or unwritable"
+        within "$TABPFN_STAGING_ROOT" "$DATA_ROOT" && fail "PROJECT cannot reside on DATA"
+        [[ -n "${{{project_var}:-}}" ]] || fail "{project_var} is required to verify native PROJECT storage"
+        NATIVE_PROJECT="$(readlink -e "${{{project_var}}}")"
+        [[ -d "$NATIVE_PROJECT" && "$TABPFN_STAGING_ROOT" != "$NATIVE_PROJECT" ]] || fail "Select a project directory beneath native PROJECT storage"
+        within "$TABPFN_STAGING_ROOT" "$NATIVE_PROJECT" || fail "PROJECT must be native to {cluster}; stage only the verified working set before deployment"
+        export TABPFN_CONTAINER_IMAGE="$(readlink -e "$TABPFN_CONTAINER_IMAGE")"
+        [[ -f "$TABPFN_CONTAINER_IMAGE" && -r "$TABPFN_CONTAINER_IMAGE" ]] || fail "SIF image is missing or unreadable"
+        within "$TABPFN_CONTAINER_IMAGE" "$TABPFN_STAGING_ROOT" || fail "SIF image must reside in this project's PROJECT directory"
+        export TABPFN_RESULTS_ROOT="$(readlink -m "$TABPFN_RESULTS_ROOT")"
+        within "$TABPFN_RESULTS_ROOT" "$TABPFN_STAGING_ROOT" || fail "Results must reside in this project's PROJECT directory"
+
+        [[ -n "${{VSC_SCRATCH:-}}" && -n "${{{native_var}:-}}" ]] || fail "VSC_SCRATCH and {native_var} are required to verify native scratch"
+        export VSC_SCRATCH="$(readlink -e "$VSC_SCRATCH")"
+        NATIVE_SCRATCH="$(readlink -e "${{{native_var}}}")"
+        [[ "$VSC_SCRATCH" = "$NATIVE_SCRATCH" && -d "$NATIVE_SCRATCH" && -w "$NATIVE_SCRATCH" ]] || fail "Scratch must be writable and native to {cluster}"
+        within "$TABPFN_STAGING_ROOT" "$NATIVE_SCRATCH" && fail "Persistent PROJECT storage cannot reside on scratch"
+        [[ -n "${{SLURM_JOB_ID:-}}" && -n "${{SLURM_ARRAY_TASK_ID:-}}" ]] || fail "Run generated jobs through Slurm"
+        WORK_PARENT="$(readlink -m "$NATIVE_SCRATCH/tabpfncredit/workspaces")"
+        within "$WORK_PARENT" "$NATIVE_SCRATCH" || fail "Workspace directory escapes native scratch"
+        mkdir -p "$WORK_PARENT"
+        WORK_PARENT="$(readlink -e "$WORK_PARENT")"
+        within "$WORK_PARENT" "$NATIVE_SCRATCH" || fail "Workspace directory escapes native scratch"
+        WORKSPACE="$(mktemp -d "$WORK_PARENT/${{SLURM_JOB_ID}}_${{SLURM_ARRAY_TASK_ID}}.XXXXXX")"
+        export TABPFN_CACHE_ROOT="$WORKSPACE/cache"
+        export TMPDIR="$WORKSPACE/tmp"
+        export APPTAINER_CACHEDIR="$WORKSPACE/apptainer-cache"
+        export APPTAINER_TMPDIR="$WORKSPACE/apptainer-tmp"
+        mkdir -p "$TABPFN_RESULTS_ROOT" "$TABPFN_CACHE_ROOT" "$TMPDIR" "$APPTAINER_CACHEDIR" "$APPTAINER_TMPDIR"
+        [[ -w "$TABPFN_RESULTS_ROOT" ]] || fail "Results directory is not writable"
+        printf 'Job=%s\\nCheckout=%s\\nImage=%s\\nResults=%s\\n' "$SLURM_JOB_ID" "$REPO_ROOT" "$TABPFN_CONTAINER_IMAGE" "$TABPFN_RESULTS_ROOT" > "$WORKSPACE/OWNER.txt"
+        echo "Owned scratch workspace: $WORKSPACE (retained on failure)"
+
+        # Preserve repo-first weight lookup; existing DATA copies require a reviewed migration.
+        if [[ -d "$REPO_ROOT/checkpoints" && -n "$(ls -A "$REPO_ROOT/checkpoints")" ]]; then
+            CKPT_ROOT="$(readlink -e "$REPO_ROOT/checkpoints")"
+        else
+            CKPT_ROOT="$TABPFN_STAGING_ROOT/checkpoints"
+        fi
+        CKPT_ROOT="$(readlink -m "$CKPT_ROOT")"
+        within "$CKPT_ROOT" "$TABPFN_STAGING_ROOT" || fail "Selected checkpoints must reside on PROJECT; do not change lookup priority"
+        export HF_HOME="$CKPT_ROOT/huggingface"
+        export HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
+        export TORCH_HOME="$CKPT_ROOT/torch"
+        export XDG_CACHE_HOME="$WORKSPACE/xdg"
+        export TRITON_CACHE_DIR="$WORKSPACE/triton"
+        export TORCHINDUCTOR_CACHE_DIR="$WORKSPACE/inductor"
+        export TORCH_EXTENSIONS_DIR="$WORKSPACE/extensions"
+        export PYTHONDONTWRITEBYTECODE=1
+        export TABPFN_MODEL_CACHE_DIR="$CKPT_ROOT/tabpfn"
+        export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONUNBUFFERED=1 TQDM_DISABLE=1
+        export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+        if command -v module >/dev/null 2>&1; then module purge; fi
+        if [[ -n "$TABPFN_APPTAINER_MODULE" ]]; then module load "$TABPFN_APPTAINER_MODULE"; fi
+        command -v apptainer >/dev/null 2>&1 || fail "Apptainer is unavailable"
+        APPTAINER_ARGS=(--cleanenv --pwd "$REPO_ROOT" --bind "$DATA_ROOT:$DATA_ROOT" --bind "$TABPFN_STAGING_ROOT:$TABPFN_STAGING_ROOT" --bind "$NATIVE_SCRATCH:$NATIVE_SCRATCH")
+        # Preserve configured logical mount names used by existing approved asset symlinks.
+        if [[ "$DATA_ALIAS" != "$DATA_ROOT" ]]; then APPTAINER_ARGS+=(--bind "$DATA_ROOT:$DATA_ALIAS"); fi
+        if [[ "$PROJECT_ALIAS" != "$TABPFN_STAGING_ROOT" ]]; then APPTAINER_ARGS+=(--bind "$TABPFN_STAGING_ROOT:$PROJECT_ALIAS"); fi
+        if [[ "$SCRATCH_ALIAS" != "$NATIVE_SCRATCH" ]]; then APPTAINER_ARGS+=(--bind "$NATIVE_SCRATCH:$SCRATCH_ALIAS"); fi
+        {('APPTAINER_ARGS+=(--nv)' if n_gpus else '# CPU allocation: no GPU passthrough.')}
+        # Override any environment baked into the image with the recorded job settings.
+        for key in TABPFN_VSC_PROFILE TABPFN_STAGING_ROOT TABPFN_RESULTS_ROOT TABPFN_CACHE_ROOT TABPFN_CONTAINER_IMAGE VSC_DATA VSC_SCRATCH TMPDIR HF_HOME HUGGINGFACE_HUB_CACHE TORCH_HOME XDG_CACHE_HOME TRITON_CACHE_DIR TORCHINDUCTOR_CACHE_DIR TORCH_EXTENSIONS_DIR PYTHONDONTWRITEBYTECODE TABPFN_MODEL_CACHE_DIR HF_HUB_OFFLINE TRANSFORMERS_OFFLINE PYTHONUNBUFFERED TQDM_DISABLE PYTORCH_CUDA_ALLOC_CONF ${{!SLURM_@}} CUDA_VISIBLE_DEVICES; do
+            if [[ -n "${{!key+x}}" ]]; then export "APPTAINERENV_$key=${{!key}}"; fi
+        done
+        """)
+
+
+def _container_invocation(experiment: str, partition_key: str, plan_path: Path,
+                          items: list[dict]) -> str:
+    """Use the unchanged worker entry point, with checks for path-bound weights."""
+    checks = []
+    if any(item["method"].lower() == "hyperfast" for item in items):
+        checks.append(dedent("""\
+            HF_ASSET="$CKPT_ROOT/talent_assets/hyperfast/hyperfast.ckpt"
+            [[ -r "$HF_ASSET" ]] || fail "HyperFast staged checkpoint is missing"
+            APPTAINER_ARGS+=(--bind "$HF_ASSET:$REPO_ROOT/model/models/hyperfast/hyperfast.ckpt:ro")
+            apptainer exec "${APPTAINER_ARGS[@]}" "$TABPFN_CONTAINER_IMAGE" "$TABPFN_CONTAINER_PYTHON" -c 'from pathlib import Path; assert Path("model/models/hyperfast/hyperfast.ckpt").is_file(), "HyperFast bind target unavailable; validate the image bind layout"'
+            """))
+    mitra_tasks = sorted({"reg" if item["task"].lower() == "lgd" else "cls"
+                          for item in items if item["method"].lower() == "mitra"})
+    if mitra_tasks:
+        check = ("from pathlib import Path; import TALENT; "
+                 "root = Path(TALENT.__file__).parent / 'model/models/models_mitra'; "
+                 f"required = {mitra_tasks!r}; "
+                 "assert all((root / task / name).is_file() for task in required "
+                 "for name in ('config.json', 'model.safetensors')), "
+                 "'Mitra weights must be prepared in the immutable image before deployment'")
+        checks.append('apptainer exec "${APPTAINER_ARGS[@]}" "$TABPFN_CONTAINER_IMAGE" '
+                      f'"$TABPFN_CONTAINER_PYTHON" -c {shlex.quote(check)}\n')
+    worker = dedent(f"""\
+        apptainer exec "${{APPTAINER_ARGS[@]}}" "$TABPFN_CONTAINER_IMAGE" "$TABPFN_CONTAINER_PYTHON" -m src.utils.cli slurm-task \\
+            --experiment {shlex.quote(experiment)} \\
+            --partition {shlex.quote(partition_key)} \\
+            --array-id "${{SLURM_ARRAY_TASK_ID}}" \\
+            --plan-path {shlex.quote(str(plan_path))}
+        """)
+    checks.append(worker)
+    checks.append(worker.rstrip() + " --verify-only\n")
+    checks.append(dedent("""\
+        python3 - "$WORKSPACE" "$NATIVE_SCRATCH" "$REPO_ROOT" "$SLURM_JOB_ID" "$SLURM_ARRAY_TASK_ID" <<'PY'
+        import json, pathlib, shutil, sys
+        workspace, root, repo = (pathlib.Path(p).resolve() for p in sys.argv[1:4])
+        parent = (root / 'tabpfncredit/workspaces').resolve()
+        receipt = repo / 'logs/manifests/publications' / (sys.argv[4] + '_' + sys.argv[5] + '.json')
+        record = json.loads(receipt.read_text())
+        assert record['status'] == 'published' and pathlib.Path(record['workspace']).resolve() == workspace
+        assert workspace.parent == parent and workspace.is_relative_to(root) and (workspace / 'OWNER.txt').is_file()
+        shutil.rmtree(workspace)
+        for directory in (parent, parent.parent):
+            try: directory.rmdir()
+            except OSError: pass
+        PY
+        """))
+    return "\n".join(checks)
 
 
 # ============================================================================
@@ -617,6 +768,7 @@ def generate_scripts_for_experiment(
     if not work_items:
         return []
 
+    container_settings = _container_settings()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -664,6 +816,15 @@ def generate_scripts_for_experiment(
     # GPU method; A100/H100 both have 80 GB). Disable with TABPFN_GPU_SPREAD=0
     # -- e.g. to keep deep-method work off the ~4x-more-expensive H100.
     _spillover_gpu(by_partition, max_slots=max_slots, log=_log)
+
+    if container_settings:
+        unsupported = [key for key in by_partition
+                       if key in PARTITIONS and PARTITIONS[key].cluster not in ("wice", "mindwell")]
+        if unsupported:
+            raise ValueError(
+                "Container profile rejects retired/unvalidated routes: " + ", ".join(unsupported)
+                + ". Select current partitions explicitly; legacy campaign routing is unchanged."
+            )
 
     generated: List[GeneratedJob] = []
     filename_suffix = f"_{run_id}" if run_id else ""
@@ -738,6 +899,7 @@ def generate_scripts_for_experiment(
             log_dir=log_dir,
             mail_email=mail_email,
             gpu_cmode=gpu_cmode if n_gpus else None,
+            container=container_settings is not None,
         )
         banner = "\n".join([
             f'mkdir -p "{log_dir}"',
@@ -753,9 +915,11 @@ def generate_scripts_for_experiment(
         script = "\n".join([
             _SHEBANG,
             header,
-            _prologue(cluster=spec.cluster, partition=spec.partition),
+            (_container_prologue(container_settings, spec.cluster, n_gpus)
+             if container_settings else _prologue(cluster=spec.cluster, partition=spec.partition)),
             banner,
-            _python_invocation(experiment, partition_key, plan_path),
+            (_container_invocation(experiment, partition_key, plan_path, items)
+             if container_settings else _python_invocation(experiment, partition_key, plan_path)),
             _EPILOGUE,
         ])
 

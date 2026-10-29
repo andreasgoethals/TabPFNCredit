@@ -445,15 +445,13 @@ def dedent_next_steps() -> str:
     return (
         "NEXT STEPS\n"
         "----------\n"
-        "1. Upload the whole 'checkpoints/' folder to the VSC, into the repo root:\n"
-        "       rsync -av checkpoints/ <vsc>:$VSC_DATA/TabPFNCredit/checkpoints/\n"
-        "   (or scp -r). It is large (several GB) and gitignored on purpose.\n"
-        "2. On a VSC LOGIN node, provision the package-internal models ONCE:\n"
-        "       cd $VSC_DATA/TabPFNCredit && bash scripts/setup_vsc_checkpoints.sh\n"
-        "   (copies Mitra + HyperFast weights to where their loaders expect them).\n"
-        "3. Submit jobs as usual -- the generated SLURM scripts point HF_HOME /\n"
-        "   TABPFN_MODEL_CACHE_DIR at checkpoints/ and set HF_HUB_OFFLINE=1, so the\n"
-        "   compute nodes load every weight offline.\n"
+        "1. Follow docs/VSC.md to stage the complete checkpoints tree on PROJECT.\n"
+        "   Verify file hashes and Hugging Face cache links before using it.\n"
+        "2. Preserve the historical runtime. New VSC deployments require an\n"
+        "   immutable PROJECT container with the expected Mitra/HyperFast assets.\n"
+        "   setup_vsc_checkpoints.sh is for legacy writable environments only.\n"
+        "3. Validate offline loading and numerical equivalence in an authorized\n"
+        "   Slurm allocation before submitting a new campaign.\n"
     )
 
 
