@@ -114,8 +114,9 @@ exact owned artifacts after consumer/publication checks and secure failed work.
 
 ## Verified alignment: 29 October 2026
 
-Template matches canonical document commit `1c11bb1` byte-for-byte, SHA-256
-`0ed244c16cab8ea86afab5ed90eea36eef3a9e218314c38538e227e4f009fd3c`.
+The template copy was rechecked against the canonical project during the
+30 October storage review. Its revision and SHA-256 are recorded with that
+dated review rather than presented here as a permanently current template pin.
 VSC Library remains read-only at `0ed4ffa89d312b9bb6411681b6a14f81672439f3`.
 The tested framework snapshot is `a535554`, based on
 `980533a256d0fb4c349074eb451239d5220801cb`. On 30 October, the user authorized
@@ -154,3 +155,29 @@ Useful source/build/environment recovery records belong under
 `logs/maintenance/vsc-20261029/`; large backups are ignored by Git. Final receipts
 record synchronization, retired artifacts and measured storage. Consult current
 `myquota` instead of treating a historic snapshot as current capacity.
+
+## Storage review: 30 October 2026
+
+Measured allocation was 0.84 GiB for the DATA checkout (0.81 GiB of Git history)
+and 37.61 GiB on PROJECT: checkpoints 26.24 GiB, runtime 5.16 GiB, datasets
+3.96 GiB and results 2.26 GiB. These are dated project measurements, not shared
+allocation quotas. Keep the history, scientific assets and independent recovery
+copies; no layout migration or forced Git cleanup is needed.
+
+The separate `$VSC_DATA/miniconda3/envs/tabpfncreditvenv` prefix was an unused
+Python/packaging bootstrap, not the paper runtime. Its 31 Conda packages had no
+scientific dependencies, and inspected jobs, gateway processes and interactive
+settings had no consumers. After a full recovery archive was copied locally and
+all 8,946 source files verified, Conda removed only that prefix offline. The
+shared Conda installation/cache and legacy activation interfaces remain intact;
+the removed bootstrap did not provide a working benchmark environment. Existing
+workstation environments are unaffected. Do not infer reclaimed quota from its
+0.23 GiB directory size: most files were hard-linked to the shared package cache.
+
+All nine PROJECT asset symlinks resolved within this project; the single SIF
+remained read-only. Scientific assets and private preprocessing were preserved.
+Backup and retirement ran as Slurm maintenance jobs `62474727` and `62474770`;
+no experiments were run. Receipts, the local recovery archive and compact
+maintenance evidence are under `logs/maintenance/vsc-20261030/storage-review/`.
+The owned transfer workspace was removed after verified publication; neither
+native scratch tier retains project work from this review.
