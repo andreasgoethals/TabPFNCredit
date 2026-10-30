@@ -19,6 +19,11 @@ Slurm validation or evidence of numerical reproduction.
 
 ## VSC access and execution
 
+- Use one project branch, `main`, on the workstation, GitHub and VSC DATA
+  checkout. Do not create separate deployment branches. For authorized releases,
+  test locally, commit/push `main`, then use `git pull --ff-only` on VSC after
+  checking its clean state and active/queued/resumable consumers. Preserve unique
+  history in a verified local recovery bundle before retiring an old branch.
 - The user renews access manually in Windows PowerShell with
   `step ssh login --context VSC`, including KU Leuven Authenticator approval.
   Reuse the existing native Windows SSH agent. Do not install/configure a

@@ -117,13 +117,16 @@ exact owned artifacts after consumer/publication checks and secure failed work.
 Template matches canonical document commit `1c11bb1` byte-for-byte, SHA-256
 `0ed244c16cab8ea86afab5ed90eea36eef3a9e218314c38538e227e4f009fd3c`.
 VSC Library remains read-only at `0ed4ffa89d312b9bb6411681b6a14f81672439f3`.
-The tested framework is recorded on the local `codex/vsc-alignment-20261029`
-deployment branch, based on `980533a256d0fb4c349074eb451239d5220801cb`, and
-transferred to the DATA checkout through a Git bundle. The exact deployment
-revision is in the completion receipt. The workstation's working branch and
-staging area are preserved; no public push is made. This private Git transport
-replaces public publication for this authorized deployment. Private modules stay
-ignored and are separately hash-verified; they are never added to the commit.
+The tested framework snapshot is `a535554`, based on
+`980533a256d0fb4c349074eb451239d5220801cb`. On 30 October, the user authorized
+GitHub publication and consolidation onto one branch, `main`, on the workstation,
+GitHub and VSC DATA checkout. Separate deployment branches are retired after
+preserving unique history in verified local recovery bundles. For future
+authorized releases, test/commit/push `main`, then use `git pull --ff-only` on
+the clean DATA checkout after checking its job/recovery consumers. The current
+revision and synchronization checks are recorded under
+`logs/maintenance/vsc-20261030/`. Private modules remain ignored and separately
+hash-verified; they are never added to a public commit or recovery branch push.
 Previous remote history/build provenance is independently preserved locally under
 `logs/maintenance/vsc-20261029/`. The obsolete sibling `TabPFNCredit-builds`
 was removed after archival.
