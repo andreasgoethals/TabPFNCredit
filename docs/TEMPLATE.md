@@ -105,7 +105,7 @@ step ssh login --context VSC
 ```
 
 Complete the browser sign-in and KU Leuven Authenticator approval. The tested lifetime is about
-16 hours; inspect the certificate's actual validity below. Agents must not schedule reminders,
+16 hours; inspect the certificate's actual validity below. Agents must not schedule authentication reminders,
 open login flows, enable automatic renewal hooks or bypass MFA. If renewal is needed during a
 task, tell the user to run this command and wait for confirmation before retrying.
 
@@ -190,6 +190,11 @@ command diagnosis. Do not retry uncertain mutations. Check live VSC status/firew
 
 ### Development and VSC validation loop
 
+**Use one Git branch throughout the project**, normally `main`, locally, on GitHub and on VSC.
+Do not create feature/test branches or switch branches to deploy. Preserve an existing project's
+chosen branch. A frozen DATA checkout at a recorded commit may protect active jobs without creating
+another branch; otherwise wait until that checkout is unused before pulling.
+
 1. **Edit locally**, then run relevant local tests, lint and any affected notebooks. Fix failures
    before deployment; keep dependency/container specifications reproducible in Git.
 2. **Review, commit and push** the tested revision when authorized. Record its commit and library
@@ -219,6 +224,26 @@ Use the task's existing compute/install/migration authorization; scoped cleanup 
 work is part of finishing it, after the checks above. A documentation-only change needs local document
 checks rather than an unrelated VSC campaign. Report local and actual VSC
 validation separately; if required cluster testing is blocked or unauthorized, state what remains.
+
+### Long waits and progress monitoring
+
+For a long GPU queue or running campaign, an agent may set up a **temporary check every 30 minutes**
+within the authorized task rather than hold the session open. Record its ID, owner, exact job IDs,
+cluster, evidence paths, last state and completion criteria in the task/run record. Reuse an existing
+monitor instead of duplicating it. Run it where the approved SSH access is available: cloud tasks do
+not inherit the local Windows certificate, and a local scheduler requires its host to stay available.
+
+Each check uses bounded read-only SSH to inspect `squeue`/`sacct`, relevant log tails, progress and
+expected artifacts. Do not treat an absent queue entry as success: confirm terminal accounting status
+and required outputs. Report meaningful changes/failures or completed results; stay quiet when unchanged.
+On expired/missing authentication, tell the user to run `step ssh login --context VSC`, wait for them,
+and pause the monitor if necessary; never automate MFA or send repeated renewal requests.
+
+Once all tracked jobs have terminal outcomes and their evidence has been assessed, report the outcome,
+record unresolved failures/cleanup, then **delete the temporary monitoring task automatically**.
+Stop/remove it also when monitoring is cancelled or abandoned; record why. Monitoring cannot authorize
+new submissions, retries, cancellations or deletion of remote work. This job-progress scheduling is
+allowed; the separate ban on scheduled authentication reminders still applies.
 
 ### VSC storage policy
 
