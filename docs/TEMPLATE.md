@@ -261,10 +261,23 @@ These are **our project choices**, informed by VSC guidance, not universal VSC s
   the resolver appends the project name. Legacy `*_STAGING_ROOT` names remain aliases.
   Set roots in the job or pass them explicitly; Leuven does not inherit arbitrary shell exports.
   Missing, invalid or unwritable large-asset destinations fail instead of redirecting writes.
+- **Both Lustre PROJECT and GPFS PROJECT are persistent options.** Select one authoritative durable
+  root per project in private/ignored deployment settings (`.env.local` is not loaded automatically).
+  Do not infer authority from the cluster, site `VSC_PROJECT_*` variables or another project's choice.
+  Public examples use `/lustre1/project/ALLOCATION` or `/gpfs1/project/ALLOCATION`, never real allocations.
+- **Durable root and execution root are distinct.** Durable helpers always address the selected
+  PROJECT tree. Optional `<PROJECT_UPPER>_EXECUTION_ROOT` / `VSC_EXECUTION_ROOT` names a full
+  project/job working directory (no project-name suffix added); otherwise execution uses durable assets.
+  Set it explicitly in the job and verify staging before using `execution_dir(...)`. This helper neither
+  copies nor publishes files and does not redirect `results_dir`, inputs or container authority.
+  Do not maintain permanent duplicate project trees by default; backups/outflow are independent.
 - Use **GPFS for intensive Mindwell I/O, Lustre for wICE**. Suitable native PROJECT assets may
   be used directly; no mandatory full copy to scratch. If persistent assets are cross-mounted,
   stage only the required working set to native storage and verify it before compute.
   Check node accessibility, particularly GPFS access from older wICE nodes.
+  wICE P100/V100 cannot access GPFS: stage required inputs and immutable runtime to native storage
+  before execution and use a transfer-capable node for durable publication. Never require an invisible
+  durable bind/runtime on the compute node. Document justified project-specific exceptions.
 - Isolate writable databases/caches per job, or use a tested filesystem-compatible locking and
   publication protocol. Never copy a live SQLite database as an ordinary file. Compact formats
   reduce file counts but do not make concurrent writes safe automatically.
@@ -287,6 +300,15 @@ These are **our project choices**, informed by VSC guidance, not universal VSC s
   Never interpret the empty-between-workloads aim as permission to delete active or recoverable work.
   Never wipe a shared scratch root or rely on
   site cleanup/periodic touching to manage it; node-local scratch can disappear at job end.
+
+**Migration is a separate authorized operation:** inventory active/queued/resumable consumers,
+paths, locks, links, quotas and permissions; agree a cutover window. Copy only consistent database
+snapshots (quiesce writers or use a tested backup protocol), preserve necessary link relationships,
+verify checksums and review destination group/ACL access. Update private roots, launcher bindings,
+runtime pointers and validation rules without rewriting historical provenance. Validate bounded
+execution, resume and periodic/final publication on the target nodes. Keep rollback copies and old
+runtime identities until acceptance, independent recovery copies and absence of old-path consumers
+are verified; only then retire scoped old copies. A second PROJECT allocation is not an automatic migration.
 
 ### Speed-first execution: Open OnDemand and Slurm
 
@@ -339,7 +361,7 @@ per notebook by default; `--threads` and optional lower `--workers` share that b
 **allocation safety**, not a cap on independent Slurm jobs. Its 1,800-second per-notebook timeout
 is adjustable with `--timeout`. There is no four-worker default.
 
-Access/storage/scheduling reviewed 29-10-2026. VSC Library pin
+Storage reviewed 03-11-2026; access/scheduling reviewed 29-10-2026. VSC Library pin
 `0ed4ffa89d312b9bb6411681b6a14f81672439f3`: `guides/HPC_AND_ACCESS.md`, `STORAGE.md`,
 `SOFTWARE.md`, `SLURM.md`; snapshot `source/accounts/{mfa_login_smallstep,ssh_agent_windows}.rst` and
 `source/leuven/{slurm_specifics,tier2_hardware/parallel_filesystems}.rst`.
@@ -385,6 +407,10 @@ uses isolated scratch caches, appends `.log` output, and never installs, pulls, 
 requeues or deletes workspaces automatically. The project implements and tests publication/resume.
 Fill resource/module TODOs; adapt paths and experiment arguments together. Slurm Bash is Linux;
 local commands use PowerShell 5.1 (no `&&`, ternary or `??`).
+The stock launcher supports direct access to the selected durable root on either filesystem;
+it does not implement cross-filesystem staging/publication or pass an execution-root override.
+Adapt project launchers for that workflow, explicitly forwarding execution roots into containers;
+retain native staged runtime bindings and publication dependencies where durable storage is inaccessible.
 
 ## `src/`
 
@@ -399,6 +425,8 @@ Importable logic; add packages freely. Generic defaults are editable, not a mand
   `config_path("experiment1/baseline")` locates YAML; `figures_dir` mirrors notebook parents.
   `raw_dir`, `processed_dir`, `checkpoints_dir`, `cache_dir`, `runtimes_dir` use PROJECT;
   `workspace_dir(run_id)` names disposable work. `resolve_writable` probes and fails without fallback.
+  `execution_root`/`execution_dir` address explicitly selected working files independently of durable
+  helpers; `describe()` logs both roots. No path-prefix rule assumes PROJECT means Lustre.
 - `atomic.py`: sibling-temp then replace for text/metadata; not locking or a multi-file transaction.
 - `clean_run.py`: list by default, delete only with `--clean`; optional `--processed` rebuilds
   processed inputs. Across all experiments/tiers, preserve `results/`, `submissions/`, `workspaces/`,
