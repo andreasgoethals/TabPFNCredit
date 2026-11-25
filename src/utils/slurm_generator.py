@@ -540,6 +540,8 @@ def _container_settings() -> Optional[dict[str, str]]:
         "TABPFN_APPTAINER_MODULE": os.environ.get("TABPFN_APPTAINER_MODULE", "").strip(),
         "VSC_DATA": os.environ.get("VSC_DATA", "").strip(),
     }
+    if os.environ.get("TABPFN_REVISION") == "1":
+        settings["TABPFN_REVISION"] = "1"
     settings["TABPFN_RESULTS_ROOT"] = settings["TABPFN_RESULTS_ROOT"].strip()
     for key in ("TABPFN_STAGING_ROOT", "TABPFN_RESULTS_ROOT", "TABPFN_CONTAINER_IMAGE", "VSC_DATA"):
         if not settings[key] or not PurePosixPath(settings[key]).is_absolute():
@@ -645,7 +647,7 @@ def _container_prologue(settings: dict[str, str], cluster: str, n_gpus: int) -> 
         if [[ "$SCRATCH_ALIAS" != "$NATIVE_SCRATCH" ]]; then APPTAINER_ARGS+=(--bind "$NATIVE_SCRATCH:$SCRATCH_ALIAS"); fi
         {('APPTAINER_ARGS+=(--nv)' if n_gpus else '# CPU allocation: no GPU passthrough.')}
         # Override any environment baked into the image with the recorded job settings.
-        for key in TABPFN_VSC_PROFILE TABPFN_STAGING_ROOT TABPFN_RESULTS_ROOT TABPFN_CACHE_ROOT TABPFN_CONTAINER_IMAGE VSC_DATA VSC_SCRATCH TMPDIR HF_HOME HUGGINGFACE_HUB_CACHE TORCH_HOME XDG_CACHE_HOME TRITON_CACHE_DIR TORCHINDUCTOR_CACHE_DIR TORCH_EXTENSIONS_DIR PYTHONDONTWRITEBYTECODE TABPFN_MODEL_CACHE_DIR HF_HUB_OFFLINE TRANSFORMERS_OFFLINE PYTHONUNBUFFERED TQDM_DISABLE PYTORCH_CUDA_ALLOC_CONF ${{!SLURM_@}} CUDA_VISIBLE_DEVICES; do
+        for key in TABPFN_REVISION TABPFN_VSC_PROFILE TABPFN_STAGING_ROOT TABPFN_RESULTS_ROOT TABPFN_CACHE_ROOT TABPFN_CONTAINER_IMAGE VSC_DATA VSC_SCRATCH TMPDIR HF_HOME HUGGINGFACE_HUB_CACHE TORCH_HOME XDG_CACHE_HOME TRITON_CACHE_DIR TORCHINDUCTOR_CACHE_DIR TORCH_EXTENSIONS_DIR PYTHONDONTWRITEBYTECODE TABPFN_MODEL_CACHE_DIR HF_HUB_OFFLINE TRANSFORMERS_OFFLINE PYTHONUNBUFFERED TQDM_DISABLE PYTORCH_CUDA_ALLOC_CONF ${{!SLURM_@}} CUDA_VISIBLE_DEVICES; do
             if [[ -n "${{!key+x}}" ]]; then export "APPTAINERENV_$key=${{!key}}"; fi
         done
         """)
@@ -799,7 +801,7 @@ def generate_scripts_for_experiment(
         by_partition.setdefault(key, []).append(item)
 
     # 1a-bis) Optional AGGRESSIVE replication: COPY small-data GPU work to
-    # every partition listed in TABPFN_REPLICATE_PARTITIONS (incl. "cpu").
+    # the GPU partitions listed in TABPFN_REPLICATE_PARTITIONS.
     # Runtime skip-if-done dedupes; first replica to finish a point wins.
     # Takes precedence over the Genius offload (which MOVES instead).
     replicated = _replicate_small_data(by_partition, log=_log)
@@ -961,7 +963,7 @@ def _small_data_eligible(it: dict, row_cap: int) -> bool:
 
 def _replicate_small_data(by_partition: dict, *, log) -> bool:
     """AGGRESSIVE mode: duplicate small-data GPU cells onto EVERY partition in
-    ``TABPFN_REPLICATE_PARTITIONS`` (comma-separated keys; may include "cpu").
+    ``TABPFN_REPLICATE_PARTITIONS`` (comma-separated GPU partition keys).
 
     Every replica array runs the same points; each point is skipped at RUN
     time when its result already exists, so whichever queue starts first does
@@ -971,12 +973,7 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
     the same point are harmless: result writes are atomic, a lost packed
     update is re-detected as missing by the next ``tabpfncredit resubmit``.
 
-    CPU replicas additionally require an explicit row cap at/under
-    ``TABPFN_CPU_FOUNDATION_ROW_CAP`` (default 10000) -- in-context inference
-    on CPU is viable for small fits only -- and their cost estimates are
-    scaled by ``TABPFN_CPU_FOUNDATION_SLOWDOWN`` (default 10x) for packing.
-
-    Returns True when replication ran (the Genius MOVE offload is then skipped).
+    Each method retains its assigned processor across all dataset sizes.
     """
     targets = [p.strip() for p in os.environ.get("TABPFN_REPLICATE_PARTITIONS", "").split(",")
                if p.strip()]
@@ -993,7 +990,7 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
     if "gpu_p100" in targets:
         log.warning("slurm-generate: gpu_p100 cannot run the installed torch 2.8 "
                     "wheels (sm_70+ only); dropping it from the replica set.")
-    targets = [p for p in targets if p in PARTITIONS and p != "gpu_p100"]
+    targets = [p for p in targets if p in PARTITIONS and PARTITIONS[p].gpus_per_node and p != "gpu_p100"]
     if "gpu_b200" in targets:
         log.warning("slurm-generate: replicating to Mindwell gpu_b200 (B200, "
                     "Blackwell sm_100). Ensure the venv torch ships sm_100 kernels "
@@ -1005,9 +1002,6 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
         return False
 
     row_cap = int(os.environ.get("TABPFN_GENIUS_ROW_CAP", 60_000))
-    cpu_row_cap = int(os.environ.get("TABPFN_CPU_FOUNDATION_ROW_CAP", 10_000))
-    cpu_slowdown = float(os.environ.get("TABPFN_CPU_FOUNDATION_SLOWDOWN", 10.0))
-
     # Source points: small-data work currently homed on the wICE GPU queues.
     # Track WHICH wICE GPU partition each point is homed on, so we only skip
     # *that* partition as a replica target -- the other wICE GPU (e.g. A100 when
@@ -1029,14 +1023,7 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
     for dst in targets:
         if dst in source_homes:
             continue  # don't duplicate points onto the partition they're homed on
-        if dst == "cpu" or PARTITIONS[dst].gpus_per_node == 0:
-            rep = [dict(it) for it in source
-                   if it.get("row_limit") is not None
-                   and it["row_limit"] <= cpu_row_cap]
-            for it in rep:
-                it["est_seconds"] = int(it.get("est_seconds", 0) * cpu_slowdown)
-        else:
-            rep = [dict(it) for it in source]
+        rep = [dict(it) for it in source]
         if not rep:
             continue
         # Distinct traversal per replica: rotate by a different fraction and
@@ -1084,7 +1071,7 @@ def _genius_offload(by_partition: dict, *, log) -> None:
                     "NOT supported by the installed torch 2.8 wheels (sm_70+). "
                     "Ignoring gpu_p100; use gpu_v100.")
         targets = [p for p in targets if p != "gpu_p100"]
-    targets = [p for p in targets if p in PARTITIONS and PARTITIONS[p].cluster == "genius"]
+    targets = [p for p in targets if p in PARTITIONS and PARTITIONS[p].cluster == "genius" and PARTITIONS[p].gpus_per_node]
     if not targets:
         return
     row_cap = int(os.environ.get("TABPFN_GENIUS_ROW_CAP", 60_000))

@@ -73,7 +73,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # A real run installs this from ``_build_talent_args``; do it explicitly here
     # so the chunking path under test is the one TALENT will actually resolve.
-    if args.method == "tabfm" and not install_tabfm_chunked():
+    if (args.method == "tabfm" and not hasattr(TALENT.RunResult, "hpo_time")
+            and not install_tabfm_chunked()):
         print(
             "ERROR: could not install the chunked TabFM method -- nothing to "
             "verify. Check that TALENT is importable.",

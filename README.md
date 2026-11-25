@@ -118,7 +118,7 @@ The existing venv/Conda interfaces remain compatible with historical deployments
 and workstation use. VSC submits from the host and runs workers in the immutable
 PROJECT image; exact package versions and provenance are under
 [`config/vsc/`](config/vsc/).
-`pyproject.toml` uses dependency ranges and TALENT `main`; reinstalling it does
+`pyproject.toml` uses dependency ranges and the revision commit of the TALENT fork; reinstalling it does
 not recreate the paper's exact environment. Local installation above is unchanged.
 
 `scripts/run_all_experiments.sh [Experiment0 ...]` retains its existing immediate
@@ -585,6 +585,42 @@ what is stored on disk.
 **Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook with the project venv kernel, collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` once after a successful run. Notebooks execute **in parallel** (`-j N`, default min(4, CPUs)) — each is an independent kernel process with its own figure directory and its own `All_Results.md` section, and the shared per-experiment summary CSVs are rebuilt once up front instead of once per kernel (which also speeds up `-j 1` runs). Direct VS Code/Jupyter notebook runs refresh `figures/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Individual_Method_Runner` is skipped entirely; `Results_Checking` is re-run as a QA pass but its output is not collected into `All_Results.md`. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
 
 ---
+
+### Selective revision runs
+
+New installations use the TALENT fork at commit `9fe7d9c`. For a selective refit,
+set `TABPFN_REVISION=1` and point `TABPFN_RESULTS_ROOT` and `TABPFN_CACHE_ROOT` to fresh directories, then
+run the existing experiment command with its dataset and method filters. The VSC
+`--revision` profile sets independent result and cache locations automatically.
+Revision workers check processed input and preprocessing fingerprints, split and tuning settings,
+and the TALENT source before reusing a dataset’s completed work. The CLI's `list --show-profile` reports the processor assignment for every method.
+A method keeps its CPU or GPU assignment at all dataset sizes.
+
+Each new fold saves TALENT's final fit, HPO and test prediction durations in
+seconds as `train_time`, `hpo_time` and `predict_time`. Untuned runs record zero
+HPO seconds. Older results have unknown HPO duration. Notebook plots that request
+the historical trial-count estimate use it only for entries without a measurement.
+The JSON also retains native run measurements and device information. Binary
+classification prediction files include validation probabilities when available. The historical
+optimal-profit field is a test-set upper bound; validation probabilities can be used to
+choose an operating threshold before evaluating profit on the held-out rows.
+
+After refits finish, build a separate analysis directory from the original result
+tree and the revision outputs. Use three separate paths; the output must be new.
+
+```shell
+python -m src.utils.revision_results PATH_TO_PAPER_RESULTS PATH_TO_REFITS PATH_TO_ANALYSIS
+```
+
+The command copies the original experiment results and replaces complete matched
+Experiment 0 or 1 JSON/NPZ pairs. New methods on an existing dataset are checked against its linear baseline. It checks fold IDs and ordered held-out targets.
+Identical target sequences alone cannot establish row identity, so use the original
+data, ordering and split settings for matched refits. Experiment 2 and 3 come
+entirely from the archive. The manifest `revision_sources.json` identifies each
+replacement. Set `TABPFN_RESULTS_ROOT` to the analysis directory to open the
+existing notebooks. Regenerated summaries, figures, captions and batch-executed
+notebook copies go into the analysis directory. Use a new output directory to
+assemble another snapshot.
 
 ## 8. Tests
 

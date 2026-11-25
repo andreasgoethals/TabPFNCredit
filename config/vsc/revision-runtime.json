@@ -1,0 +1,8 @@
+{
+  "image": "tabpfncredit-talent-9fe7d9c.sif",
+  "base_runtime": "runtime.json",
+  "base_sha256": "cc479a249b6e808355e2cf468741713e1990fe8873e362185835dfa171f70d8a",
+  "talent_repository": "https://github.com/andreasgoethals/TALENT",
+  "talent_commit": "9fe7d9c2007183d36cbf60388d52f509635d7346",
+  "wheel_sha256": "3261e943dc047d237afb15be27cc251cd83ef4dc315125ec5d0b482babe61011"
+}

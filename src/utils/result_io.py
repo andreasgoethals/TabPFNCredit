@@ -43,8 +43,10 @@ import json
 import logging
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any, Dict, Iterator, Mapping, Optional, Tuple
 
+from filelock import FileLock
 import numpy as np
 
 logger = logging.getLogger(__name__)
@@ -52,8 +54,8 @@ logger = logging.getLogger(__name__)
 
 _ARRAY_KEYS = ("y_true", "y_prob", "y_pred", "val_y_true", "val_y_prob")
 _SCALAR_KEYS_PER_FOLD = (
-    "metrics", "train_time", "predict_time", "threshold",
-    "used_hpo", "hpo_n_trials",
+    "metrics", "train_time", "predict_time", "hpo_time", "device", "threshold",
+    "used_hpo", "hpo_n_trials", "hpo_config", "measurements", "provenance",
     "n_clipped_below", "n_clipped_above",
 )
 
@@ -62,7 +64,6 @@ def _result_paths(
     base: Path, experiment: str, task: str, dataset: str, method: str
 ) -> Tuple[Path, Path]:
     out_dir = base / experiment.lower() / task.lower() / dataset
-    out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir / f"{method}.json", out_dir / f"{method}.npz"
 
 
@@ -86,6 +87,8 @@ def save_method(
 
     json_path, npz_path = _result_paths(base, experiment, task, dataset, method)
 
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+
     # ------ JSON (scalars only) -----------------------------------------
     payload: Dict[str, Any] = {
         "experiment": experiment.lower(),
@@ -102,24 +105,6 @@ def save_method(
     payload["aggregates"] = _aggregate(payload["folds"])
     payload["n_folds"] = len(payload["folds"])
 
-    # Write the npz (arrays) FIRST, then the JSON (scalars) LAST -- each via a
-    # temp file + os.replace so a crash, kill, or "Disk quota exceeded" error
-    # mid-write can never leave a half-written file. Because has_complete_result()
-    # keys on the JSON, writing it last guarantees the invariant: a complete,
-    # parseable <method>.json implies its <method>.npz is already fully on disk.
-    # So an interrupted save is never mistaken for a finished (skippable) result
-    # -- a re-run cleanly redoes that point.
-    # Remove any stale temp files left by a previously killed save of this
-    # point (e.g. after `scancel`) so interrupted runs don't leak inodes on
-    # the file-count-limited project storage.
-    out_dir = json_path.parent
-    for _stale in list(out_dir.glob(f".{json_path.name}.*.tmp")) + \
-                  list(out_dir.glob(f".{npz_path.name}.*.tmp")):
-        try:
-            _stale.unlink()
-        except OSError:
-            pass
-
     arrays: Dict[str, np.ndarray] = {}
     for fold_id, fold in method_results.items():
         for k in _ARRAY_KEYS:
@@ -127,18 +112,21 @@ def save_method(
             if v is None:
                 continue
             arrays[f"fold_{fold_id}_{k}"] = np.asarray(v)
-    if arrays:
-        tmp_npz = npz_path.parent / f".{npz_path.name}.{os.getpid()}.tmp"
-        with open(tmp_npz, "wb") as fh:
-            np.savez_compressed(fh, **arrays)
-        os.replace(tmp_npz, npz_path)
-    elif npz_path.exists():
-        npz_path.unlink()
-
-    tmp_json = json_path.parent / f".{json_path.name}.{os.getpid()}.tmp"
-    tmp_json.write_text(json.dumps(payload, indent=2))
-    os.replace(tmp_json, json_path)
-
+    # Prepare both files before retiring an existing completion marker. Replicas
+    # may finish together; publish their pairs under a single dataset lock.
+    with TemporaryDirectory(dir=json_path.parent, prefix=".publish-") as temp:
+        scalar = Path(temp) / "result.json"
+        predictions = Path(temp) / "result.npz"
+        scalar.write_text(json.dumps(payload, indent=2))
+        if arrays:
+            np.savez_compressed(predictions, **arrays)
+        with FileLock(json_path.parent / ".publish.lock"):
+            json_path.unlink(missing_ok=True)
+            if arrays:
+                os.replace(predictions, npz_path)
+            else:
+                npz_path.unlink(missing_ok=True)
+            os.replace(scalar, json_path)
     return json_path, npz_path
 
 
@@ -284,7 +272,7 @@ def has_complete_result(
         return False
     try:
         payload = json.loads(json_path.read_text())
-    except json.JSONDecodeError:
+    except (FileNotFoundError, json.JSONDecodeError):
         return False
     folds = payload.get("folds") or {}
     return len(folds) >= int(expected_folds)
@@ -382,15 +370,10 @@ def save_packed_point(
     if "info" not in payload:
         payload["info"] = _to_jsonable(next(iter(method_results.values())).get("info", {}))
 
-    # stale-temp cleanup + atomic write (see save_method)
-    for _stale in out_dir.glob(f".{json_path.name}.*.tmp"):
-        try:
-            _stale.unlink()
-        except OSError:
-            pass
-    tmp = out_dir / f".{json_path.name}.{os.getpid()}.tmp"
-    tmp.write_text(json.dumps(payload, indent=2))
-    os.replace(tmp, json_path)
+    with TemporaryDirectory(dir=out_dir, prefix=".publish-") as temp:
+        tmp = Path(temp) / "shard.json"
+        tmp.write_text(json.dumps(payload, indent=2))
+        os.replace(tmp, json_path)
     return json_path
 
 

@@ -93,11 +93,11 @@ _PROFILES: Dict[str, Profile] = {
     "xrfm":            Profile(Tier.MEDIUM, 240, prefers_gpu=True),
 
     # ---- Basic neural ----
-    "mlp":             Profile(Tier.MEDIUM, 180, prefers_gpu=True),
-    "resnet":          Profile(Tier.MEDIUM, 240, prefers_gpu=True),
-    "snn":             Profile(Tier.MEDIUM, 180, prefers_gpu=True),
+    "mlp":             Profile(Tier.MEDIUM, 180, prefers_gpu=False),
+    "resnet":          Profile(Tier.MEDIUM, 240, prefers_gpu=False),
+    "snn":             Profile(Tier.MEDIUM, 180, prefers_gpu=False),
     "realmlp":         Profile(Tier.MEDIUM, 240, prefers_gpu=True),
-    "mlp_plr":         Profile(Tier.MEDIUM, 240, prefers_gpu=True),
+    "mlp_plr":         Profile(Tier.MEDIUM, 240, prefers_gpu=False),
 
     # ---- Transformer-based / token-based ----
     "autoint":         Profile(Tier.SLOW, 600, prefers_gpu=True),
@@ -113,14 +113,14 @@ _PROFILES: Dict[str, Profile] = {
     "tabnet":          Profile(Tier.SLOW, 600, prefers_gpu=True),
     "node":            Profile(Tier.SLOW, 900, prefers_gpu=True),
     "grownet":         Profile(Tier.SLOW, 1200, prefers_gpu=True),
-    "dcn2":            Profile(Tier.MEDIUM, 360, prefers_gpu=True),
-    "tabm":            Profile(Tier.SLOW, 900, prefers_gpu=True),
+    "dcn2":            Profile(Tier.MEDIUM, 360, prefers_gpu=False),
+    "tabm":            Profile(Tier.SLOW, 900, prefers_gpu=False),
     "grande":          Profile(Tier.SLOW, 1800, prefers_gpu=True),
 
     # ---- Retrieval / NCA-style ----
     "tabr":            Profile(Tier.SLOW, 900, prefers_gpu=True),
     "modernNCA":       Profile(Tier.SLOW, 900, prefers_gpu=True),
-    "dnnr":            Profile(Tier.MEDIUM, 300, prefers_gpu=True),
+    "dnnr":            Profile(Tier.MEDIUM, 300, prefers_gpu=False),
 
     # ---- Regularization-based / capsule / prototype ----
     "tangos":          Profile(Tier.SLOW, 600, prefers_gpu=True),
@@ -174,6 +174,17 @@ _PROFILES: Dict[str, Profile] = {
 # ============================================================================
 #  Validation
 # ============================================================================
+
+# Use family estimates for new releases until dedicated allocation data exists.
+for _name, _family in {
+    "tabpfn_v3_5": "tabpfn_v3", "tabdpt_v1_3": "tabdpt", "mitra_v2": "mitra",
+    "limix_v2": "limix", "limix_v2_1016": "limix", "kumo_tabular": "mitra",
+    "seldon": "tabicl_v2", "seldon_mini": "tabicl_v2", "inpriora": "tabicl_v2",
+    "causilo": "tabicl_v2", "exaone_tabular": "tabicl_v2", "tabldm": "tabicl_v2",
+    "trc": "ptarl",
+}.items():
+    _PROFILES[_name] = _PROFILES[_family]
+
 
 _UNKNOWN_DEFAULT = Profile(Tier.MEDIUM, 300, prefers_gpu=True)
 
@@ -294,7 +305,7 @@ def recommended_partition(method: str, *, prefer_h100: bool = True) -> str:
         return "batch"
     if profile.needs_foundation_gpu:
         return "gpu_h100" if prefer_h100 else "gpu_a100"
-    return "gpu_p100"
+    return "gpu_a100"
 
 
 __all__ = [

@@ -64,7 +64,22 @@ package versions, TALENT/TabPFN revisions and the library pin. Scientific packag
 and installed patches are preserved. Only Click changed from 8.4.2 to compatible
 8.1.8 to restore CLI startup. PyArrow/Hugging Face declaration bounds admit the
 existing installed versions; those packages were not upgraded. Dependency ranges
-and TALENT `main` in `pyproject.toml` are not a paper lockfile.
+and the revision TALENT pin in `pyproject.toml` are not a paper lockfile.
+
+## Revision runtime
+
+Use the leading `--revision` option for the TALENT fork pinned in the project.
+[revision-runtime.json](../config/vsc/revision-runtime.json) identifies the base image and fork wheel.
+The existing launcher without this option retains the historical image and
+result paths. The revision uses `runtimes/tabpfncredit-talent-9fe7d9c.sif`
+and writes to `revision-9fe7d9c/results` on PROJECT by default. Its planning
+and worker caches use separate scratch workspaces. Experiments 2 and 3 are
+archived for this revision.
+
+```bash
+bash scripts/vsc.sh --revision list --show-profile
+bash scripts/vsc.sh --revision experiment Experiment1 --task pd --dataset 0008.german --method LogReg --no-submit
+```
 
 ## Configuration and compatibility
 

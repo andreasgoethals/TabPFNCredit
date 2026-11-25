@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from src.utils.paths import PROJECT_ROOT, results_root  # noqa: E402
+from src.utils.paths import figure_root, PROJECT_ROOT, results_root  # noqa: E402
 
 # The per-method tool is never auto-run (it's parametric/interactive).
 RUN_SKIP = {"Individual_Method_Runner"}
@@ -527,10 +527,17 @@ def _process_notebook(nb_path: Path, *, py: Optional[Path], do_clear: bool,
     # execute: --execute re-runs every cell and replaces every output, and the
     # result is copied back below, so a pre-clear would be a second write for no
     # observable difference.
+    destination = nb_path
+    result_dir = results_root()
+    if (result_dir / "revision_sources.json").is_file():
+        destination = result_dir / "notebooks" / nb_path.name
+        destination.parent.mkdir(exist_ok=True)
     if do_clear and not do_execute:
-        clear_notebook(nb_path)
+        if destination != nb_path and not destination.exists():
+            shutil.copy2(nb_path, destination)
+        clear_notebook(destination)
         steps.append("cleared")
-    source = nb_path
+    source = destination if destination.exists() else nb_path
     tmp_dir: Optional[tempfile.TemporaryDirectory] = None
     try:
         if do_execute:
@@ -552,7 +559,7 @@ def _process_notebook(nb_path: Path, *, py: Optional[Path], do_clear: bool,
         if do_execute:
             # The ONE write the sync client sees for this notebook, and it is an
             # atomic replace rather than a truncate-then-fill.
-            write_notebook_text(nb_path, read_notebook_text(source))
+            write_notebook_text(destination, read_notebook_text(source))
     finally:
         if tmp_dir is not None:
             shutil.rmtree(tmp_dir.name, ignore_errors=True)
@@ -677,7 +684,7 @@ def run(targets: List[Path], *, py: Optional[Path], do_clear: bool, do_execute: 
     if do_captions and do_execute and ok:
         try:
             from src.utils.generate_captions import generate_captions
-            written = generate_captions(PROJECT_ROOT / "figures")
+            written = generate_captions(figure_root(PROJECT_ROOT))
             print(f"captions      ->  {written[0] if written else '(no figures found)'}")
         except Exception as exc:  # noqa: BLE001 -- captions are non-critical
             print(f"(caption regeneration skipped: {type(exc).__name__}: {exc})")

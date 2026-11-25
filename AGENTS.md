@@ -11,7 +11,7 @@ paper results/figures or upgrade dependencies as incidental maintenance.
 Keep workstation defaults and legacy deployment interfaces compatible. Add new
 methods only through a separately authorized experiment/configuration.
 
-The dependency ranges and TALENT `main` in `pyproject.toml` are not a frozen
+The dependency ranges and revision TALENT pin in `pyproject.toml` are not a frozen
 paper runtime. Preserve existing environments and model/input versions;
 capture their provenance before proposing a replacement. Test framework
 changes with synthetic/local regressions and distinguish them from actual

@@ -62,10 +62,8 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 from src.data.dataset_inventory import list_datasets  # noqa: E402
 from src.methods.method_config import (  # noqa: E402
     CLASSICAL_METHODS,
-    CPU_METHODS,
     DEEP_METHODS,
     FOUNDATION_METHODS,
-    GPU_METHODS,
     HPO_METHODS,
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
@@ -321,6 +319,12 @@ def _run_one_point(
     task, dataset, method = cell["task"], cell["dataset"], cell["method"]
     name = point["name"]
     cv = config["split"]["cv_splits"]
+    revision = os.environ.get("TABPFN_REVISION") == "1"
+    if revision:
+        from src.utils.revision_results import verify_revision_inputs
+        if experiment.lower() not in ("experiment0", "experiment1"):
+            raise ValueError("The revision uses archived Experiment 2 and 3 results")
+        verify_revision_inputs(results_root, experiment, task, dataset, config)
     # Experiments 2 & 3 PACK all of a cell's sweep points into one
     # <method>.json (metrics only), instead of one file per point — otherwise
     # the sweep exhausts the project-storage inode quota. The SLURM generator
@@ -385,6 +389,8 @@ def _run_one_point(
             seed_num=config["training"].get("seed_num", 1),
             verbose=verbose,
         )
+        if revision:
+            verify_revision_inputs(results_root, experiment, task, dataset, config)
         if packed:
             # Metrics only: drop the per-fold prediction arrays (no npz) and
             # append this point into the cell's single packed <method>.json.
@@ -635,6 +641,8 @@ def cmd_experiment(
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
+    if os.environ.get("TABPFN_REVISION") == "1" and name in ("Experiment2", "Experiment3"):
+        raise typer.BadParameter("The revision uses archived Experiment 2 and 3 results")
     config = load_config(name)
     cells = _build_task_list(
         config, task_filter=task, dataset_filter=dataset, method_filter=method,
@@ -739,6 +747,8 @@ def cmd_resubmit(
         ["Experiment0", "Experiment1", "Experiment2", "Experiment3"]
         if all_experiments else list(names or [])
     )
+    if os.environ.get("TABPFN_REVISION") == "1" and any(t in ("Experiment2", "Experiment3") for t in targets):
+        raise typer.BadParameter("Select Experiment0 or Experiment1 explicitly for revision resubmission")
     if not targets:
         console.print("[red]Pass experiment name(s) or --all.[/red]")
         raise typer.Exit(code=1)
@@ -983,9 +993,9 @@ def cmd_list(
     elif architecture == "classical":
         pool &= CLASSICAL_METHODS
     if hardware == "cpu":
-        pool &= CPU_METHODS
+        pool = {m for m in pool if not get_profile(m).prefers_gpu}
     elif hardware == "gpu":
-        pool &= GPU_METHODS
+        pool = {m for m in pool if get_profile(m).prefers_gpu}
 
     table = Table(title=f"{len(pool)} method(s)")
     table.add_column("Method")
@@ -1000,7 +1010,7 @@ def cmd_list(
         row = [
             m,
             "deep" if m in DEEP_METHODS else "classical",
-            "gpu" if m in GPU_METHODS else "cpu",
+            "gpu" if get_profile(m).prefers_gpu else "cpu",
             "yes" if m in FOUNDATION_METHODS else "no",
         ]
         if show_profile:

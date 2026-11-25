@@ -26,7 +26,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.methods.method_names import display_name  # noqa: E402
-from src.utils.paths import PROJECT_ROOT  # noqa: E402
+from src.utils.paths import figure_root, PROJECT_ROOT  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -798,7 +798,7 @@ def refresh_captions_for_saved_figure(saved_path: Optional[Path]) -> None:
     if os.environ.get("TABPFNCREDIT_AUTO_CAPTIONS", "1").lower() in {"0", "false", "no"}:
         return
 
-    figures_root = PROJECT_ROOT / "figures"
+    figures_root = figure_root(PROJECT_ROOT)
     try:
         Path(saved_path).resolve().relative_to(figures_root.resolve())
     except (OSError, ValueError):
@@ -811,10 +811,10 @@ def refresh_captions_for_saved_figure(saved_path: Optional[Path]) -> None:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    from src.utils.paths import PROJECT_ROOT
+    from src.utils.paths import figure_root, PROJECT_ROOT
 
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--figures-root", type=Path, default=PROJECT_ROOT / "figures")
+    ap.add_argument("--figures-root", type=Path, default=figure_root(PROJECT_ROOT))
     ap.add_argument("--experiment", nargs="*", help="limit to these top-level dirs (default: all)")
     ap.add_argument("--dry-run", action="store_true", help="report only, write nothing")
     args = ap.parse_args(argv)

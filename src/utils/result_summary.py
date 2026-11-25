@@ -112,6 +112,8 @@ def _rows_from_point(method_stem: str, point: Dict[str, Any], task: str, dataset
             "fold_id": fold_id,
             "train_time": float(fold.get("train_time") or 0.0),
             "predict_time": float(fold.get("predict_time") or 0.0),
+            "hpo_time": fold.get("hpo_time"),
+            "device": fold.get("device"),
             "threshold": fold.get("threshold"),
             "used_hpo": bool(fold.get("used_hpo", False)),
         }
@@ -192,6 +194,11 @@ def aggregate_by_method(
             return df
         agg = df.groupby(group_by_list, dropna=False)[metric_cols].agg(["mean", "std", "median"])
         agg.columns = [f"{a}_{b}" for a, b in agg.columns]
+        grouped = df.groupby(group_by_list, dropna=False)
+        for name in ("train_time", "predict_time", "hpo_time"):
+            if name in df:
+                agg[f"{name}_mean"] = grouped[name].mean()
+        agg["n_folds"] = grouped.size()
         return agg.reset_index()
 
     metric_cols = [c for c in df.columns if c.startswith("metric.")]
@@ -205,6 +212,8 @@ def aggregate_by_method(
         agg_exprs.append(pl.col(c).median().alias(f"{c}_median"))
     agg_exprs.append(pl.col("train_time").mean().alias("train_time_mean"))
     agg_exprs.append(pl.col("predict_time").mean().alias("predict_time_mean"))
+    if "hpo_time" in df.columns:
+        agg_exprs.append(pl.col("hpo_time").cast(pl.Float64).mean().alias("hpo_time_mean"))
     agg_exprs.append(pl.len().alias("n_folds"))
 
     return df.group_by(group_by_list).agg(agg_exprs).sort(group_by_list)

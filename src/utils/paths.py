@@ -265,6 +265,14 @@ def results_root() -> Path:
     return PROJECT_ROOT / "results"
 
 
+def figure_root(project_root: Optional[Path] = None) -> Path:
+    """Keep notebook figures beside a mixed revision snapshot."""
+    root = results_root()
+    if (root / "revision_sources.json").is_file():
+        return root / "figures"
+    return (project_root or PROJECT_ROOT) / "figures"
+
+
 def logs_root() -> Path:
     """Where logs live -- ALWAYS the repo root (general data storage), never project storage."""
     return PROJECT_ROOT / "logs"

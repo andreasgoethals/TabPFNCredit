@@ -6,7 +6,7 @@
 #   pip install -e ".[local]"   # CPU PyTorch + faiss-cpu + dev tools
 #   pip install -e ".[hpc]"     # PyTorch + annoy + dev tools inside a VSC image
 # VSC runtime preparation and legacy compatibility: docs/VSC.md.
-# These ranges and TALENT @main do not lock the historical paper environment.
+# The historical paper environment is recorded in config/vsc/runtime.json.
 #
 # Python 3.10 - 3.12 supported, 3.12 recommended.
 #
@@ -14,7 +14,7 @@
 # ---------------------------------
 # TALENT (our core framework) is pulled in directly from our fork below:
 #
-#     TALENT @ git+https://github.com/andreasgoethals/TALENT@main
+#     TALENT @ git+https://github.com/andreasgoethals/TALENT@9fe7d9c2007183d36cbf60388d52f509635d7346
 #
 # Historically TALENT pinned all its deps to EXACT versions (e.g.
 # requests==2.31.0) that clashed with the foundation models (tabpfn needs
@@ -72,8 +72,7 @@ classifiers = [
 dependencies = [
     # ---- TALENT framework (our fork; direct git reference) ----
     # Pulled in directly so `pip install -e ".[local|hpc]"` is a single step.
-    # Pin to a tag/commit here if you need a frozen TALENT for a paper run.
-    "TALENT @ git+https://github.com/andreasgoethals/TALENT@main",
+    "TALENT @ git+https://github.com/andreasgoethals/TALENT@9fe7d9c2007183d36cbf60388d52f509635d7346",
 
     # ---- Core scientific stack (TALENT floors) ----
     "numpy>=1.26.4",
@@ -122,6 +121,7 @@ dependencies = [
 
     # ---- Folds cache + parallelism ----
     "joblib>=1.3,<2",
+    "filelock>=3,<4",
 
     # ---- Config, CLI & utilities ----
     "packaging>=23,<25",

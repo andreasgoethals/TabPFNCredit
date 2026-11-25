@@ -13,6 +13,15 @@ import uuid
 
 def main(arguments=None):
     arguments = list(sys.argv[1:] if arguments is None else arguments) or ["--help"]
+    revision = arguments[0] == "--revision"
+    if revision:
+        arguments = arguments[1:] or ["--help"]
+        if arguments[0] == "resubmit" and "--all" in arguments:
+            raise SystemExit("Select Experiment0 or Experiment1 explicitly for revision resubmission")
+        if arguments[0] in ("experiment", "resubmit", "slurm-task") and any(
+            arg.lower().split("=")[-1] in ("experiment2", "experiment3") for arg in arguments
+        ):
+            raise SystemExit("The revision uses archived Experiment 2 and 3 results")
     repo = Path(__file__).resolve().parents[1]
     data = Path(os.environ["VSC_DATA"]).resolve(strict=True)
     if not repo.is_relative_to(data):
@@ -29,8 +38,19 @@ def main(arguments=None):
     if not raw or not Path(raw).is_absolute():
         raise SystemExit("An absolute PROJECT directory is required")
     project = Path(raw).resolve(strict=True)
-    image = Path(os.environ.get("TABPFN_CONTAINER_IMAGE", str(project / "runtimes" /
-                  "tabpfncredit-runtime-20261029-cli-fixed.sif"))).resolve(strict=True)
+    image_name = "tabpfncredit-runtime-20261029-cli-fixed.sif"
+    default_results = project / "results"
+    if revision:
+        lock = json.loads((repo / "config/vsc/revision-runtime.json").read_text())
+        image_name = lock["image"]
+        default_results = project / ("revision-" + lock["talent_commit"][:7]) / "results"
+    image = Path(os.environ.get("TABPFN_CONTAINER_IMAGE", project / "runtimes" / image_name)).resolve(strict=True)
+    result_dir = Path(os.environ.get("TABPFN_RESULTS_ROOT", default_results)).resolve()
+    if revision and (result_dir == project / "results" or (project / "results").is_relative_to(result_dir)
+                     or result_dir.is_relative_to(project / "results")):
+        raise SystemExit("Choose a revision results directory outside archived results")
+    if revision and image.name != image_name:
+        raise SystemExit("The revision profile requires its pinned TALENT image")
     if not image.is_file() or not image.is_relative_to(project):
         raise SystemExit("The versioned SIF must reside on PROJECT")
     scratch = Path(os.environ["VSC_SCRATCH"]).resolve(strict=True)
@@ -58,7 +78,7 @@ def main(arguments=None):
         "TABPFN_VSC_PROFILE": "container", "TABPFN_STAGING_ROOT": str(project),
         "TABPFN_CONTAINER_IMAGE": str(image),
         "TABPFN_CONTAINER_PYTHON": os.environ.get("TABPFN_CONTAINER_PYTHON", "python"),
-        "TABPFN_RESULTS_ROOT": os.environ.get("TABPFN_RESULTS_ROOT", str(project / "results")),
+        "TABPFN_RESULTS_ROOT": str(result_dir),
         "TABPFN_CACHE_ROOT": str(workspace / "cache"), "TMPDIR": str(workspace / "tmp"),
         "VSC_DATA": str(data), "VSC_SCRATCH": str(scratch),
         "VSC_SCRATCH_LUSTRE1": str(native),
@@ -75,6 +95,8 @@ def main(arguments=None):
         "PYTHONDONTWRITEBYTECODE": "1",
         "TABPFN_MODEL_CACHE_DIR": str(project / "checkpoints" / "tabpfn"),
     })
+    if revision:
+        settings["TABPFN_REVISION"] = "1"
     for name, value in settings.items():
         env[name] = value
         env["APPTAINERENV_" + name] = value

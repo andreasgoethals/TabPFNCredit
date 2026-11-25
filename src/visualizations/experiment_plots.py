@@ -705,7 +705,12 @@ def reset_figure_dir(figures_dir: Path) -> Path:
     after the files inside were removed) is skipped rather than raising. A
     stale figure left behind is harmless; a crashed setup cell is not.
     """
+    from src.utils.paths import PROJECT_ROOT, figure_root
+
     figures_dir = Path(figures_dir)
+    paper_root = PROJECT_ROOT / "figures"
+    if figures_dir.is_relative_to(paper_root):
+        figures_dir = figure_root() / figures_dir.relative_to(paper_root)
     if figures_dir.exists():
         for path in figures_dir.rglob("*"):
             if path.is_file() and path.suffix.lower() in {".png", ".pdf", ".svg", ".jpg", ".jpeg"}:
@@ -2531,14 +2536,14 @@ def compute_time_bars(
     (a ± band reads poorly on a log scale); the mean is printed above each bar.
 
     Pass ``hpo_methods`` + ``n_trials`` to fold the hyperparameter-search cost
-    into the tunable methods' bars (their train time × ``n_trials``); the title
+    into the tunable methods' bars (the measured search time, or the archive estimate); the title
     then reads "train + predict + HPO"."""
     vals = _total_time(df, agg="mean", hpo_methods=hpo_methods, n_trials=n_trials)
     if vals is None:
         logger.warning("compute_time_bars: no train_time/predict_time columns")
         return None
-    with_hpo = bool(hpo_methods) and n_trials > 1
-    cost = "train + predict + HPO" if with_hpo else "train + predict"
+    with_hpo = bool(hpo_methods)
+    cost = "train + predict + HPO (legacy estimates where unavailable)" if with_hpo else "train + predict"
     return _method_bar(
         vals, errs=None, logy=True, value_fmt="{:.1f}",
         title=f"{task_name}: mean compute time per method ({cost}, seconds)",
@@ -2716,7 +2721,7 @@ def runtime_performance_scatter(
     their names sit right next to their dot; the rest stay as unlabelled dots.
 
     Pass ``hpo_methods`` + ``n_trials`` to put the full train + predict + HPO
-    cost on the x axis for the tunable methods (their train time × ``n_trials``)."""
+    cost on the x axis for the tunable methods (the measured search time, or the archive estimate)."""
     from matplotlib.lines import Line2D
 
     mean_col = _resolve_mean_column(df, metric)
@@ -2800,8 +2805,8 @@ def runtime_performance_scatter(
             )
     ax.grid(True, which="both", alpha=0.25)
     pm = _pretty_metric(metric)
-    _with_hpo = bool(hpo_methods) and n_trials > 1
-    _cost = "train + predict + HPO" if _with_hpo else "train + predict"
+    _with_hpo = bool(hpo_methods)
+    _cost = "train + predict + HPO (legacy estimates where unavailable)" if _with_hpo else "train + predict"
     # x = MEAN compute time across folds/datasets; y = MEAN of the metric.
     # State both on the axes so it is unambiguous.
     ax.set_xlabel(f"mean compute time per fold — {_cost} (s, log scale)",
@@ -3428,19 +3433,10 @@ def _total_time(
     hpo_methods: Optional[Sequence[str]] = None,
     n_trials: int = 1,
 ) -> Optional[pd.Series]:
-    """TOTAL compute time per method = train + predict, in seconds, aggregated
-    by ``agg`` (default MEAN).
+    """Aggregate final fit and prediction times, including HPO when requested.
 
-    In-context models (TabPFN v1/v2/Real, Mitra) report ``train_time = 0`` by
-    design -- their cost lives in ``predict`` -- so plotting train-time alone
-    drops them from a log axis. Train+predict is the fair, always-positive cost.
-
-    When ``hpo_methods`` + ``n_trials`` are given, the train time of those
-    methods is multiplied by ``n_trials`` so the bar reflects the full
-    hyperparameter-search cost (train + predict + HPO) for the tunable methods;
-    untuned / in-context methods are unchanged. This is computed on the fly for
-    plotting only -- the stored per-fold ``train_time`` is the final refit and
-    is never modified.
+    Native search times take precedence. Archives predating the HPO timer use
+    the historical trial-count estimate only when requested by the caller.
     """
     if "train_time" in df.columns:                 # per-fold frame
         train = df["train_time"].fillna(0.0)
@@ -3451,10 +3447,15 @@ def _total_time(
     else:
         return None
     predict = pt.fillna(0.0) if hasattr(pt, "fillna") else pt
-    if hpo_methods and n_trials and n_trials > 1:
+    if hpo_methods:
         hp = set(hpo_methods)
-        factor = df["method"].map(lambda m: n_trials if m in hp else 1)
-        train = train * factor
+        factor = df["method"].map(lambda m: max(1, n_trials) if m in hp else 1)
+        estimate = train * (factor - 1)
+        if "used_hpo" in df:
+            estimate = estimate.where(df["used_hpo"], 0.0)
+        key = "hpo_time" if "train_time" in df.columns else "hpo_time_mean"
+        search = df[key].fillna(estimate) if key in df else estimate
+        train = train + search
     total = train + predict
     return total.groupby(df["method"]).agg(agg).sort_values()
 

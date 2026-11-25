@@ -25,7 +25,9 @@ no ``os.environ['LIGHTGBM_VERBOSITY']`` side effects at import time).
 
 from __future__ import annotations
 
+import hashlib
 import logging
+from functools import lru_cache
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +49,7 @@ from TALENT.model.method_registry import (
     METHOD_REGISTRY,
     get_method_spec,
 )
+from TALENT.model.lib.tuning_metric import METHODS_WITHOUT_TUNE_METRIC
 from TALENT.model.utils import set_seeds
 
 # Wrapper-side modules
@@ -61,11 +64,12 @@ from src.methods.method_config import (
     apply_preprocessing_policies,
     _is_missing,
 )
+from src.methods.runtime_profile import get_profile
 from src.methods.method_metrics import enrich_pd_metrics, enrich_lgd_metrics
 from src.methods.cost_metrics import cost_sensitive_summary
 from src.methods.tabfm_chunked import install as install_tabfm_chunked_inference
 from src.methods.sklearn_compat import install_sklearn_compat
-from src.utils.paths import cache_root
+from src.utils.paths import cache_root, find_processed_dir
 from src.utils.runtime_quiet import configure_quiet_runtime
 
 
@@ -89,25 +93,30 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ============================================================================
-#  Folds cache (joblib.Memory keyed on the SPLIT PARAMETERS, not the data)
+#  Fold cache
 # ============================================================================
-#
-# Persists across processes -- SLURM workers share the prepared fold dict.
-# Invalidates automatically when the input arguments change (joblib hashes them)
-# or when this function's source changes (joblib hashes the bytecode too).
-#
-# IMPORTANT: the key is the ARGUMENT TUPLE -- task, dataset SLUG, split sizes,
-# seed, row limits. The processed arrays themselves are NOT hashed, so
-# re-preprocessing a dataset does NOT invalidate its cached folds: every argument
-# is identical, and the run silently reuses folds built from the OLD data. After
-# any change under src/data/ that alters a processed dataset, delete this cache
-# (it is fully regenerable):
-#
-#     rm -rf "$(python -c 'from src.utils.paths import cache_root; print(cache_root())')/folds"
-#
-# German Credit is the cautionary case: a loader fix took it from 999 rows to its
-# full 1000, and without clearing this cache the rerun would have reproduced the
-# original 999-row folds exactly.
+
+@lru_cache(maxsize=256)
+def _file_digest(path: Path, size: int, modified_ns: int, changed_ns: int) -> str:
+    """Hash each input once per process while its filesystem metadata is stable."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _fold_inputs(processed: Path) -> tuple:
+    source = Path(__file__).resolve().parents[1] / "data"
+    paths = [processed / name for name in ("N.npy", "C.npy", "y.npy", "info.json")]
+    paths.extend(source / name for name in ("data_feeder.py", "preprocessing.py", "dataset_preprocessing.py"))
+    inputs = []
+    for path in paths:
+        if path.is_file():
+            stat = path.stat()
+            inputs.append((path.name, _file_digest(path, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)))
+    return tuple(inputs)
+
 
 _FOLDS_CACHE_DIR = cache_root() / "folds"
 _FOLDS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -123,6 +132,7 @@ def _prepare_folds_uncached(
     row_limit: Optional[int],
     train_row_limit: Optional[int],
     sampling: Optional[float],
+    input_signature: tuple = (),  # included in the joblib cache key
 ) -> Dict[int, Tuple[Tuple[Any, Any, Any], Dict[str, Any]]]:
     """Build folds via DataFeeder. Wrapped by joblib.Memory below."""
     feeder = DataFeeder(
@@ -271,7 +281,7 @@ def _apply_val_test_caps(
 # with TALENT's ``model.lib.tuning_metric.METHODS_WITHOUT_TUNE_METRIC``.
 HPO_METRIC_CLASSIFICATION = "AUC"
 HPO_METRIC_REGRESSION = "R2"
-_HPO_METRIC_UNSUPPORTED = frozenset({"tabnet", "ptarl", "tabcaps"})
+_HPO_METRIC_UNSUPPORTED = METHODS_WITHOUT_TUNE_METRIC
 
 
 def _resolve_hpo_metric(method: str, is_regression: bool) -> Optional[str]:
@@ -321,14 +331,12 @@ def _build_talent_args(
     # TALENT as ``args.tune_metric``; older TALENT builds simply ignore it.
     overrides.setdefault("tune_metric", _resolve_hpo_metric(method, is_regression))
 
-    # Pin the compute device to the hardware that is actually present.
-    # TALENT decides CatBoost's ``task_type`` purely from ``args.gpu``
-    # (whose default is ``"0"``), so on a CPU-only node it would request GPU
-    # training and abort with a CUDA driver error. Passing ``gpu="cpu"`` when
-    # no CUDA device is visible keeps every classical method on the CPU;
-    # ``gpu="0"`` restores the normal GPU path when a device is available.
-    _cuda_available = _HAS_TORCH and torch.cuda.is_available()
-    overrides.setdefault("gpu", "0" if _cuda_available else "cpu")
+    # A method uses one processor throughout the benchmark, including its HPO trials.
+    gpu_method = get_profile(method).prefers_gpu
+    cuda_available = _HAS_TORCH and torch.cuda.is_available()
+    overrides["gpu"] = "0" if gpu_method and cuda_available else "cpu"
+    if not gpu_method:
+        overrides["device"] = "cpu"
 
     if spec.architecture.value == "deep":
         overrides.setdefault("max_epoch", max_epoch)
@@ -395,7 +403,8 @@ def _build_talent_args(
     if method == "tabfm" and isinstance(getattr(args, "config", None), dict):
         gen = args.config.setdefault("general", {})
         gen.setdefault("max_num_rows", 10_000)
-        install_tabfm_chunked_inference()
+        if not hasattr(TALENT.RunResult, "hpo_time"):
+            install_tabfm_chunked_inference()
 
     return args
 
@@ -424,6 +433,10 @@ class _FoldResult:
     method: str
     dataset: str
     task: str
+    hpo_time: Optional[float] = None
+    device: Optional[str] = None
+    measurements: Optional[dict] = None
+    provenance: Optional[dict] = None
     n_clipped_below: int = 0
     n_clipped_above: int = 0
 
@@ -438,6 +451,10 @@ class _FoldResult:
             "val_y_prob": self.val_y_prob,
             "train_time": self.train_time,
             "predict_time": self.predict_time,
+            "hpo_time": self.hpo_time,
+            "device": self.device,
+            "measurements": self.measurements,
+            "provenance": self.provenance,
             "threshold": self.threshold,
             "used_hpo": self.used_hpo,
             "hpo_config": self.hpo_config,
@@ -489,9 +506,14 @@ def _run_one_fold(
         seed_num=seed_num,
     )
 
+    if (hasattr(TALENT.RunResult, "hpo_time") and get_profile(method).prefers_gpu
+            and not (_HAS_TORCH and torch.cuda.is_available())):
+        raise RuntimeError(f"{method} is assigned to GPU; use a CUDA worker")
     set_seeds(seed)
 
-    # Hand off to TALENT
+    run_options = {}
+    if hasattr(TALENT.RunResult, "validation_predict_proba"):
+        run_options.update(measure=True, return_validation_predictions=not is_regression)
     run_result = TALENT.run(
         method,
         train_val_data,
@@ -502,6 +524,7 @@ def _run_one_fold(
         tune=tune,
         n_trials=n_trials,
         save_path=str(checkpoint_dir),
+        **run_options,
     )
 
     # Build credit-risk metrics
@@ -523,10 +546,7 @@ def _run_one_fold(
             else np.zeros_like(y_test)
         )
         y_prob = run_result.predict_proba
-        # Validation-set probabilities aren't returned by TALENT.run() by
-        # default; we expose None and let downstream callers decide
-        # whether they need them (Experiment{1,2,3} historically did not).
-        val_y_prob = None
+        val_y_prob = getattr(run_result, "validation_predict_proba", None)
         n_below = n_above = 0
 
         # Cost-sensitive metrics (Expected_Loss_Normalized + profit).
@@ -542,10 +562,14 @@ def _run_one_fold(
         y_true=y_test,
         y_prob=y_prob,
         y_pred=y_pred,
-        val_y_true=None,
+        val_y_true=_to_numpy(train_val_data[2]["val"]) if val_y_prob is not None else None,
         val_y_prob=val_y_prob,
         train_time=float(run_result.fit_time or 0.0),
         predict_time=float(run_result.predict_time or 0.0),
+        hpo_time=getattr(run_result, "hpo_time", None),
+        device=getattr(run_result, "provenance", {}).get("configured_device"),
+        measurements=getattr(run_result, "measurements", None),
+        provenance=getattr(run_result, "provenance", None),
         threshold=run_result.threshold,
         used_hpo=tune,
         hpo_config=dict(run_result.config.get("model", {})) if tune else None,
@@ -643,7 +667,10 @@ def run_talent_method(
         tune, n_trials if tune else 0, seed_num,
     )
 
-    folds = _prepare_folds_cached(
+    processed = find_processed_dir(task, dataset)
+    prepare = _prepare_folds_cached if processed else _prepare_folds_uncached
+    folds = prepare(
+        input_signature=_fold_inputs(processed) if processed else (),
         task=task, dataset=dataset,
         test_size=test_size, val_size=val_size, cv_splits=cv_splits,
         seed=seed,

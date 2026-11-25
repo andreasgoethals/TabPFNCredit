@@ -174,6 +174,8 @@ HPO_METHODS: MethodSet = derive_method_set(supports_hpo=True)
 # by "is it a foundation model".
 _FOUNDATION_NAMES = {
     "tabpfn", "tabpfn_v2", "tabpfn_v2_5", "tabpfn_v3", "tabpfn_real",
+    "seldon", "seldon_mini", "exaone_tabular", "causilo", "inpriora", "kumo_tabular",
+    "tabldm", "mitra_v2", "limix_v2", "limix_v2_1016", "tabdpt_v1_3", "tabpfn_v3_5",
     "tabicl", "tabicl_v2", "mitra", "limix", "tabdpt", "tabfm", "hyperfast", "tabptm",
 }
 # A train_row_limit normally means "in-context learner with a bounded context",
