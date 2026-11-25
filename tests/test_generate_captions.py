@@ -186,13 +186,13 @@ def test_generate_removes_stale_per_directory_files(tmp_path):
 
 def test_saved_project_figure_refreshes_consolidated_captions(tmp_path, monkeypatch):
     monkeypatch.setattr(gc, "PROJECT_ROOT", tmp_path)
-    figure = tmp_path / "figures" / "experiment0" / "pd_heatmap_auc.pdf"
+    figure = tmp_path / "output" / "experiment0" / "figures" / "Experiment0" / "pd_heatmap_auc.pdf"
     figure.parent.mkdir(parents=True)
     figure.write_bytes(b"%PDF-1.4")
 
     gc.refresh_captions_for_saved_figure(figure)
 
-    captions = tmp_path / "figures" / "CAPTIONS.md"
+    captions = tmp_path / "output" / "CAPTIONS.md"
     assert captions.exists()
     assert "`pd_heatmap_auc.pdf`" in captions.read_text(encoding="utf-8")
 
@@ -200,10 +200,10 @@ def test_saved_project_figure_refreshes_consolidated_captions(tmp_path, monkeypa
 def test_saved_figure_refresh_respects_disable_env(tmp_path, monkeypatch):
     monkeypatch.setattr(gc, "PROJECT_ROOT", tmp_path)
     monkeypatch.setenv("TABPFNCREDIT_AUTO_CAPTIONS", "0")
-    figure = tmp_path / "figures" / "experiment0" / "pd_heatmap_auc.pdf"
+    figure = tmp_path / "output" / "experiment0" / "figures" / "Experiment0" / "pd_heatmap_auc.pdf"
     figure.parent.mkdir(parents=True)
     figure.write_bytes(b"%PDF-1.4")
 
     gc.refresh_captions_for_saved_figure(figure)
 
-    assert not (tmp_path / "figures" / "CAPTIONS.md").exists()
+    assert not (tmp_path / "output" / "CAPTIONS.md").exists()

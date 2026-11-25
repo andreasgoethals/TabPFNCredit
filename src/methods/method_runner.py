@@ -25,6 +25,8 @@ no ``os.environ['LIGHTGBM_VERBOSITY']`` side effects at import time).
 
 from __future__ import annotations
 
+from importlib.util import find_spec
+
 import hashlib
 import logging
 from functools import lru_cache
@@ -342,14 +344,10 @@ def _build_talent_args(
         overrides.setdefault("max_epoch", max_epoch)
         overrides.setdefault("batch_size", batch_size)
 
-    # TALENT's vendored wrappers were written against scikit-learn < 1.6, which
-    # the cluster no longer has (TabFM forces >= 1.6; it is currently on 1.9):
-    #   * TabICL v1 calls BaseEstimator._validate_data, removed in 1.6
-    #   * tabpfn / tabpfn_v2 / tabpfn_real / realmlp pass check_X_y(
-    #     force_all_finite=...), renamed in 1.6 and removed in 1.8
-    # Both are restored here, before any estimator is built. No-ops on older
-    # sklearn, and idempotent.
-    install_sklearn_compat()
+    # The pinned TabICL adapter uses TALENT's native sklearn validation helper.
+    # Other vendored models still use deprecated sklearn keyword arguments.
+    if method != "tabicl" or find_spec("TALENT.model.lib.sklearn_compat") is None:
+        install_sklearn_compat()
 
     args = TALENT.build_args(
         method,

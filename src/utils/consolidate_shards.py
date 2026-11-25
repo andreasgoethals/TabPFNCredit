@@ -41,7 +41,8 @@ def consolidate_shards(
 ) -> Dict[str, int]:
     """Merge ``<method>__shard_*.json`` into ``<method>.json`` per cell, deleting
     the shards. Returns ``{cells, shards_merged, shards_deleted}``."""
-    root = Path(results_root or _default_results_root())
+    from src.utils.paths import writable_results
+    root = writable_results(Path(results_root or _default_results_root()))
     exps = {e.lower() for e in experiments} if experiments else None
     report = {"cells": 0, "shards_merged": 0, "shards_deleted": 0}
     if not root.exists():
@@ -50,6 +51,8 @@ def consolidate_shards(
     cells: Dict[tuple, List[Path]] = {}
     for sp in root.rglob("*__shard_*.json"):
         parts = sp.relative_to(root).parts
+        if len(parts) == 5 and parts[1] == "results":
+            parts = (parts[0], *parts[2:])
         if len(parts) != 4:
             continue
         if exps and parts[0].lower() not in exps:

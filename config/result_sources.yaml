@@ -1,0 +1,5 @@
+# Select one source per experiment. A method override includes its HPO variants.
+experiment0: {source: archive, methods: {}}
+experiment1: {source: archive, methods: {}}
+experiment2: {source: archive, methods: {}}
+experiment3: {source: archive, methods: {}}

@@ -311,6 +311,19 @@ def load_config(experiment_name: str) -> Dict[str, Any]:
             f"Known experiments: {sorted(_EXPERIMENT_REGISTRY)}"
         )
 
+    import os
+    if experiment_name == "Experiment0" and os.environ.get("TABPFN_REVISION") == "1":
+        config = load_config("Experiment1")
+        config["preflight"] = True
+        for task, datasets in config["datasets"].items():
+            if not datasets:
+                raise ValueError(f"Revision preflight needs an enabled {task} dataset")
+            config["datasets"][task] = {sorted(datasets)[0]: True}
+        config["split"].update(cv_splits=2, row_limit=256)
+        config["training"].update(max_epochs=2, early_stopping_patience=2)
+        config["tuning"]["n_trials"] = 2
+        return config
+
     spec = _EXPERIMENT_REGISTRY[experiment_name]
     config_dir = get_config_dir(experiment_name)
 

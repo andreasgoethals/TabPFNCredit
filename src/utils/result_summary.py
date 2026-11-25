@@ -30,6 +30,8 @@ import json
 import logging
 import warnings
 from pathlib import Path
+
+from src.utils.paths import experiment_results_dir
 from typing import Any, Dict, Iterable, List
 
 logger = logging.getLogger(__name__)
@@ -49,13 +51,13 @@ def _iter_method_files(base: Path, experiment: str) -> Iterable[Path]:
     (``<experiment>/<task>/<dataset>/<method>.json``). Anything deeper
     (e.g. ``summaries/`` or ``.checkpoints/``) is ignored.
     """
-    root = base / experiment
+    root = experiment_results_dir(base, experiment)
     if not root.exists():
         return
-    for path in root.rglob("*.json"):
-        rel = path.relative_to(base).parts
+    for path in root.glob("*/*/*.json"):
+        rel = path.relative_to(root).parts
         # Expect: (<experiment>, <task>, <dataset>, "<method>.json")
-        if len(rel) != 4:
+        if rel[0] not in ("pd", "lgd"):
             continue
         yield path
 
@@ -131,8 +133,7 @@ def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
     PACKED file (Experiment 2/3 -- many sweep points under ``points``), in
     which case each point's name carries its own sweep suffix.
     """
-    rel = path.relative_to(base).parts
-    _experiment, task, dataset, method_file = rel
+    task, dataset, method_file = path.parts[-3:]
     method_stem = method_file[:-5]  # strip ".json"
 
     try:
@@ -151,8 +152,14 @@ def _rows_from_method_file(path: Path, base: Path) -> Iterable[Dict[str, Any]]:
 def collect_fold_results(base: Path, experiment: str):
     """Scan disk and return a polars (or pandas) DataFrame, one row per fold."""
     rows: List[Dict[str, Any]] = []
+    manifest = base / "revision_sources.json"
+    origins = json.loads(manifest.read_bytes()).get("cells", {}) if manifest.is_file() else {}
+    default = "archive" if base.parent.name == "archive" else ("new" if base.name == "output" else None)
     for path in _iter_method_files(base, experiment):
-        rows.extend(_rows_from_method_file(path, base))
+        origin = origins.get(path.relative_to(base).as_posix(), default)
+        for row in _rows_from_method_file(path, base):
+            row["result_source"] = origin
+            rows.append(row)
     # A sweep point normally lives in exactly one packed shard, but replicated
     # runs (TABPFN_REPLICATE_PARTITIONS) or overlapping resubmissions can write
     # it to more than one shard file. Dedupe on (task, dataset, method_full,
@@ -228,6 +235,8 @@ def summarize_to_csv(
 
     Returns the paths of the two written CSVs.
     """
+    from src.utils.paths import writable_results
+    writable_results(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     per_fold_path = out_dir / f"{experiment}_per_fold.csv"
     per_method_path = out_dir / f"{experiment}_per_method.csv"

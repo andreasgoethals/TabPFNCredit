@@ -1,27 +1,12 @@
-"""Gap scan for resumable submissions: find every sweep point NOT yet done.
-
-Backs the ``tabpfncredit resubmit`` CLI command. Given an experiment, this
-module compares what the experiment's YAML config says SHOULD exist against
-the result files actually on disk (local downloaded copy or the cluster's
-project storage -- whatever :func:`src.utils.paths.results_root` resolves to)
-and returns work items for ONLY the missing points.
-
-Why not just re-run ``tabpfncredit experiment``? That re-shards *all* points
-(done + missing) across array slots; slots whose points are all done still
-get submitted, queue, start, and exit -- wasted queue positions and scheduler
-churn. The resubmit path packs only the missing points into the smallest
-possible number of dense array slots.
-
-The returned work items have exactly the shape
-:func:`src.utils.slurm_generator.generate_scripts_for_experiment` expects
-(including ``copy_from`` for non-tunable HPO copy points, which cost seconds,
-not GPU hours).
-"""
+"""Build work items for Slurm plans and check existing results before resuming."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+
+from src.utils.paths import experiment_results_dir
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from src.methods.runtime_profile import estimate_point_seconds
 from src.utils.config_reader import load_config
@@ -35,6 +20,8 @@ _PACKED_EXPERIMENTS = ("experiment2", "experiment3")
 def find_missing_work_items(
     experiment: str,
     results_root: Optional[Path | str] = None,
+    *, cells: Optional[Sequence[dict]] = None, config: Optional[dict] = None,
+    skip_completed: bool = True,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """Return ``(work_items, summary)`` for every sweep point not yet complete.
 
@@ -45,7 +32,8 @@ def find_missing_work_items(
     # Imported lazily: the CLI module pulls in Typer + the full method registry.
     from src.utils.cli import _build_task_list, _sweep_points
 
-    config = load_config(experiment)
+    if config is None:
+        config = load_config(experiment)
     root = Path(results_root) if results_root else _default_results_root()
     exp = experiment.lower()
     cv = int(config["split"]["cv_splits"])
@@ -68,19 +56,29 @@ def find_missing_work_items(
             method_base=method, expected_folds=cv,
         )
 
-    for cell in _build_task_list(config):
-        if packed:
+    revision = os.environ.get("TABPFN_REVISION") == "1"
+    checked = set()
+    for cell in (_build_task_list(config) if cells is None else cells):
+        key = (cell["task"], cell["dataset"])
+        if skip_completed and revision and key not in checked:
+            from src.utils.revision_results import verify_revision_inputs
+            if (experiment_results_dir(root, exp) / key[0] / key[1]).is_dir():
+                verify_revision_inputs(root, exp, *key, config, record=False)
+            checked.add(key)
+        if skip_completed and packed:
             cell_done = _complete_points_of_cell(
                 cell["task"], cell["dataset"], cell["method"]
             )
         for point in _sweep_points(exp, config, cell):
             name = point["name"]
-            if packed:
+            if not skip_completed:
+                complete = False
+            elif packed:
                 complete = name in cell_done
             else:
                 complete = has_complete_result(
                     base=root, experiment=exp, task=cell["task"],
-                    dataset=cell["dataset"], method=name, expected_folds=cv,
+                    dataset=cell["dataset"], method=name, expected_folds=cv, require_predictions=revision,
                 )
             if complete:
                 n_done += 1

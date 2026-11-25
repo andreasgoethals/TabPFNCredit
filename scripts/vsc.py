@@ -43,7 +43,7 @@ def main(arguments=None):
     if revision:
         lock = json.loads((repo / "config/vsc/revision-runtime.json").read_text())
         image_name = lock["image"]
-        default_results = project / ("revision-" + lock["talent_commit"][:7]) / "results"
+        default_results = project / "output"
     image = Path(os.environ.get("TABPFN_CONTAINER_IMAGE", project / "runtimes" / image_name)).resolve(strict=True)
     result_dir = Path(os.environ.get("TABPFN_RESULTS_ROOT", default_results)).resolve()
     if revision and (result_dir == project / "results" or (project / "results").is_relative_to(result_dir)
@@ -62,7 +62,7 @@ def main(arguments=None):
         raise SystemExit("Launcher workspace escapes scratch")
     parent.mkdir(parents=True, exist_ok=True)
     workspace = Path(tempfile.mkdtemp(prefix="launch-", dir=parent))
-    records = repo / "logs" / "manifests" / "submissions"
+    records = repo / "output" / "manifests" / "submissions"
     records.mkdir(parents=True, exist_ok=True)
     manifest = records / f"{uuid.uuid4().hex}.json"
     (workspace / "OWNER.json").write_text(json.dumps({"purpose": "container launcher",
@@ -114,6 +114,8 @@ def main(arguments=None):
         return completed.returncode
     if manifest.exists():
         jobs = json.loads(manifest.read_text())
+        if any(job["cluster"] != "wice" for job in jobs):
+            raise SystemExit("Submission manifest contains a job outside wICE")
         if not preview:
             accepted = []
             receipt = manifest.with_suffix(".receipt.json")
@@ -132,7 +134,8 @@ def main(arguments=None):
                     args.append("--dependency=" + job["dependency"])
                 args.append(str(script))
                 record_receipt({"accepted": accepted, "inflight": job, "status": "submitting"})
-                result = subprocess.run(args, capture_output=True, text=True)
+                result = subprocess.run(args, capture_output=True, text=True,
+                                        env=dict(os.environ, SBATCH_CLUSTERS="wice", SLURM_CLUSTERS="wice"))
                 raw = result.stdout.strip()
                 identifier = raw.split(";", 1)[0]
                 if result.returncode or not identifier.isdigit():
@@ -142,8 +145,7 @@ def main(arguments=None):
                 accepted.append({**job, "id": identifier})
                 record_receipt({"accepted": accepted, "status": "accepted"})
                 print(f"submitted {script.name} -> {identifier}")
-            primary = [job["id"] for job in accepted if job["cluster"] == "wice"]
-            chain = primary or [job["id"] for job in accepted]
+            chain = [job["id"] for job in accepted]
             print("Final job id (chain):", ":".join(chain) or "(none)")
     else:
         # Empty manifests add no recovery information for help/list/no-work scans.

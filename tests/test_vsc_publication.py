@@ -22,7 +22,7 @@ def test_receipt_requires_durable_complete_results(tmp_path, monkeypatch, comple
     plan.write_text("immutable plan")
     slot = [{"task": "pd", "dataset": "example", "method": "m", "name": "m"}]
     config = {"split": {"cv_splits": 1 if complete else 2}}
-    receipt = tmp_path / "repo/logs/manifests/publications/123_0.json"
+    receipt = tmp_path / "repo/output/experiment0/manifests/publications/123_0.json"
     if complete:
         cli._verify_publication("Experiment0", slot, config, base, plan, 0)
         assert json.loads(receipt.read_text())["status"] == "published"
@@ -43,4 +43,4 @@ def test_corrupt_predictions_are_not_published(tmp_path, monkeypatch):
     with pytest.raises(zipfile.BadZipFile):
         cli._verify_publication("Experiment0", [{"task": "pd", "dataset": "example", "method": "m"}],
                                 {"split": {"cv_splits": 1}}, tmp_path, Path("unused"), 0)
-    assert not (tmp_path / "repo/logs/manifests/publications").exists()
+    assert not (tmp_path / "repo/output/experiment0/manifests/publications").exists()

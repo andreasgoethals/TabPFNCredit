@@ -49,6 +49,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from src.utils.paths import experiment_results_dir
 from typing import List, Optional, Sequence
 
 import typer
@@ -67,7 +69,7 @@ from src.methods.method_config import (  # noqa: E402
     HPO_METHODS,
 )
 from src.methods.method_runner import run_talent_method  # noqa: E402
-from src.methods.runtime_profile import get_profile, estimate_point_seconds  # noqa: E402
+from src.methods.runtime_profile import get_profile  # noqa: E402
 from src.utils.slurm_generator import (  # noqa: E402
     MAX_ARRAY_SLOTS,
     PARTITIONS,
@@ -118,7 +120,7 @@ def _results_root() -> Path:
 def _on_vsc() -> bool:
     """Best-effort detect whether we're running on a VSC cluster.
 
-    Looks at ``$VSC_INSTITUTE_CLUSTER`` (set on Genius / wICE) and
+    Looks at ``$VSC_INSTITUTE_CLUSTER`` and
     ``$VSC_HOME``. Returns ``False`` on workstations.
     """
     return bool(
@@ -259,7 +261,7 @@ def _sweep_points(experiment: str, config: dict, cell: dict) -> List[dict]:
     base_row = config["split"].get("row_limit")
     base_sampling = config["split"].get("sampling")
 
-    if exp == "experiment1":
+    if exp == "experiment1" or (exp == "experiment0" and config.get("preflight")):
         # Every method gets a NO_HPO point AND an HPO point, so the HPO-vs-NO_HPO
         # comparison is complete for all methods. Methods that support tuning get
         # a real tuned run; methods that can't be tuned (TabICL, TabPFN, ... are
@@ -339,7 +341,7 @@ def _run_one_point(
     else:
         already_done = has_complete_result(
             base=results_root, experiment=experiment.lower(),
-            task=task, dataset=dataset, method=name, expected_folds=cv,
+            task=task, dataset=dataset, method=name, expected_folds=cv, require_predictions=revision,
         )
     if already_done:
         console.print(f"  [yellow]skip[/yellow] {task}/{dataset}/{name} (already done)")
@@ -449,20 +451,8 @@ def _run_cells_locally(experiment: str, cells: Sequence[dict], config: dict) -> 
 # ============================================================================
 
 def _sbatch(script: Path, *, dependency: Optional[str] = None) -> str:
-    """Submit ``script`` via ``sbatch --parsable``; return the NUMERIC job ID.
-
-    On the VSC, ``sbatch --parsable`` returns ``<jobid>;<cluster>`` when the
-    job is sent to a non-default cluster (e.g. submitting a wICE script from
-    a Genius login node yields ``60188739;wice``). We strip the ``;cluster``
-    suffix and return just the numeric id, because SLURM ``afterok``
-    dependencies are within a single cluster and want the bare number
-    (the dependent job carries its own ``--clusters=`` directive).
-
-    Raises :class:`RuntimeError` if the submission fails. ``dependency`` is
-    a job-id spec (e.g. ``"afterok:12345:12346"``) added as
-    ``--dependency=<dependency>``.
-    """
-    cmd: List[str] = ["sbatch", "--parsable"]
+    """Submit a wICE script and return its numeric ID for afterok dependencies."""
+    cmd: List[str] = ["sbatch", "--clusters=wice", "--parsable"]
     if dependency:
         cmd.append(f"--dependency={dependency}")
     cmd.append(str(script))
@@ -483,12 +473,11 @@ def _record_host_jobs(jobs, *, after_job_id=None) -> None:
 
     path = Path(target)
     records = json.loads(path.read_text()) if path.exists() else []
-    primary = PARTITIONS["cpu"].cluster
     records.extend({
         "path": str(job.path),
         "cluster": PARTITIONS[job.partition_key].cluster,
         "dependency": f"afterok:{after_job_id}"
-        if after_job_id and PARTITIONS[job.partition_key].cluster == primary else None,
+        if after_job_id else None,
     } for job in jobs)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(records, indent=2), encoding="utf-8")
@@ -515,37 +504,15 @@ def _run_experiment_vsc(
     # experiment/partition without the second run overwriting the first plan.
     run_id = f"{time.strftime('%Y%m%dT%H%M%S')}_{os.getpid()}"
 
-    # 2) Expand every cell into its sweep POINTS and estimate each point's cost.
-    #    The point -- not the cell -- is the scheduling unit, so a cell with
-    #    thousands of points (Experiment 2's row sweep, Experiment 3's minority
-    #    sweep) gets sharded across many array slots and each slot stays under
-    #    the 72 h wall instead of one slot running the whole cell serially.
+    from src.utils.resubmit_planner import find_missing_work_items
+
     cv = config["split"]["cv_splits"]
-    n_trials = (config.get("tuning") or {}).get("n_trials", 1)
-    work_items: List[dict] = []
-    for cell in cells:
-        for point in _sweep_points(experiment, config, cell):
-            # An HPO point for a non-tunable method is a pure file COPY of its
-            # NO_HPO result (see _run_one_point), so copy_from must travel into
-            # the SLURM plan: the cluster then copies the result (seconds)
-            # instead of re-running the model, which would double the GPU cost
-            # and yield a non-identical result under GPU nondeterminism.
-            copy_from = point.get("copy_from")
-            work_items.append({
-                "dataset": cell["dataset"],
-                "method": cell["method"],
-                "task": cell["task"],
-                "name": point["name"],
-                "tune": point.get("tune", False),
-                "row_limit": point.get("row_limit"),
-                "sampling": point.get("sampling"),
-                "copy_from": copy_from,
-                "est_seconds": 5 if copy_from else estimate_point_seconds(
-                    cell["method"], n_folds=cv,
-                    row_limit=point.get("row_limit"),
-                    tune=point.get("tune", False), n_trials=n_trials,
-                ),
-            })
+    revision = os.environ.get("TABPFN_REVISION") == "1"
+    work_items, coverage = find_missing_work_items(
+        experiment, cells=cells, config=config, skip_completed=revision)
+    if not work_items:
+        console.print(f"No outstanding points ({coverage['done']} already complete).")
+        return None
 
     # 3) Emit per-partition .slurm + .json plans (one array slot = a balanced
     #    bundle of points, packed under the 72 h wall).
@@ -586,28 +553,13 @@ def _run_experiment_vsc(
         console.print("[red]sbatch not found on PATH -- run this on the VSC.[/red]")
         return None
 
-    # 4) Submit the per-partition arrays. wICE arrays may be chained after a
-    # caller-supplied job (--after); cross-cluster arrays cannot (afterok is
-    # per-cluster). We return the wICE array ids so the next experiment in a
-    # run_all chain can wait on them (there is no separate summary gate).
-    primary_cluster = PARTITIONS["cpu"].cluster
-    array_dep: Optional[str] = f"afterok:{after_job_id}" if after_job_id else None
-    dep_ids: List[str] = []
-    cross_ids: List[str] = []
-    for j in jobs:
-        cluster = PARTITIONS[j.partition_key].cluster
-        try:
-            jid = _sbatch(j.path,
-                          dependency=array_dep if cluster == primary_cluster else None)
-            console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
-            (dep_ids if cluster == primary_cluster else cross_ids).append(jid)
-        except subprocess.CalledProcessError as exc:
-            console.print(f"[red]sbatch failed for {j.path}:[/red] {exc.stderr}")
-            raise
-
-    if cross_ids:
-        console.print(f"  [yellow]note:[/yellow] {', '.join(cross_ids)} run on another cluster.")
-    chain_ids = ":".join(dep_ids) if dep_ids else ":".join(cross_ids)
+    array_dep = f"afterok:{after_job_id}" if after_job_id else None
+    dep_ids = []
+    for job in jobs:
+        jid = _sbatch(job.path, dependency=array_dep)
+        console.print(f"  [green]submitted[/green] {job.path.name} -> {jid}")
+        dep_ids.append(jid)
+    chain_ids = ":".join(dep_ids)
     console.print(f"\n[bold]Final job id (chain):[/bold] {chain_ids or '(none)'}")
     return chain_ids or None
 
@@ -689,16 +641,19 @@ def cmd_experiment(
     else:
         if after is not None:
             console.print("[yellow]--after is ignored when running locally.[/yellow]")
-        _run_cells_locally(name, cells, config)
+        failures = _run_cells_locally(name, cells, config)
         # Local: summarize right away (results are on disk).
         _summarize_now(name)
+        if config.get("preflight") and failures:
+            raise typer.Exit(code=1)
 
 
 def _summarize_now(experiment: str) -> None:
     """Run summarization synchronously (used at the end of a local run)."""
     from src.utils.result_summary import summarize_to_csv
 
-    out_dir = _results_root() / "summaries"
+    base = _results_root()
+    out_dir = (experiment_results_dir(base, experiment) if base.name == "output" else base) / "summaries"
     try:
         paths = summarize_to_csv(
             base=_results_root(), experiment=experiment.lower(), out_dir=out_dir,
@@ -754,13 +709,7 @@ def cmd_resubmit(
         raise typer.Exit(code=1)
 
     do_submit = submit if submit is not None else (_on_vsc() and _have_sbatch())
-    # AGGRESSIVE parallelism, submit-safe. Each array element counts toward the
-    # ~500 per-user submit cap (`normal` QoS). Split a ~450 budget across the
-    # experiments being resubmitted and the up-to-3 partitions each can use, so
-    # a SINGLE-experiment resubmit gets ~150 slots/partition (vs the default 40)
-    # -- e.g. Experiment 3's slow cells fan out across many tasks. An explicit
-    # $TABPFN_MAX_ARRAY_SLOTS always wins. Query your real limit with:
-    #   sacctmgr show qos normal format=Name,MaxSubmitJobsPerUser
+    # Share the historical 450-slot resubmit budget across experiments and partitions.
     _n_targets = max(1, len(targets))
     if os.environ.get("TABPFN_MAX_ARRAY_SLOTS"):
         resubmit_max_slots = int(os.environ["TABPFN_MAX_ARRAY_SLOTS"])
@@ -777,7 +726,7 @@ def cmd_resubmit(
             items, summary = find_missing_work_items(exp)
         except Exception as exc:
             console.print(f"[red]scan failed for {exp}: {exc}[/red]")
-            continue
+            raise typer.Exit(code=1) from exc
         console.print(
             f"expected {summary['expected']}  done {summary['done']}  "
             f"[bold]missing {summary['missing']}[/bold]  "
@@ -811,20 +760,9 @@ def cmd_resubmit(
             console.print("")
             continue
 
-        # Tolerant submit: a cross-cluster array (e.g. Mindwell gpu_b200) the
-        # account can't reach must NOT abort the resubmit -- those are replica
-        # accelerators; the wICE primary still completes the run. Summaries are
-        # NOT auto-generated anymore -- rebuild them by opening the notebooks or
-        # with `tabpfncredit summarize --experiment <name>` once jobs finish.
-        for j in jobs:
-            try:
-                jid = _sbatch(j.path)
-                console.print(f"  [green]submitted[/green] {j.path.name} -> {jid}")
-            except Exception as exc:
-                console.print(
-                    f"  [yellow]skip[/yellow] {j.path.name} ({j.partition_key}): "
-                    f"submit failed ({exc}). Continuing -- other clusters carry it."
-                )
+        for job in jobs:
+            jid = _sbatch(job.path)
+            console.print(f"  [green]submitted[/green] {job.path.name} -> {jid}")
         console.print(
             f"  [dim]when finished: `tabpfncredit summarize --experiment {exp}` "
             f"(or just open the notebooks).[/dim]\n"
@@ -883,8 +821,9 @@ def _verify_publication(experiment, slot, config, base, plan_path, array_id):
         if experiment.lower() in ("experiment2", "experiment3"):
             complete = has_complete_packed_point(**kwargs, method_base=item["method"], point_name=name)
         else:
-            complete = has_complete_result(**kwargs, method=name)
-            arrays = base / experiment.lower() / item["task"] / item["dataset"] / (name + ".npz")
+            complete = has_complete_result(**kwargs, method=name,
+                                           require_predictions=os.environ.get("TABPFN_REVISION") == "1")
+            arrays = experiment_results_dir(base, experiment) / item["task"] / item["dataset"] / (name + ".npz")
             if arrays.exists():
                 with zipfile.ZipFile(arrays) as archive:
                     if archive.testzip() is not None:
@@ -892,9 +831,11 @@ def _verify_publication(experiment, slot, config, base, plan_path, array_id):
         if not complete:
             raise RuntimeError(f"Results are incomplete: {item['task']}/{item['dataset']}/{name}")
     job = os.environ["SLURM_JOB_ID"]
-    path = _PROJECT_ROOT / "logs/manifests/publications" / f"{job}_{array_id}.json"
+    path = _PROJECT_ROOT / "output" / experiment.lower() / "manifests/publications" / f"{job}_{array_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     record = dict(status="published", points=len(slot), plan=str(plan_path),
+                  partition=os.environ.get("SLURM_JOB_PARTITION"),
+                  cpus_per_task=os.environ.get("SLURM_CPUS_PER_TASK"),
                   plan_sha256=hashlib.sha256(plan_path.read_bytes()).hexdigest(),
                   workspace=str(Path(os.environ["TMPDIR"]).parent),
                   image=os.environ.get("TABPFN_CONTAINER_IMAGE"), results=str(base))
@@ -907,7 +848,7 @@ def _verify_publication(experiment, slot, config, base, plan_path, array_id):
 @app.command("slurm-task", hidden=True)
 def cmd_slurm_task(
     experiment: str = typer.Option(...),
-    partition: str = typer.Option(..., help="Partition key, e.g. cpu / cpu_genius / gpu_v100 / gpu_a100 / gpu_h100 (any key in slurm_generator.PARTITIONS)."),
+    partition: str = typer.Option(..., help="Partition key, e.g. cpu / gpu_a100 / gpu_h100 (any key in slurm_generator.PARTITIONS)."),
     array_id: int = typer.Option(..., help="SLURM_ARRAY_TASK_ID."),
     plan_path: Optional[Path] = typer.Option(
         None,

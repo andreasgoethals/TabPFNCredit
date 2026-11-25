@@ -20,11 +20,8 @@ baselines (XGBoost, CatBoost, LightGBM, RandomForest, LogisticRegression,
 datasets. It is built on top of
 [TALENT](https://github.com/LAMDA-Tabular/TALENT).
 
-The same `tabpfncredit` CLI runs on a laptop **or** on a SLURM-based HPC
-cluster: it auto-detects the environment and either runs in-process or
-generates and submits SLURM jobs. The SLURM generator targets the KU
-Leuven VSC partitions by default but adapts to any cluster by editing one
-table.
+The `tabpfncredit` CLI runs in-process on a workstation and generates Slurm
+arrays for KU Leuven's wICE cluster.
 
 ### At a glance
 
@@ -45,7 +42,7 @@ table.
   - [1.1 Local install and first run](#11-local-install-and-first-run)
   - [1.2 HPC install (SLURM cluster)](#12-hpc-install-slurm-cluster)
   - [1.3 Install profiles](#13-install-profiles)
-  - [1.4 Adapting to a non-VSC cluster](#14-adapting-to-a-non-vsc-cluster)
+  - [1.4 Scheduling on wICE](#14-scheduling-on-wice)
 - [2. Command-line interface](#2-command-line-interface)
   - [Maintenance and analysis utilities](#maintenance-and-analysis-utilities-run-manually)
 - [3. Tasks, datasets, and methods](#3-tasks-datasets-and-methods)
@@ -107,7 +104,7 @@ tabpfncredit experiment Experiment0
 
 ### 1.2 HPC install (SLURM cluster)
 
-Follow **[docs/VSC.md](docs/VSC.md)** for access, storage, runtime preparation
+Follow **[VSC_RUN.md](VSC_RUN.md)** for access, storage, runtime preparation
 and submission. New VSC deployments keep the Git checkout on DATA, persistent
 assets and immutable dependency containers on PROJECT, and temporary work on
 native scratch. `bash scripts/vsc.sh --help` uses the validated container;
@@ -138,14 +135,13 @@ backend is
 [hatchling](https://hatch.pypa.io/latest/), so no `*.egg-info/` is dropped
 into the source tree.
 
-### 1.4 Adapting to a non-VSC cluster
+### 1.4 Scheduling on wICE
 
-The generated SLURM scripts target the VSC wICE partitions
-(`batch_sapphirerapids` CPU, A100, H100) by default. Legacy Genius specs and
-optional offload/replica controls remain for historical compatibility; the
-container profile rejects retired Genius routes. On a different SLURM cluster, adapt the
-`PARTITIONS` table in `src/utils/slurm_generator.py` to match your
-cluster's CPU / memory / GPU caps and wall-time limits.
+The revision runs CPU methods on Sapphire Rapids and GPU methods on A100 or H100.
+A filtered experiment plans outstanding results only. The default packing target
+is four hours, with up to 150 slots per partition for a revision experiment. Short and long slots can receive different walltime requests.
+The [VSC runbook](VSC_RUN.md#planning-work-on-wice) explains how to size slots,
+set host cores, and inspect memory and runtime before expanding a run.
 
 ---
 
@@ -193,10 +189,10 @@ ones accept `--dry-run` to preview first.
 | Utility | What it does | When to run it |
 |---|---|---|
 | `python -m src.utils.consolidate_shards` | Experiment 2/3 split one `(dataset, method)` cell's sweep across many SLURM array tasks, each writing its own `<method>__shard_<jobid>_<task>.json`. This merges all shards for a cell back into one tidy `<method>.json` and deletes the shards. Results are **unchanged** — the summariser already reads the union of a cell's shards; this is purely housekeeping. `--experiment`, `--dry-run`. | **Once, after an Exp 2/3 run finishes**, to collapse the many small shard files. |
-| `python -m src.utils.run_notebooks` | Clears, restart-runs every analysis notebook with the project venv kernel — **in parallel** (`-j N`, default min(4, CPUs); each notebook is its own kernel process) with the per-experiment summary CSVs rebuilt once up front — collects each one's printed output into `results/All_Results.md`, and regenerates the figure captions once after a successful run. `--list`, `-v` (implies `-j 1`), `--md-only`. | After downloading results, to refresh every figure + the results dump in one command. |
-| `python -m src.utils.generate_captions` | Writes a single `figures/CAPTIONS.md` with a paper-ready caption per figure, split into one chapter per notebook (in notebook order) and titled by figure file name. `--dry-run`. | Standalone caption refresh. Direct VS Code/Jupyter notebook runs also refresh this file after saving project figures. |
+| `python -m src.utils.run_notebooks` | Clears, restart-runs every analysis notebook with the project venv kernel — **in parallel** (`-j N`, default min(4, CPUs); each notebook is its own kernel process) with the per-experiment summary CSVs rebuilt once up front — collects each one's printed output into `output/All_Results.md`, and regenerates the figure captions once after a successful run. `--list`, `-v` (implies `-j 1`), `--md-only`. | After downloading results, to refresh every figure + the results dump in one command. |
+| `python -m src.utils.generate_captions` | Writes a single `output/CAPTIONS.md` with a paper-ready caption per figure, split into one chapter per notebook (in notebook order) and titled by figure file name. `--dry-run`. | Standalone caption refresh. Direct VS Code/Jupyter notebook runs also refresh this file after saving project figures. |
 | `python -m src.utils.remove_results` | Prunes result files by `--experiment` / `--task` / `--dataset` / `--method` / `--hpo` / `--no-hpo` / `--folds`, then drops (or, with `--resummarize`, rebuilds) the affected summary CSVs. `--dry-run`. | To delete an obsolete or buggy method/dataset's results before re-running. |
-| `python -m src.utils.fetch_weights` | Downloads the foundation-model checkpoints into `checkpoints/`. `--list`, `--only <models>`, `--skip <models>`. | With download authorization, before staging weights to PROJECT (see [docs/VSC.md](docs/VSC.md)). |
+| `python -m src.utils.fetch_weights` | Downloads the foundation-model checkpoints into `checkpoints/`. `--list`, `--only <models>`, `--skip <models>`. | With download authorization, before staging weights to PROJECT (see [VSC_RUN.md](VSC_RUN.md)). |
 
 (The pipeline commands — `tabpfncredit experiment / resubmit / summarize / list / doctor` — are in the table above.)
 
@@ -337,7 +333,7 @@ predate a preprocessing change and are stale —
 
 **Experiment 1's method set is curated by hand.** After Experiment 0
 finishes, inspect
-`results/experiment0/summaries/experiment0_per_method.csv` and edit
+`output/experiment0/results/summaries/experiment0_per_method.csv` and edit
 `scripts/Experiment1/config/CONFIG_METHOD.yaml` to enable only the methods
 that ran successfully.
 
@@ -456,7 +452,7 @@ TabPFNCredit/
 │   │   ├── consolidate_shards.py       # merge Exp 2/3 per-task shard files
 │   │   ├── remove_results.py           # prune results by exp/task/dataset/method/HPO/fold
 │   │   ├── run_notebooks.py            # clear + restart-run all notebooks -> All_Results.md
-│   │   ├── generate_captions.py        # auto-write the single figures/CAPTIONS.md
+│   │   ├── generate_captions.py        # auto-write the single output/CAPTIONS.md
 │   │   ├── fetch_weights.py            # download foundation-model weights (run LOCALLY)
 │   │   ├── report.py                   # the one printed report per analysis notebook
 │   │   ├── runtime_quiet.py            # quieten noisy library logging in notebooks
@@ -492,9 +488,8 @@ TabPFNCredit/
 ├── tests/                              # pytest suite
 │
 ├── data/                               # raw + processed datasets               (gitignored)
-├── results/                            # per-(dataset, method) JSON + summaries  (gitignored,
-│                                       #   except the committed All_Results.md text dump)
-├── figures/                            # generated PDFs + CAPTIONS.md            (gitignored)
+├── archive/                            # submitted results, figures and logs
+├── output/                             # new per-experiment results, figures, logs and manifests
 └── checkpoints/                        # downloaded model weights               (gitignored)
 ```
 
@@ -508,23 +503,20 @@ already processed `data/processed/` arrays.
 
 ## 7. Result storage and logging
 
-Results use `$TABPFN_RESULTS_ROOT` when supplied; otherwise they resolve to
-available project storage or local `./results`. The container profile requires
-PROJECT storage and refuses a fallback to DATA. Experiments 0/1 store one
-JSON plus prediction arrays in an NPZ per method/HPO variant:
+Local runs and the revision cluster profile write the following layout. On wICE,
+numerical results live on PROJECT and scheduler logs and receipts live on DATA.
+Explicit legacy result roots and the paper runtime retain their existing layout.
 
-```
-${TABPFN_RESULTS_ROOT|./results}/<experiment>/<task>/<dataset>/<method>.json
-${TABPFN_RESULTS_ROOT|./results}/<experiment>/<task>/<dataset>/<method>.npz
-```
-
-Examples:
-
-```
-results/experiment1/pd/0001.gmsc/xgboost.json            # NO_HPO
-results/experiment1/pd/0001.gmsc/xgboost__HPO.json       # HPO
-results/experiment2/pd/<dataset>/tabpfn_v3__shard_<jobid>_<task>.json
-results/experiment3/pd/<dataset>/tabicl_v2__shard_<jobid>_<task>.json
+```text
+output/experiment1/results/pd/0001.gmsc/xgboost__HPO.json
+output/experiment1/results/pd/0001.gmsc/xgboost__HPO.npz
+output/experiment1/results/summaries/experiment1_per_fold.csv
+output/experiment1/figures/Experiment1.1-PD/
+output/experiment1/logs/
+output/experiment1/manifests/
+output/manifests/submissions/
+output/All_Results.md
+output/CAPTIONS.md
 ```
 
 Experiments 2/3 pack metrics for sweep points into JSON, with one shard per
@@ -538,14 +530,14 @@ run `tabpfncredit summarize --experiment <name>` after the arrays finish, or
 run the notebooks, which refresh their own summaries:
 
 ```
-<results>/summaries/<experiment>_per_fold.csv
-<results>/summaries/<experiment>_per_method.csv
+output/<experiment>/results/summaries/<experiment>_per_fold.csv
+output/<experiment>/results/summaries/<experiment>_per_method.csv
 ```
 
 Logging uses Python's standard `logging` (run with `--verbose` for
 INFO-level: start, finish, headline metric, per-fold minority counts). On
 an HPC cluster each array slot's
-stdout/stderr is captured by SLURM under `logs/<experiment>/` on the general
+stdout/stderr is captured by SLURM under `output/<experiment>/logs/` on the general
 data storage (`$VSC_DATA`), named per job + array id. Retained numerical results
 remain on PROJECT; keep independent backups of irreplaceable outputs.
 
@@ -580,7 +572,7 @@ what is stored on disk.
 | `Experiment3` | Imbalance-robustness curves (PD): AUC and **Adjusted AP** vs minority-class proportion, in the same four pooled views, with the lower-right inset zooming the shaded `minority proportion <= 0.025` region, plus per-dataset raw-point plots, a degradation table, and an **evolution** summary across the sweep. |
 | `Results_Checking` | Completeness / sanity audit of the result files: missing, incomplete, malformed, anomalous and not-in-config results, plus an **evaluation-set mismatch** check that fails loudly if a dataset's methods were not all scored on the same observations (the signature of results carried over from before a preprocessing change). |
 
-**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook with the project venv kernel, collects each one's printed output into `results/All_Results.md`, and regenerates the consolidated `figures/CAPTIONS.md` once after a successful run. Notebooks execute **in parallel** (`-j N`, default min(4, CPUs)) — each is an independent kernel process with its own figure directory and its own `All_Results.md` section, and the shared per-experiment summary CSVs are rebuilt once up front instead of once per kernel (which also speeds up `-j 1` runs). Direct VS Code/Jupyter notebook runs refresh `figures/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Individual_Method_Runner` is skipped entirely; `Results_Checking` is re-run as a QA pass but its output is not collected into `All_Results.md`. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
+**Run them all at once.** `python -m src.utils.run_notebooks` clears, restarts and re-runs every analysis notebook with the project venv kernel, collects each one's printed output into `output/All_Results.md`, and regenerates the consolidated `output/CAPTIONS.md` once after a successful run. Notebooks execute **in parallel** (`-j N`, default min(4, CPUs)) — each is an independent kernel process with its own figure directory and its own `All_Results.md` section, and the shared per-experiment summary CSVs are rebuilt once up front instead of once per kernel (which also speeds up `-j 1` runs). Direct VS Code/Jupyter notebook runs refresh `output/CAPTIONS.md` whenever project figures are saved, so the file is current after the notebook finishes. `Individual_Method_Runner` is skipped entirely; `Results_Checking` is re-run as a QA pass but its output is not collected into `All_Results.md`. Use `--list` to preview the order, `-v` for live output, `--md-only` to only refresh `All_Results.md`.
 
 ---
 
@@ -603,22 +595,61 @@ classification prediction files include validation probabilities when available.
 optimal-profit field is a test-set upper bound; validation probabilities can be used to
 choose an operating threshold before evaluating profit on the held-out rows.
 
-After refits finish, build a separate analysis directory from the original result
-tree and the revision outputs. Use three separate paths; the output must be new.
+| Per-fold output | Paper archive | Pinned TALENT revision |
+|---|---|---|
+| JSON | Metrics, threshold, tuning flag, fit and prediction fields. Some adapters saved zero for unmeasured work. | Same fields plus native search duration, device, measurements and provenance. |
+| NPZ | Held-out labels, predictions and probabilities when available. | Same arrays plus validation labels and probabilities for supported classification runs. |
+| Experiments 2 and 3 | Packed JSON with sweep points and fold metrics. | The analysis uses the archived files byte for byte. |
 
-```shell
-python -m src.utils.revision_results PATH_TO_PAPER_RESULTS PATH_TO_REFITS PATH_TO_ANALYSIS
+### Choosing results for notebooks
+
+The default analysis reads `archive/results`. The original tables, figures and
+maintenance logs remain in `archive/results`, `archive/figures` and `archive/logs`.
+New tables and figures are generated under `output/`. Historical zero times may
+indicate missing instrumentation. A missing HPO duration stays unknown.
+
+[config/result_sources.yaml](config/result_sources.yaml) selects `archive` or `new`
+for each experiment. To analyze a full Experiment 1 rerun, change its source to
+`new`. To retain the submitted XGBoost results for every dataset and both HPO
+modes, use the following entry and keep the other experiments as configured.
+
+```yaml
+experiment1: {source: new, methods: {xgboost: archive}}
 ```
 
-The command copies the original experiment results and replaces complete matched
-Experiment 0 or 1 JSON/NPZ pairs. New methods on an existing dataset are checked against its linear baseline. It checks fold IDs and ordered held-out targets.
-Identical target sequences alone cannot establish row identity, so use the original
-data, ordering and split settings for matched refits. Experiment 2 and 3 come
-entirely from the archive. The manifest `revision_sources.json` identifies each
-replacement. Set `TABPFN_RESULTS_ROOT` to the analysis directory to open the
-existing notebooks. Regenerated summaries, figures, captions and batch-executed
-notebook copies go into the analysis directory. Use a new output directory to
-assemble another snapshot.
+To use only a new XGBoost rerun, reverse the two sources. Build a fresh snapshot
+and point the notebook kernels at it before starting Jupyter.
+
+```powershell
+python -m src.utils.revision_results archive/results output analysis/review-1 --policy config/result_sources.yaml
+$env:TABPFN_ANALYSIS_ROOT = (Resolve-Path analysis/review-1).Path
+```
+
+On Linux use `export TABPFN_ANALYSIS_ROOT="$PWD/analysis/review-1"`.
+The snapshot records the chosen source of every result in `revision_sources.json`.
+It keeps JSON and prediction arrays together. For Experiment 1, assembly checks
+fold coverage, ordered held-out targets and prediction lengths. Matching labels alone
+cannot prove row identity. Use the original processed inputs, ordering and split
+settings for refits. A missing requested replacement stops assembly. Each snapshot
+has its own generated output. The revision preflight has different inputs from
+the submitted pilot and is selected as a whole.
+
+### Revision preflight
+
+On wICE, `bash scripts/vsc.sh --revision experiment Experiment0 --no-submit` previews
+one enabled PD and one LGD dataset with all enabled Experiment 1 methods for
+each task. It uses the first enabled dataset in sorted order, a 256-row cap,
+two folds, two tuning trials and up to two training epochs for methods honoring
+that setting. The preflight exercises the production fold runner, tuning,
+prediction, storage and publication checks. Drop `--no-submit` to submit it.
+Use the resulting job receipts and coverage before launching Experiment 1.
+The paper profile still reads its original Experiment 0 configuration.
+
+TALENT runs each model and provides its tuning and measured fit, prediction
+and HPO times. The credit benchmark still constructs the folds. Its per-fold
+validation seed, training caps and preprocessing are part of the submitted
+protocol. Switching to TALENT's native cross-validation would require comparing
+row indices and fold-level outputs before reusing the submitted results.
 
 ## 8. Tests
 
@@ -636,8 +667,7 @@ dataset, and no notebook cell may reference a name nothing imports.
 
 ## 9. Citation
 
-If you use this benchmark, please cite the accompanying paper — *Foundation
-Models for Credit Risk Prediction: A Game Changer?*
+If you use this benchmark, please cite the accompanying paper, *Tabular Foundation Models for Credit Risk Prediction: A Dedicated Review and Empirical Comparison*
 ([arXiv:2605.18147](https://arxiv.org/abs/2605.18147)) — rather than the
 software entry. GitHub's "Cite this repository" button reads
 [`CITATION.cff`](CITATION.cff), which lists the paper as the preferred
@@ -653,4 +683,4 @@ tabular-learning toolkit and the foundation-model packages it wraps
 cited separately when used.
 
 Shared HPC guidance is available in the read-only [VSC Library](vsc-library/README.md);
-project-specific cluster instructions belong in [docs/VSC.md](docs/VSC.md).
+project-specific cluster instructions belong in [VSC_RUN.md](VSC_RUN.md).

@@ -12,7 +12,7 @@ This module groups methods into **tiers** keyed by an estimate of
 "seconds per (dataset, fold)" on a single VSC GPU node. The SLURM
 generator in :mod:`src.utils.slurm_generator` uses these tiers to:
 
-* Pick the partition (CPU vs P100 vs A100 vs H100) and the per-task
+* Pick the partition (CPU, A100 or H100) and the per-task
   walltime.
 * Decide how many (dataset, method) cells to **pack** into a single
   array slot -- cheap methods get bundled to reduce scheduler load.
@@ -292,17 +292,10 @@ def methods_by_tier(tier: Tier, *, hardware: Optional[str] = None) -> set:
 # ============================================================================
 
 def recommended_partition(method: str, *, prefer_h100: bool = True) -> str:
-    """Return the partition string for ``method`` on VSC.
-
-    Mapping
-    -------
-    * CPU-only methods                  -> ``"batch"`` (Genius / wICE)
-    * GPU methods, not foundation       -> ``"gpu_p100"`` on Genius
-    * Foundation models                 -> ``"gpu_h100"`` on wICE (or A100 if H100 down)
-    """
+    """Return the wICE Slurm partition name for this method."""
     profile = get_profile(method)
     if not profile.prefers_gpu:
-        return "batch"
+        return "batch_sapphirerapids"
     if profile.needs_foundation_gpu:
         return "gpu_h100" if prefer_h100 else "gpu_a100"
     return "gpu_a100"

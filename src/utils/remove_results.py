@@ -142,7 +142,8 @@ def remove_results(
     Returns a report dict with the lists of touched files. See the module
     docstring for the filter semantics.
     """
-    root = Path(results_root or _default_results_root())
+    from src.utils.paths import writable_results
+    root = writable_results(Path(results_root or _default_results_root()))
     f_exp, f_task, f_ds, f_meth = (_norm(experiments), _norm(tasks),
                                    _norm(datasets), _norm(methods))
     fold_set = {int(x) for x in folds} if folds else None
@@ -153,7 +154,9 @@ def remove_results(
     if root.exists():
         for json_path in sorted(root.rglob("*.json")):
             parts = json_path.relative_to(root).parts
-            if len(parts) != 4 or not parts[3].endswith(".json"):
+            if len(parts) == 5 and parts[1] == "results":
+                parts = (parts[0], *parts[2:])
+            if len(parts) != 4 or parts[1] not in ("pd", "lgd") or not parts[3].endswith(".json"):
                 continue
             exp, task, dataset, fname = parts
             stem = fname[:-5]
@@ -178,8 +181,8 @@ def remove_results(
 
     # Summaries are stale the moment any result changes -> drop them.
     if drop_summaries and affected_exps:
-        sumdir = root / "summaries"
         for exp in sorted(affected_exps):
+            sumdir = (root / exp / "results" if root.name == "output" else root) / "summaries"
             for suffix in ("_per_fold.csv", "_per_method.csv"):
                 p = sumdir / f"{exp}{suffix}"
                 if p.exists():
@@ -191,7 +194,7 @@ def remove_results(
         from src.utils.result_summary import summarize_to_csv
         for exp in sorted(affected_exps):
             try:
-                summarize_to_csv(root, exp, root / "summaries")
+                summarize_to_csv(root, exp, (root / exp / "results" if root.name == "output" else root) / "summaries")
             except Exception as exc:  # noqa: BLE001
                 print(f"  [warn] could not re-summarize {exp}: {exc}")
 

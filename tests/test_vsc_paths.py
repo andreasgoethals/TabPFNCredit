@@ -33,13 +33,13 @@ def container(monkeypatch, storage):
     return repo, project, scratch
 
 
-def test_local_defaults_are_unchanged(storage):
+def test_local_output_defaults(storage):
     repo, _, _ = storage
     assert paths.staging_root() is None
     assert paths.data_roots() == [repo / "data"]
     assert paths.checkpoint_roots() == [repo / "checkpoints"]
-    assert paths.results_root() == repo / "results"
-    assert paths.logs_root() == repo / "logs"
+    assert paths.results_root() == repo / "output"
+    assert paths.logs_root() == repo / "output"
     assert paths.cache_root() == repo / ".cache"
     assert paths.processed_write_dir("PD", "0001.demo") == (
         repo / "data" / "processed" / "pd" / "0001.demo"
@@ -78,7 +78,7 @@ def test_unavailable_legacy_root_keeps_local_fallback(monkeypatch, storage, lega
     monkeypatch.setenv("TABPFN_STAGING_ROOT", legacy)
     monkeypatch.setenv("VSC_PROJECT_ROOT", "ignored-alias")
     assert paths.staging_root() is None
-    assert paths.results_root() == repo / "results"
+    assert paths.results_root() == repo / "output"
 
 
 def test_legacy_output_overrides_and_scratch_are_unchanged(monkeypatch, storage):

@@ -24,7 +24,7 @@ keywords:
 # The accompanying paper. Citation tools prefer this over the software entry above.
 preferred-citation:
   type: article
-  title: "Foundation Models for Credit Risk Prediction: A Game Changer?"
+  title: "Tabular Foundation Models for Credit Risk Prediction: A Dedicated Review and Empirical Comparison"
   authors:
     - family-names: Baesens
       given-names: Bart
@@ -47,16 +47,17 @@ preferred-citation:
       given-names: Maria
     - family-names: vanden Broucke
       given-names: Seppe
+    - family-names: Van Gestel
+      given-names: Tony
     - family-names: Verdonck
       given-names: Tim
     - family-names: Verbeke
       given-names: Wouter
   year: 2026
+  doi: "10.48550/arXiv.2605.18147"
   url: "https://arxiv.org/abs/2605.18147"
   identifiers:
     - type: other
       value: "arXiv:2605.18147"
       description: "arXiv preprint"
   notes: "Preprint; under review at the European Journal of Operational Research."
-
-

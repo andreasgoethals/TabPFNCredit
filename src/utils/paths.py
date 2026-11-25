@@ -244,13 +244,13 @@ def results_root() -> Path:
 
     Honours ``$TABPFN_RESULTS_ROOT`` (the SLURM scripts point it at project
     storage); otherwise defaults to ``<staging>/results`` when project storage
-    exists, else the repo-local ``results/`` for laptop runs. The container
+    exists, else the repo-local ``output/`` for laptop runs. The container
     profile requires a destination beneath its explicit PROJECT directory.
     """
     env = os.environ.get("TABPFN_RESULTS_ROOT")
     if _container_profile():
         st = staging_root()
-        return _validated_write_path(Path(env) if env else st / "results", st,
+        return _validated_write_path(writable_results(Path(env)) if env else st / "results", st,
                                      "TABPFN_RESULTS_ROOT")
     # Resolve explicitly selected new aliases even when a results override exists.
     if "TABPFN_STAGING_ROOT" not in os.environ and any(
@@ -258,24 +258,58 @@ def results_root() -> Path:
     ):
         staging_root()
     if env:
-        return Path(env)
+        return writable_results(Path(env))
     st = staging_root()
     if st is not None:
         return st / "results"
-    return PROJECT_ROOT / "results"
+    return PROJECT_ROOT / "output"
+
+
+def writable_results(path: Path) -> Path:
+    """Historical result files are inputs to analysis only."""
+    for root in (PROJECT_ROOT, staging_root()):
+        if root and path.resolve().is_relative_to((root / "archive").resolve()):
+            raise ValueError(f"Cannot write into archived research outputs: {path}")
+    return path
+
+
+def experiment_results_dir(base: Path, experiment: str) -> Path:
+    """Read legacy result trees and the experiment-first output layout."""
+    exp = Path(base) / experiment.lower()
+    return exp / "results" if base.name == "output" or (exp / "results").is_dir() else exp
+
+
+def analysis_results_root() -> Path:
+    """Select an assembled view, an explicit result tree, or the paper archive."""
+    selected = os.environ.get("TABPFN_ANALYSIS_ROOT") or os.environ.get("TABPFN_RESULTS_ROOT")
+    if selected:
+        path = Path(selected)
+        if not path.is_dir():
+            raise FileNotFoundError(path)
+        return path
+    for root in (PROJECT_ROOT, staging_root()):
+        if root and any((root / "archive/results").glob("experiment[0-3]")):
+            return root / "archive/results"
+    return results_root()
 
 
 def figure_root(project_root: Optional[Path] = None) -> Path:
-    """Keep notebook figures beside a mixed revision snapshot."""
-    root = results_root()
-    if (root / "revision_sources.json").is_file():
-        return root / "figures"
-    return (project_root or PROJECT_ROOT) / "figures"
+    """Root for generated figures, tables and reports."""
+    selected = os.environ.get("TABPFN_ANALYSIS_ROOT") or os.environ.get("TABPFN_RESULTS_ROOT")
+    if selected and (Path(selected) / "revision_sources.json").is_file():
+        return Path(selected) / "output" if Path(selected).name != "output" else Path(selected)
+    return (project_root or PROJECT_ROOT) / "output"
+
+
+def summary_dir(experiment: str) -> Path:
+    path = figure_root() / experiment.lower() / "results" / "summaries"
+    source = analysis_results_root()
+    return path / "archive" if source.parent.name == "archive" else path
 
 
 def logs_root() -> Path:
-    """Where logs live -- ALWAYS the repo root (general data storage), never project storage."""
-    return PROJECT_ROOT / "logs"
+    """DATA output root containing each experiment's Slurm logs."""
+    return PROJECT_ROOT / "output"
 
 
 def cache_root() -> Path:

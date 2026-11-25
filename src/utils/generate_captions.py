@@ -14,6 +14,7 @@ already in the title, axis labels, or legend.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -657,6 +658,21 @@ CHAPTERS: List[Tuple[str, str]] = [
 ]
 
 
+_NOTEBOOK_BY_SECTION = {
+    "data_exploration": "Data_Exploration",
+    "experiment0": "Experiment0",
+    "experiment1/lgd": "Experiment1.4-LGD",
+    "experiment1/lgd_family": "Experiment1.6-LGD-FamilyStat",
+    "experiment1/lgd_stats": "Experiment1.5-LGD-Stat",
+    "experiment1/pd": "Experiment1.1-PD",
+    "experiment1/pd_family": "Experiment1.3-PD-FamilyStat",
+    "experiment1/pd_stats": "Experiment1.2-PD-Stat",
+    "experiment2/lgd": "Experiment2.2-LGD",
+    "experiment2/pd": "Experiment2.1-PD",
+    "experiment3": "Experiment3",
+}
+
+
 def _is_redundant_proprietary_stem(stem: str, available: set) -> bool:
     r"""True if ``stem`` names a PROPRIETARY dataset by its real slug AND a
     neutral-filename twin exists.
@@ -732,24 +748,38 @@ def generate_captions(
     figures_root = Path(figures_root)
     exps = {e.lower() for e in experiments} if experiments else None
 
-    # Old layout wrote one CAPTIONS.md per leaf dir; everything now lives in one
-    # file at the figures root, so clear the per-directory ones.
-    for stale in figures_root.rglob("CAPTIONS.md"):
+    template_layout = figures_root.name == "output"
+
+    from src.utils.paths import writable_results
+    writable_results(figures_root)
+    stale_paths = figures_root.glob("*/figures/**/CAPTIONS.md") if template_layout else figures_root.rglob("CAPTIONS.md")
+    for stale in stale_paths:
         if stale.parent != figures_root and not dry_run:
-            stale.unlink(missing_ok=True)
+            stale.unlink()
+
+    def logical_dir(directory):
+        parts = directory.relative_to(figures_root).parts
+        if template_layout:
+            return next((key for key, notebook in _NOTEBOOK_BY_SECTION.items() if notebook == directory.name), "/".join(parts))
+        return "/".join(parts)
 
     def _section(title: str, d: Path) -> List[str]:
         stems = _ordered_stems(d)
         if not stems:
             return []
         out = [f"## {title}\n"]
-        rel_prefix = "/".join(d.relative_to(figures_root).parts)
+        rel_prefix = logical_dir(d)
+        entries = []
         for stem in stems:
             label_stem = f"{rel_prefix}/{stem}" if rel_prefix else stem
+            caption = latex_caption_block(stem, label_stem=label_stem)
+            entries.append({"file": stem + ".pdf", "caption": caption})
             out.append(
                 f"**`{stem}.pdf`**\n```latex\n"
-                f"{latex_caption_block(stem, label_stem=label_stem)}\n```\n"
+                f"{caption}\n```\n"
             )
+        if template_layout and not dry_run:
+            (d / "_figures.json").write_text(json.dumps(entries, indent=2), encoding="utf8")
         return out
 
     body: List[str] = []
@@ -757,16 +787,18 @@ def generate_captions(
     for title, sub in CHAPTERS:
         if exps and sub.split("/")[0].lower() not in exps:
             continue
-        d = figures_root / sub
+        exp = sub.split("/")[0]
+        d = figures_root / exp / "figures" / _NOTEBOOK_BY_SECTION[sub] if template_layout else figures_root / sub
         covered.add(d.resolve())
         if d.is_dir():
             body += _section(title, d)
 
     # Catch any figure directory not listed above, so nothing is silently dropped.
-    for d in sorted(p for p in figures_root.rglob("*") if p.is_dir()):
+    candidates = figures_root.glob("*/figures/**/*") if template_layout else figures_root.rglob("*")
+    for d in sorted(p for p in candidates if p.is_dir()):
         if d.resolve() in covered or not any(d.glob("*.pdf")):
             continue
-        rel = "/".join(d.relative_to(figures_root).parts)
+        rel = logical_dir(d)
         if exps and rel.split("/")[0].lower() not in exps:
             continue
         body += _section(rel, d)

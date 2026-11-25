@@ -42,7 +42,10 @@ import json
 import logging
 import os
 from pathlib import Path
+
+from src.utils.paths import experiment_results_dir, writable_results
 from tempfile import TemporaryDirectory
+from zipfile import BadZipFile, ZipFile
 from typing import Any, Dict, Iterator, Mapping, Optional, Tuple
 
 from filelock import FileLock
@@ -62,7 +65,7 @@ _SCALAR_KEYS_PER_FOLD = (
 def _result_paths(
     base: Path, experiment: str, task: str, dataset: str, method: str
 ) -> Tuple[Path, Path]:
-    out_dir = base / experiment.lower() / task.lower() / dataset
+    out_dir = experiment_results_dir(base, experiment) / task.lower() / dataset
     return out_dir / f"{method}.json", out_dir / f"{method}.npz"
 
 
@@ -81,6 +84,7 @@ def save_method(
     :func:`src.methods.method_runner.run_talent_method`
     (``{fold_id: fold_dict}``). Existing files are overwritten atomically.
     """
+    writable_results(base)
     if not method_results:
         raise ValueError(f"save_method called with empty results for {method}")
 
@@ -178,7 +182,9 @@ def scan_results(base: Path) -> Iterator[Tuple[str, str, str, str, Dict[str, Any
     for json_path in base.rglob("*.json"):
         # Path: results/<experiment>/<task>/<dataset>/<method>.json
         parts = json_path.relative_to(base).parts
-        if len(parts) != 4 or parts[0] == ".revision":
+        if len(parts) == 5 and parts[1] == "results":
+            parts = (parts[0], *parts[2:])
+        if len(parts) != 4 or parts[1] not in ("pd", "lgd"):
             continue  # not our layout (e.g. summaries/)
         experiment, task, dataset, method_file = parts
         method = method_file[:-5]  # strip .json
@@ -259,6 +265,7 @@ def has_complete_result(
     dataset: str,
     method: str,
     expected_folds: int,
+    require_predictions: bool = False,
 ) -> bool:
     """Return True iff a ``<method>.json`` with ``expected_folds`` folds exists.
 
@@ -266,7 +273,7 @@ def has_complete_result(
     already have complete results -- so re-running an experiment over a
     partial sweep is safe.
     """
-    json_path, _ = _result_paths(base, experiment, task, dataset, method)
+    json_path, npz_path = _result_paths(base, experiment, task, dataset, method)
     if not json_path.exists():
         return False
     try:
@@ -274,7 +281,19 @@ def has_complete_result(
     except (FileNotFoundError, json.JSONDecodeError):
         return False
     folds = payload.get("folds") or {}
-    return len(folds) >= int(expected_folds)
+    if not require_predictions:
+        return len(folds) >= int(expected_folds)
+    if not folds or len(folds) != expected_folds:
+        return False
+    first = 0 if "0" in folds else 1
+    if set(folds) != {str(i) for i in range(first, first + expected_folds)}:
+        return False
+    try:
+        with ZipFile(npz_path) as predictions:
+            names = set(predictions.namelist())
+    except (FileNotFoundError, BadZipFile):
+        return False
+    return all(f"fold_{i}_{key}.npy" in names for i in folds for key in ("y_true", "y_pred"))
 
 
 # ============================================================================
@@ -346,9 +365,10 @@ def save_packed_point(
     legacy single ``<method_base>.json`` (local single-process runs). Written
     atomically. Skip / summarise / resubmit all read the union across shards.
     """
+    writable_results(base)
     if not method_results:
         raise ValueError(f"save_packed_point called with empty results for {point_name}")
-    out_dir = base / experiment.lower() / task.lower() / dataset
+    out_dir = experiment_results_dir(base, experiment) / task.lower() / dataset
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / f"{_packed_stem(method_base, shard)}.json"
 
@@ -392,7 +412,7 @@ def has_complete_packed_point(
     so a point computed by any array task (this submission or a previous one)
     counts as done -- the basis of resumable, parallel sweeps.
     """
-    out_dir = base / experiment.lower() / task.lower() / dataset
+    out_dir = experiment_results_dir(base, experiment) / task.lower() / dataset
     if not out_dir.exists():
         return False
     for json_path in _packed_shard_paths(out_dir, method_base):
@@ -420,7 +440,7 @@ def complete_packed_points(
     Parses each shard file ONCE (cheap), so the resubmit gap-scan can check
     thousands of sweep points per cell without re-reading per point.
     """
-    out_dir = base / experiment.lower() / task.lower() / dataset
+    out_dir = experiment_results_dir(base, experiment) / task.lower() / dataset
     done: set = set()
     if not out_dir.exists():
         return done

@@ -140,3 +140,13 @@ secrets.json
 # ---- Large archive blobs ----
 *.tar.gz
 *.zip
+
+# Local working documentation; VSC_RUN.md is the public runbook.
+/docs/
+
+/archive/*
+!/archive/results/
+/archive/results/*
+!/archive/results/All_Results.md
+/output/
+/analysis/

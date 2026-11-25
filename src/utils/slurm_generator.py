@@ -3,7 +3,7 @@
 The legacy runtime remains the default for existing paper campaigns.
 ``TABPFN_VSC_PROFILE=container`` selects the new DATA/PROJECT/scratch
 deployment policy without changing point planning or scientific arguments.
-See ``docs/VSC.md`` for migration and real-cluster validation requirements.
+See ``VSC_RUN.md`` for migration and real-cluster validation requirements.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pathlib import Path, PurePosixPath
 from textwrap import dedent
 from typing import List, Optional
 
-from src.methods.runtime_profile import get_profile
+from src.methods.runtime_profile import recommended_partition
 
 # Absolute path to the repo root, resolved at generation time (the generator
 # runs on the login node, where this is the real on-cluster path, e.g.
@@ -67,7 +67,7 @@ def _log_dir(experiment: str) -> str:
     ``#SBATCH --output`` / ``--error``. The repo lives at
     ``$VSC_DATA/TabPFNCredit``, so ``<repo>/logs`` is on the general data storage.
     """
-    return f"{_REPO_ROOT}/logs/{experiment.lower()}"
+    return f"{_REPO_ROOT}/output/{experiment.lower()}/logs"
 
 
 # ============================================================================
@@ -84,7 +84,6 @@ class PartitionSpec:
     mem_per_gpu_mb: int        # max memory per GPU in MiB (docs)
     gpus_per_node: int         # 0 for CPU-only
     max_walltime_hours: int    # partition wall-clock cap
-    cost_weight: float         # TRES billing weight (lower = cheaper)
 
 
 # These numbers come from the VSC cpu_resource_limits_in_gpu_jobs table.
@@ -92,35 +91,10 @@ class PartitionSpec:
 PARTITIONS: dict[str, PartitionSpec] = {
     "cpu": PartitionSpec(
         cluster="wice", partition="batch_sapphirerapids",
-        cpus_per_gpu=36,       # whole-node CPU job
+        cpus_per_gpu=36,       # supported CPU task budget
         mem_per_gpu_mb=160_000,  # ~160 GB total
         gpus_per_node=0,
         max_walltime_hours=72,
-        cost_weight=2.55,
-    ),
-    "cpu_genius": PartitionSpec(
-        cluster="genius", partition="batch",
-        cpus_per_gpu=36,
-        mem_per_gpu_mb=140_000,
-        gpus_per_node=0,
-        max_walltime_hours=72,
-        cost_weight=1.0,
-    ),
-    "gpu_p100": PartitionSpec(
-        cluster="genius", partition="gpu_p100",
-        cpus_per_gpu=9,
-        mem_per_gpu_mb=44_000,  # below 45000 to stay clear of the cap
-        gpus_per_node=1,
-        max_walltime_hours=72,
-        cost_weight=41.67,
-    ),
-    "gpu_v100": PartitionSpec(
-        cluster="genius", partition="gpu_v100",
-        cpus_per_gpu=4,          # 2 nodes x 8 V100 32GB; ~36 cores/node
-        mem_per_gpu_mb=20_000,   # small-row offload work needs little host RAM
-        gpus_per_node=1,
-        max_walltime_hours=72,
-        cost_weight=59.58,
     ),
     "gpu_a100": PartitionSpec(
         cluster="wice", partition="gpu_a100",
@@ -128,7 +102,6 @@ PARTITIONS: dict[str, PartitionSpec] = {
         mem_per_gpu_mb=125_000,
         gpus_per_node=1,
         max_walltime_hours=72,
-        cost_weight=141.67,
     ),
     "gpu_h100": PartitionSpec(
         cluster="wice", partition="gpu_h100",
@@ -136,56 +109,14 @@ PARTITIONS: dict[str, PartitionSpec] = {
         mem_per_gpu_mb=186_000,
         gpus_per_node=1,
         max_walltime_hours=72,
-        cost_weight=569.44,
     ),
-    # Tier-2 Mindwell (production since 2026-06): 3 nodes x 8 NVIDIA B200 SXM6
-    # (192 GiB, Blackwell sm_100), 2x 96-core AMD EPYC 9655, 1536 GiB RAM ->
-    # 24 cores & ~192 GB per GPU. Brand-new GPUs: the venv's torch build must
-    # ship Blackwell (sm_100) kernels and a 2025a+ Python module, and the
-    # project account must have Mindwell credits/storage. Used ONLY as a
-    # cross-cluster REPLICA target (never the afterok primary), so if any of
-    # those prerequisites are missing the replica simply fails harmlessly and
-    # wICE still completes the work. Opt in via TABPFN_ALL_CLUSTERS / the
-    # replicate set.
-    "gpu_b200": PartitionSpec(
-        cluster="mindwell", partition="gpu_b200",
-        cpus_per_gpu=16,
-        mem_per_gpu_mb=180_000,
-        gpus_per_node=1,
-        max_walltime_hours=72,
-        cost_weight=600.0,
-    ),
+
 }
 
-# GPU partitions across ALL clusters, used by the "all clusters at once" mode
-# (TABPFN_ALL_CLUSTERS). wICE A100/H100 stay the afterok primary; Genius V100
-# and Mindwell B200 are added as replicas. P100 is excluded (torch 2.8 ships
-# sm_70+ only; Pascal sm_60 is unusable).
-ALL_GPU_PARTITIONS = ("gpu_h100", "gpu_a100", "gpu_v100", "gpu_b200")
-
-
 def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
-    """Return the partition KEY (not the SLURM partition name) for ``method``.
-
-    IMPORTANT -- single-cluster rule
-    --------------------------------
-    Everything maps to **wICE** partitions (``cpu`` = batch_sapphirerapids,
-    ``gpu_a100``, ``gpu_h100``). We deliberately do NOT route anything to
-    Genius (``gpu_p100`` / ``cpu_genius``): SLURM ``afterok`` dependencies
-    cannot cross clusters, so the primary experiment dependency chain would
-    be invalid if one experiment's arrays were split between Genius and wICE.
-    Keeping a whole experiment on one cluster makes the dependency chain valid
-    and the job-id bookkeeping trivial. (The Genius partition specs remain in
-    ``PARTITIONS`` for manual/advanced use, but the generator never picks them.)
-    """
-    profile = get_profile(method)
-    if not profile.prefers_gpu:
-        return "cpu"
-    if profile.needs_foundation_gpu:
-        return "gpu_h100" if prefer_h100 else "gpu_a100"
-    # Standard (non-foundation) GPU methods: A100 on wICE -- NOT P100 on
-    # Genius, to keep the whole sweep on a single cluster (see above).
-    return "gpu_a100"
+    """Choose a wICE partition for one method."""
+    name = recommended_partition(method, prefer_h100=prefer_h100)
+    return "cpu" if name == PARTITIONS["cpu"].partition else name
 
 
 # ============================================================================
@@ -199,25 +130,9 @@ def partition_for_method(method: str, *, prefer_h100: bool = True) -> str:
 # *points* across array slots so each slot's estimated work fits under the
 # partition wall, while honouring the VSC per-user submit limit.
 #
-# TWO HARD CONSTRAINTS (VSC docs, confirmed):
-#   * Wall-clock <= 72 h on every wICE partition (gpu_a100/gpu_h100/
-#     batch_sapphirerapids); there is NO `_long` GPU partition on wICE.
-#   * MaxSubmitJobsPerUser (~500 on the `normal` QOS) and EACH array element
-#     counts. So #slots is capped at MAX_ARRAY_SLOTS per partition.
-#
-# Packing: n_slots = clamp(ceil(total_est / cap_seconds), 1, max_slots), then
-# greedy longest-processing-time-first (heaviest point into the least-loaded
-# slot) for an even spread. When the work needs MORE slots than the cap allows,
-# we still emit max_slots slots (each then exceeds the 72 h estimate) and the
-# caller warns -- skip-if-done makes a timed-out slot resumable on re-submit.
-
-# Hard cap on array tasks PER PARTITION. Default 40 keeps the full
-# run_all_experiments.sh chain (4 experiments pre-submitted at once via afterok,
-# up to 3 partitions each) under the ~500 `normal`-QOS submit ceiling:
-# 4 x 3 x 40 = 480 < 500. For a big STANDALONE sweep (e.g. Experiment 2) raise
-# it via $TABPFN_MAX_ARRAY_SLOTS -- e.g. 150 gives ~450 tasks across 3
-# partitions, still < 500 -- to shorten each slot and parallelise harder.
+# Per-partition planning budget. Current user/QoS limits apply to submissions.
 MAX_ARRAY_SLOTS = 40
+REVISION_ARRAY_SLOTS = 150
 
 
 def _split_group_by_cap(group: List[dict], cap_seconds: int) -> List[List[dict]]:
@@ -442,15 +357,18 @@ def _sbatch_header(
     container: bool = False,
 ) -> str:
     """Build the #SBATCH block for one batch."""
+    eligible = spec.partition
+    gpu_cores = spec.cpus_per_gpu
+    if n_gpus and os.environ.get("TABPFN_WICE_GPU_POOL") == "1":
+        eligible = "gpu_a100,gpu_h100"
+        gpu_cores = min(PARTITIONS[p].cpus_per_gpu for p in eligible.split(","))
     if n_gpus:
-        cpus = spec.cpus_per_gpu
-        mem_mb = spec.mem_per_gpu_mb * max(1, n_gpus)
+        cpus = int(os.environ.get("TABPFN_GPU_CPUS_PER_TASK", gpu_cores))
+        if not 1 <= cpus <= gpu_cores:
+            raise ValueError(f"GPU host cores must be between 1 and {gpu_cores} on {eligible}")
+        mem_mb = spec.mem_per_gpu_mb * cpus // spec.cpus_per_gpu
     else:
-        # CPU arrays default to HALF a node (18 of 36 cores) so two tasks pack
-        # per node -- classical methods scale poorly past ~18 threads, so this
-        # ~doubles CPU throughput for the same node count. Memory scales with
-        # the core share. Override with $TABPFN_CPU_CORES_PER_TASK (e.g. 36
-        # for a whole node when one task genuinely needs all the RAM).
+        # Retain the historical CPU and host-memory budget by default.
         cpus = int(os.environ.get("TABPFN_CPU_CORES_PER_TASK", 18))
         cpus = max(1, min(cpus, spec.cpus_per_gpu))
         mem_mb = int(spec.mem_per_gpu_mb * cpus / spec.cpus_per_gpu)
@@ -461,7 +379,7 @@ def _sbatch_header(
         # Slurm credit account: defaults to the project's account; override for
         # another project with TABPFN_SLURM_ACCOUNT.
         f"#SBATCH --account={os.environ.get('TABPFN_SLURM_ACCOUNT', 'lp_verbekelab')}",
-        f"#SBATCH --partition={spec.partition}",
+        f"#SBATCH --partition={eligible}",
         "#SBATCH --nodes=1",
         "#SBATCH --ntasks=1",
         f"#SBATCH --cpus-per-task={cpus}",
@@ -476,8 +394,8 @@ def _sbatch_header(
         lines.append(f"#SBATCH --mem={mem_mb}M")
     lines.extend([
         f"#SBATCH --time={walltime}",
-        f"#SBATCH --output={log_dir}/{job_name}_%A_%a.out",
-        f"#SBATCH --error={log_dir}/{job_name}_%A_%a.err",
+        f"#SBATCH --output={log_dir}/{job_name}_%A_%a.stdout.log",
+        f"#SBATCH --error={log_dir}/{job_name}_%A_%a.stderr.log",
         "#SBATCH --requeue",
     ])
     email = (mail_email or os.environ.get("TABPFN_SLURM_NOTIFY_EMAIL", "")).strip()
@@ -552,8 +470,7 @@ def _container_settings() -> Optional[dict[str, str]]:
         raise ValueError("TABPFN_CONTAINER_IMAGE must name a versioned immutable .sif image")
     if not settings["TABPFN_CONTAINER_PYTHON"]:
         raise ValueError("TABPFN_CONTAINER_PYTHON cannot be empty")
-    for key in ("VSC_SCRATCH_LUSTRE1", "VSC_SCRATCH_GPFS1",
-                "VSC_PROJECT_LUSTRE1", "VSC_PROJECT_GPFS1"):
+    for key in ("VSC_SCRATCH_LUSTRE1", "VSC_PROJECT_LUSTRE1"):
         if os.environ.get(key):
             settings[key] = os.environ[key].strip()
     return settings
@@ -561,8 +478,10 @@ def _container_settings() -> Optional[dict[str, str]]:
 
 def _container_prologue(settings: dict[str, str], cluster: str, n_gpus: int) -> str:
     """Fail closed on storage/runtime mistakes before invoking scientific code."""
-    native_var = {"wice": "VSC_SCRATCH_LUSTRE1", "mindwell": "VSC_SCRATCH_GPFS1"}[cluster]
-    project_var = {"wice": "VSC_PROJECT_LUSTRE1", "mindwell": "VSC_PROJECT_GPFS1"}[cluster]
+    if cluster != "wice":
+        raise ValueError("This project runs on wICE")
+    native_var = "VSC_SCRATCH_LUSTRE1"
+    project_var = "VSC_PROJECT_LUSTRE1"
     snapshot = "\n".join(f"export {key}={shlex.quote(value)}" for key, value in settings.items())
     return snapshot + "\n" + dedent(f"""\
         set -euo pipefail
@@ -647,6 +566,12 @@ def _container_prologue(settings: dict[str, str], cluster: str, n_gpus: int) -> 
         if [[ "$SCRATCH_ALIAS" != "$NATIVE_SCRATCH" ]]; then APPTAINER_ARGS+=(--bind "$NATIVE_SCRATCH:$SCRATCH_ALIAS"); fi
         {('APPTAINER_ARGS+=(--nv)' if n_gpus else '# CPU allocation: no GPU passthrough.')}
         # Override any environment baked into the image with the recorded job settings.
+        if [[ "${{TABPFN_REVISION:-0}}" == 1 ]]; then
+            for key in OMP_NUM_THREADS MKL_NUM_THREADS OPENBLAS_NUM_THREADS BLIS_NUM_THREADS NUMEXPR_NUM_THREADS; do
+                export "APPTAINERENV_$key=${{SLURM_CPUS_PER_TASK:?missing CPU allocation}}"
+            done
+            export APPTAINERENV_OMP_MAX_ACTIVE_LEVELS=1
+        fi
         for key in TABPFN_REVISION TABPFN_VSC_PROFILE TABPFN_STAGING_ROOT TABPFN_RESULTS_ROOT TABPFN_CACHE_ROOT TABPFN_CONTAINER_IMAGE VSC_DATA VSC_SCRATCH TMPDIR HF_HOME HUGGINGFACE_HUB_CACHE TORCH_HOME XDG_CACHE_HOME TRITON_CACHE_DIR TORCHINDUCTOR_CACHE_DIR TORCH_EXTENSIONS_DIR PYTHONDONTWRITEBYTECODE TABPFN_MODEL_CACHE_DIR HF_HUB_OFFLINE TRANSFORMERS_OFFLINE PYTHONUNBUFFERED TQDM_DISABLE PYTORCH_CUDA_ALLOC_CONF ${{!SLURM_@}} CUDA_VISIBLE_DEVICES; do
             if [[ -n "${{!key+x}}" ]]; then export "APPTAINERENV_$key=${{!key}}"; fi
         done
@@ -684,12 +609,12 @@ def _container_invocation(experiment: str, partition_key: str, plan_path: Path,
         """)
     checks.append(worker)
     checks.append(worker.rstrip() + " --verify-only\n")
-    checks.append(dedent("""\
+    checks.append(dedent(f"""\
         python3 - "$WORKSPACE" "$NATIVE_SCRATCH" "$REPO_ROOT" "$SLURM_JOB_ID" "$SLURM_ARRAY_TASK_ID" <<'PY'
         import json, pathlib, shutil, sys
         workspace, root, repo = (pathlib.Path(p).resolve() for p in sys.argv[1:4])
         parent = (root / 'tabpfncredit/workspaces').resolve()
-        receipt = repo / 'logs/manifests/publications' / (sys.argv[4] + '_' + sys.argv[5] + '.json')
+        receipt = repo / 'output/{experiment.lower()}/manifests/publications' / (sys.argv[4] + '_' + sys.argv[5] + '.json')
         record = json.loads(receipt.read_text())
         assert record['status'] == 'published' and pathlib.Path(record['workspace']).resolve() == workspace
         assert workspace.parent == parent and workspace.is_relative_to(root) and (workspace / 'OWNER.txt').is_file()
@@ -774,8 +699,12 @@ def generate_scripts_for_experiment(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    revision = os.environ.get("TABPFN_REVISION") == "1"
     if max_slots is None:
-        max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", MAX_ARRAY_SLOTS))
+        default_slots = REVISION_ARRAY_SLOTS if revision else MAX_ARRAY_SLOTS
+        max_slots = int(os.environ.get("TABPFN_MAX_ARRAY_SLOTS", default_slots))
+    if max_slots < 1:
+        raise ValueError("TABPFN_MAX_ARRAY_SLOTS must be positive")
 
     # Optional per-slot cell cap -> finer parallelism than time-packing alone.
     # e.g. TABPFN_MAX_CELLS_PER_SLOT=1 runs one (dataset, method) cell per array
@@ -784,6 +713,8 @@ def generate_scripts_for_experiment(
     if max_cells_per_slot is None:
         _mcps_env = os.environ.get("TABPFN_MAX_CELLS_PER_SLOT")
         max_cells_per_slot = int(_mcps_env) if _mcps_env else None
+        if revision and experiment.lower() == "experiment0" and not _mcps_env:
+            max_cells_per_slot = 1
 
     # Experiment 2/3 pack a cell's sweep points into per-task shard files, so a
     # big cell's points may be split across array tasks (intra-cell parallelism).
@@ -800,47 +731,29 @@ def generate_scripts_for_experiment(
         key = partition_for_method(item["method"], prefer_h100=prefer_h100)
         by_partition.setdefault(key, []).append(item)
 
-    # 1a-bis) Optional AGGRESSIVE replication: COPY small-data GPU work to
-    # the GPU partitions listed in TABPFN_REPLICATE_PARTITIONS.
-    # Runtime skip-if-done dedupes; first replica to finish a point wins.
-    # Takes precedence over the Genius offload (which MOVES instead).
-    replicated = _replicate_small_data(by_partition, log=_log)
-
-    # 1a) Optional Genius offload: route SMALL-DATA GPU work (Experiment 2's
-    # row-capped sweeps, Experiment 3's subsampled sweeps) to the old-but-idle
-    # Genius V100/P100 fleet. Opt-in via TABPFN_GENIUS_GPUS -- see the helper.
-    if not replicated:
-        _genius_offload(by_partition, log=_log)
-
-    # 1b) GPU spillover: when one GPU partition's work exceeds what its slot
-    # cap can finish inside the wall while the other GPU partition has spare
-    # capacity, move whole CELLS across (both wICE GPU partitions run every
-    # GPU method; A100/H100 both have 80 GB). Disable with TABPFN_GPU_SPREAD=0
-    # -- e.g. to keep deep-method work off the ~4x-more-expensive H100.
+    unsupported = set(by_partition).difference(PARTITIONS)
+    if unsupported:
+        raise ValueError("retired/unvalidated routes: " + ", ".join(sorted(unsupported)))
+    if os.environ.get("TABPFN_ALL_CLUSTERS", "").strip().lower() in ("1", "true", "yes", "on") or os.environ.get("TABPFN_GENIUS_GPUS"):
+        raise ValueError("Use wICE partitions only; unset TABPFN_ALL_CLUSTERS and TABPFN_GENIUS_GPUS")
+    _replicate_small_data(by_partition, log=_log)
     _spillover_gpu(by_partition, max_slots=max_slots, log=_log)
-
-    if container_settings:
-        unsupported = [key for key in by_partition
-                       if key in PARTITIONS and PARTITIONS[key].cluster not in ("wice", "mindwell")]
-        if unsupported:
-            raise ValueError(
-                "Container profile rejects retired/unvalidated routes: " + ", ".join(unsupported)
-                + ". Select current partitions explicitly; legacy campaign routing is unchanged."
-            )
 
     generated: List[GeneratedJob] = []
     filename_suffix = f"_{run_id}" if run_id else ""
 
     for partition_key, items in sorted(by_partition.items()):
-        if partition_key not in PARTITIONS:
-            continue
         spec = PARTITIONS[partition_key]
         n_gpus = 1 if spec.gpus_per_node else 0
 
-        # 2) Shard the partition's points across <= max_slots array tasks,
-        #    targeting ~95% of the wall per slot so each slot finishes inside
-        #    the 72 h cap whenever the work fits in the slot budget.
-        cap_seconds = int(0.95 * spec.max_walltime_hours * 3600)
+        # Keep a cell's default fit and its dependent HPO copy together.
+        hard_cap = spec.max_walltime_hours * 3600
+        cap_seconds = int(0.95 * hard_cap)
+        if revision:
+            target_minutes = int(os.environ.get("TABPFN_SLOT_TARGET_MINUTES", 240))
+            if not 1 <= target_minutes <= hard_cap // 60:
+                raise ValueError("TABPFN_SLOT_TARGET_MINUTES must fit the partition walltime")
+            cap_seconds = min(cap_seconds, target_minutes * 60)
         slots, max_slot_seconds = pack_work_items(
             items, cap_seconds=cap_seconds, max_slots=max_slots,
             split_cells=split_cells, max_cells_per_slot=max_cells_per_slot,
@@ -848,108 +761,88 @@ def generate_scripts_for_experiment(
         if not slots:
             continue
 
-        # 3) Walltime = the heaviest slot's estimate, floored at 10 min and
-        #    capped at the partition's hard wall.
-        hard_cap = spec.max_walltime_hours * 3600
-        walltime_seconds = min(max(max_slot_seconds, 600), hard_cap)
-        walltime = _format_walltime(walltime_seconds)
-
         # If the work could not be squeezed under the wall with the available
         # slots, warn: the slot will hit the 72 h limit and need a re-submit
         # (skip-if-done resumes), OR the user can raise the slot cap.
-        if max_slot_seconds > cap_seconds:
-            needed = math.ceil(
-                sum(int(it.get("est_seconds", 0)) for it in items) / max(1, cap_seconds)
-            )
-            _log.warning(
-                "slurm-generate: %s/%s needs ~%d slots to fit every slot under "
-                "%dh but is capped at %d. Slots may hit the wall and require a "
-                "re-submit to resume (safe -- skip-if-done). To parallelise "
-                "harder in one shot, raise the cap, e.g. "
-                "TABPFN_MAX_ARRAY_SLOTS=%d (keep TOTAL submitted array tasks < 500).",
-                experiment, partition_key, needed, spec.max_walltime_hours,
-                len(slots), min(needed, 450),
-            )
+        if max_slot_seconds > hard_cap:
+            _log.warning("The longest %s/%s slot is estimated at %.1f hours; the partition "
+                         "allows %d hours. Inspect the cell estimates before submission.",
+                         experiment, partition_key, max_slot_seconds / 3600, spec.max_walltime_hours)
 
-        # 4) Persist the per-slot point plan as a JSON sibling so slurm-task
-        #    knows what to run.
-        plan_path = out_dir / f"{experiment.lower()}_{partition_key}{filename_suffix}_plan.json"
-        _write_plan(plan_path, slots)
-
-        # 5) Emit the SLURM script. NO ``%N`` concurrency throttle by default:
-        # the throttle limited how many array elements RUN at once (it never
-        # affected the ~500-job SUBMIT limit -- every element counts as
-        # submitted regardless), so it only kept allocatable nodes idle.
-        # SLURM fairshare governs concurrency; re-throttle for I/O reasons via
-        # $TABPFN_MAX_CONCURRENT or the max_concurrent parameter.
-        job_name = f"{experiment.lower()}_{partition_key}"
         throttle = max_concurrent or int(os.environ.get("TABPFN_MAX_CONCURRENT", 0))
-        array_range = (
-            f"0-{len(slots) - 1}" + (f"%{throttle}" if throttle else "")
-            if len(slots) > 1 else "0"
-        )
-        # Logs stay on the general data storage (repo root), NOT on project
-        # storage. ABSOLUTE literal path (SLURM does not env-expand
-        # --output/--error).
-        log_dir = _log_dir(experiment)
-        header = _sbatch_header(
-            job_name=job_name,
-            spec=spec,
-            n_gpus=n_gpus,
-            array_range=array_range,
-            walltime=walltime,
-            log_dir=log_dir,
-            mail_email=mail_email,
-            gpu_cmode=gpu_cmode if n_gpus else None,
-            container=container_settings is not None,
-        )
-        banner = "\n".join([
-            f'mkdir -p "{log_dir}"',
-            'echo "============================================="',
-            f'echo "{experiment} on {spec.cluster}/{spec.partition}"',
-            'echo "JobID:   ${SLURM_JOB_ID}"',
-            'echo "ArrayID: ${SLURM_ARRAY_TASK_ID}"',
-            'echo "Node:    ${SLURMD_NODENAME}"',
-            'echo "GPU:     ${CUDA_VISIBLE_DEVICES:-N/A}"',
-            f'echo "Plan:    {plan_path.name} (slot ${{SLURM_ARRAY_TASK_ID}})"',
-            'echo "============================================="',
-        ]) + "\n"
-        script = "\n".join([
-            _SHEBANG,
-            header,
-            (_container_prologue(container_settings, spec.cluster, n_gpus)
-             if container_settings else _prologue(cluster=spec.cluster, partition=spec.partition)),
-            banner,
-            (_container_invocation(experiment, partition_key, plan_path, items)
-             if container_settings else _python_invocation(experiment, partition_key, plan_path)),
-            _EPILOGUE,
-        ])
+        # A Slurm array shares one time limit. Keep short revision slots eligible
+        # for backfill even when another cell on the partition needs a full day.
+        # Splitting a throttled array would multiply its concurrency limit.
+        batches = {}
+        for slot in slots:
+            seconds = sum(int(item.get("est_seconds", 0)) for item in slot)
+            band = 0
+            if revision and not throttle:
+                band = next(h for h in (1, 4, 12, 24, 72) if min(seconds, hard_cap) <= h * 3600)
+            batches.setdefault(band, []).append(slot)
+        for band, slots in sorted(batches.items()):
+            batch_items = [item for slot in slots for item in slot]
+            longest = max(sum(int(item.get("est_seconds", 0)) for item in slot) for slot in slots)
+            walltime = _format_walltime(min(max(longest, 600), hard_cap))
+            suffix = f"{filename_suffix}_{band}h" if len(batches) > 1 else filename_suffix
+            # 4) Persist the per-slot point plan as a JSON sibling so slurm-task
+            #    knows what to run.
+            plan_path = out_dir / f"{experiment.lower()}_{partition_key}{suffix}_plan.json"
+            _write_plan(plan_path, slots)
 
-        script_path = out_dir / f"{job_name}{filename_suffix}.slurm"
-        script_path.write_text(script, encoding="utf-8")
-        script_path.chmod(0o755)
+            job_name = f"{experiment.lower()}_{partition_key}"
+            array_range = (
+                f"0-{len(slots) - 1}" + (f"%{throttle}" if throttle else "")
+                if len(slots) > 1 else "0"
+            )
+            # Logs stay on the general data storage (repo root), NOT on project
+            # storage. ABSOLUTE literal path (SLURM does not env-expand
+            # --output/--error).
+            log_dir = _log_dir(experiment)
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
+            header = _sbatch_header(
+                job_name=job_name,
+                spec=spec,
+                n_gpus=n_gpus,
+                array_range=array_range,
+                walltime=walltime,
+                log_dir=log_dir,
+                mail_email=mail_email,
+                gpu_cmode=gpu_cmode if n_gpus else None,
+                container=container_settings is not None,
+            )
+            banner = "\n".join([
+                f'mkdir -p "{log_dir}"',
+                'echo "============================================="',
+                f'echo "{experiment} on {spec.cluster}/{spec.partition}"',
+                'echo "JobID:   ${SLURM_JOB_ID}"',
+                'echo "ArrayID: ${SLURM_ARRAY_TASK_ID}"',
+                'echo "Node:    ${SLURMD_NODENAME}"',
+                'echo "GPU:     ${CUDA_VISIBLE_DEVICES:-N/A}"',
+                f'echo "Plan:    {plan_path.name} (slot ${{SLURM_ARRAY_TASK_ID}})"',
+                'echo "============================================="',
+            ]) + "\n"
+            script = "\n".join([
+                _SHEBANG,
+                header,
+                (_container_prologue(container_settings, spec.cluster, n_gpus)
+                 if container_settings else _prologue(cluster=spec.cluster, partition=spec.partition)),
+                banner,
+                (_container_invocation(experiment, partition_key, plan_path, batch_items)
+                 if container_settings else _python_invocation(experiment, partition_key, plan_path)),
+                _EPILOGUE,
+            ])
 
-        generated.append(GeneratedJob(
-            path=script_path,
-            partition_key=partition_key,
-            n_array_slots=len(slots),
-            walltime=walltime,
-        ))
+            script_path = out_dir / f"{job_name}{suffix}.slurm"
+            script_path.write_text(script, encoding="utf-8")
+            script_path.chmod(0o755)
 
-    # 6) Submit-limit guard. EACH array element counts toward the VSC
-    #    MaxSubmitJobsPerUser (~500 on the `normal` QOS), and the
-    #    run_all_experiments.sh chain pre-submits every experiment at once via
-    #    afterok -- so the TOTAL across all submitted arrays must stay < 500.
-    total_slots = sum(j.n_array_slots for j in generated)
-    if total_slots > 450:
-        _log.warning(
-            "slurm-generate: %d array tasks for this experiment alone. EACH "
-            "counts toward the VSC per-user submit limit (~500 on the `normal` "
-            "QOS); if you also chain other experiments you may hit "
-            "QOSMaxSubmitJobPerUserLimit. Lower $TABPFN_MAX_ARRAY_SLOTS or "
-            "submit experiments one at a time.",
-            total_slots,
-        )
+            generated.append(GeneratedJob(
+                path=script_path,
+                partition_key=partition_key,
+                n_array_slots=len(slots),
+                walltime=walltime,
+            ))
 
     return generated
 
@@ -977,29 +870,10 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
     """
     targets = [p.strip() for p in os.environ.get("TABPFN_REPLICATE_PARTITIONS", "").split(",")
                if p.strip()]
-    all_clusters = os.environ.get("TABPFN_ALL_CLUSTERS", "").strip().lower() in (
-        "1", "true", "yes", "on",
-    )
-    if not targets and all_clusters:
-        # "Use every cluster at once": replicate small-data GPU work onto every
-        # GPU partition across wICE + Genius + Mindwell. wICE A100/H100 remain
-        # the afterok primary; Genius V100 / Mindwell B200 are pure accelerators.
-        targets = list(ALL_GPU_PARTITIONS)
     if not targets:
         return False
-    if "gpu_p100" in targets:
-        log.warning("slurm-generate: gpu_p100 cannot run the installed torch 2.8 "
-                    "wheels (sm_70+ only); dropping it from the replica set.")
-    targets = [p for p in targets if p in PARTITIONS and PARTITIONS[p].gpus_per_node and p != "gpu_p100"]
-    if "gpu_b200" in targets:
-        log.warning("slurm-generate: replicating to Mindwell gpu_b200 (B200, "
-                    "Blackwell sm_100). Ensure the venv torch ships sm_100 kernels "
-                    "+ a 2025a Python module (export TABPFN_PYTHON_MODULE) and the "
-                    "account has Mindwell credits. These are REPLICA tasks -- if a "
-                    "prerequisite is missing they fail harmlessly and wICE still "
-                    "completes the work.")
-    if not targets:
-        return False
+    if set(targets).difference(("gpu_a100", "gpu_h100")):
+        raise ValueError("Replica partitions must be gpu_a100 or gpu_h100 on wICE")
 
     row_cap = int(os.environ.get("TABPFN_GENIUS_ROW_CAP", 60_000))
     # Source points: small-data work currently homed on the wICE GPU queues.
@@ -1044,74 +918,6 @@ def _replicate_small_data(by_partition: dict, *, log) -> bool:
             ", ".join(f"{p}:+{n}" for p, n in n_added.items()),
         )
     return bool(n_added)
-
-
-def _genius_offload(by_partition: dict, *, log) -> None:
-    """Opt-in: move SMALL-DATA GPU cells to the Genius V100/P100 fleet.
-
-    Enabled by ``TABPFN_GENIUS_GPUS`` (comma-separated partition keys, e.g.
-    ``gpu_v100`` or ``gpu_v100,gpu_p100``). Only cells whose EVERY point is
-    small-data qualify: a ``row_limit`` at or under ``TABPFN_GENIUS_ROW_CAP``
-    (default 60000 -- covers Experiment 2's capped sweeps) or a ``sampling``
-    value (Experiment 3's minority sweeps, whose datasets are small by
-    construction). Big-data work (Experiment 0/1 full-dataset foundation
-    fits) NEVER moves: P100 has 16 GB and V100 32 GB.
-
-    Moved cells are balanced across the enabled Genius partitions by fleet
-    throughput (16 V100s vs 52 ~half-speed P100s). NOTE: SLURM ``afterok``
-    cannot cross clusters, so the caller excludes Genius arrays from the
-    summarize dependency (the CLI prints a reminder).
-    """
-    targets = [p.strip() for p in os.environ.get("TABPFN_GENIUS_GPUS", "").split(",")
-               if p.strip()]
-    if "gpu_p100" in targets:
-        # Verified 2026-06-12: the venv's torch 2.8 CUDA wheels ship sm_70+
-        # kernels only ("no kernel image" on Pascal). P100 = sm_60 -> unusable.
-        log.warning("slurm-generate: gpu_p100 requested but Pascal (sm_60) is "
-                    "NOT supported by the installed torch 2.8 wheels (sm_70+). "
-                    "Ignoring gpu_p100; use gpu_v100.")
-        targets = [p for p in targets if p != "gpu_p100"]
-    targets = [p for p in targets if p in PARTITIONS and PARTITIONS[p].cluster == "genius" and PARTITIONS[p].gpus_per_node]
-    if not targets:
-        return
-    row_cap = int(os.environ.get("TABPFN_GENIUS_ROW_CAP", 60_000))
-    # Relative throughput per partition: #GPUs x speed vs V100.
-    fleet = {"gpu_v100": 16 * 1.0, "gpu_p100": 52 * 0.5}
-    weights = {p: fleet.get(p, 1.0) for p in targets}
-
-    def _eligible(it: dict) -> bool:
-        return _small_data_eligible(it, row_cap)
-
-    loads = {p: 0.0 for p in targets}
-    moved = 0
-    for src in ("gpu_h100", "gpu_a100"):
-        src_items = by_partition.get(src)
-        if not src_items:
-            continue
-        cells: dict = {}
-        for it in src_items:
-            cells.setdefault((it.get("task"), it.get("dataset"), it.get("method")), []).append(it)
-        for _key, cell_items in sorted(
-                cells.items(),
-                key=lambda kv: -sum(int(i.get("est_seconds", 0)) for i in kv[1])):
-            if not all(_eligible(it) for it in cell_items):
-                continue
-            cell_est = sum(int(i.get("est_seconds", 0)) for i in cell_items)
-            # least-loaded weighted bin
-            dst = min(targets, key=lambda p: loads[p] / weights[p])
-            loads[dst] += cell_est
-            for it in cell_items:
-                src_items.remove(it)
-            by_partition.setdefault(dst, []).extend(cell_items)
-            moved += len(cell_items)
-    if moved:
-        log.warning(
-            "slurm-generate: Genius offload moved %d small-data point(s) to %s "
-            "(row cap %d; disable by unsetting TABPFN_GENIUS_GPUS). Reminder: "
-            "summarize cannot depend on cross-cluster arrays -- re-run "
-            "`tabpfncredit summarize` after the Genius jobs finish.",
-            moved, "+".join(targets), row_cap,
-        )
 
 
 def _spillover_gpu(by_partition: dict, *, max_slots: int, log) -> None:

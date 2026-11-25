@@ -25,6 +25,8 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+
+from src.utils.paths import analysis_results_root, experiment_results_dir, summary_dir as notebook_summary_dir
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import yaml
@@ -705,12 +707,14 @@ def reset_figure_dir(figures_dir: Path) -> Path:
     after the files inside were removed) is skipped rather than raising. A
     stale figure left behind is harmless; a crashed setup cell is not.
     """
-    from src.utils.paths import PROJECT_ROOT, figure_root
+    from src.utils.paths import PROJECT_ROOT, figure_root, writable_results
 
     figures_dir = Path(figures_dir)
     paper_root = PROJECT_ROOT / "figures"
     if figures_dir.is_relative_to(paper_root):
-        figures_dir = figure_root() / figures_dir.relative_to(paper_root)
+        experiment, *section = figures_dir.relative_to(paper_root).parts
+        figures_dir = figure_root() / experiment / "figures" / Path(*section or [experiment])
+    writable_results(figures_dir)
     if figures_dir.exists():
         for path in figures_dir.rglob("*"):
             if path.is_file() and path.suffix.lower() in {".png", ".pdf", ".svg", ".jpg", ".jpeg"}:
@@ -806,8 +810,9 @@ def load_summary(
     suffix = "per_method.csv" if aggregated else "per_fold.csv"
     path = summary_dir / f"{exp}_{suffix}"
     if auto_summarize:
-        results_root = summary_dir.parent
-        exp_dir = results_root / exp
+        results_root = analysis_results_root() if summary_dir == notebook_summary_dir(exp) else summary_dir.parent
+        exp_dir = experiment_results_dir(results_root, exp)
+        cache_key = (exp, results_root.resolve(), summary_dir.resolve())
         results_present = exp_dir.is_dir() and next(exp_dir.rglob("*.json"), None) is not None
         # Refresh the CSVs ONCE per experiment per session whenever the result
         # files are present -- so simply RUNNING a notebook rebuilds the summaries
@@ -821,11 +826,11 @@ def load_summary(
         skip_refresh = os.environ.get(
             "TABPFNCREDIT_SKIP_AUTO_SUMMARIZE", ""
         ).lower() in {"1", "true", "yes"}
-        if results_present and exp not in _SUMMARIZED_THIS_SESSION and not skip_refresh:
+        if results_present and cache_key not in _SUMMARIZED_THIS_SESSION and not skip_refresh:
             from src.utils.result_summary import summarize_to_csv
             logger.info("Refreshing %s summaries from %s ...", exp, results_root)
             summarize_to_csv(base=results_root, experiment=exp, out_dir=summary_dir)
-            _SUMMARIZED_THIS_SESSION.add(exp)
+            _SUMMARIZED_THIS_SESSION.add(cache_key)
         elif not path.exists():
             from src.utils.result_summary import summarize_to_csv
             logger.info("Summary %s missing -- building it from %s ...", path.name, results_root)
@@ -869,8 +874,7 @@ def _result_npz_path(
 ) -> Path:
     suffix = "__HPO" if str(hpo_mode).upper() == "HPO" else ""
     return (
-        Path(results_root)
-        / experiment.lower()
+        experiment_results_dir(Path(results_root), experiment)
         / task.lower()
         / dataset
         / f"{method}{suffix}.npz"

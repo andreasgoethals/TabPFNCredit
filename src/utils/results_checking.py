@@ -30,6 +30,8 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from src.utils.paths import experiment_results_dir
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -250,13 +252,13 @@ def audit_experiment(experiment: str, results_root: Optional[Path | str] = None)
     malformed: List[Combo] = []
     # scan_results already skips JSONs it can't parse (logged); to surface
     # malformed files we re-walk and try to parse, catching failures.
-    exp_dir = base / exp
+    exp_dir = experiment_results_dir(base, exp)
     if exp_dir.exists():
         for jp in exp_dir.rglob("*.json"):
-            parts = jp.relative_to(base).parts
-            if len(parts) != 4:
+            parts = jp.relative_to(exp_dir).parts
+            if len(parts) != 3 or parts[0] not in ("pd", "lgd"):
                 continue  # summaries/ etc.
-            _e, task, dataset, method_file = parts
+            task, dataset, method_file = parts
             name = method_file[:-5]
             import json
             try:
@@ -523,7 +525,7 @@ def evaluation_set_mismatches(
     Returns one row per (group, distinct shape), empty when everything agrees.
     """
     root = Path(results_root) if results_root else _default_results_root()
-    exp_dir = root / experiment.lower()
+    exp_dir = experiment_results_dir(root, experiment)
     groups: Dict[Tuple[str, str, str], Dict[Tuple[int, ...], List[str]]] = {}
 
     for npz_path in sorted(exp_dir.glob("*/*/*.npz")):

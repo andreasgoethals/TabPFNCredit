@@ -445,7 +445,7 @@ def dedent_next_steps() -> str:
     return (
         "NEXT STEPS\n"
         "----------\n"
-        "1. Follow docs/VSC.md to stage the complete checkpoints tree on PROJECT.\n"
+        "1. Follow VSC_RUN.md to stage the complete checkpoints tree on PROJECT.\n"
         "   Verify file hashes and Hugging Face cache links before using it.\n"
         "2. Preserve the historical runtime. New VSC deployments require an\n"
         "   immutable PROJECT container with the expected Mitra/HyperFast assets.\n"

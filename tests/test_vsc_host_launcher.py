@@ -46,5 +46,5 @@ def test_host_submission_boundary(tmp_path, monkeypatch, preview):
     assert host.main(args) == 0
     assert len(calls) == (1 if preview else 2)
     assert not (scratch / "tabpfncredit").exists()
-    receipts = list((repo / "logs/manifests/submissions").glob("*.receipt.json"))
+    receipts = list((repo / "output/manifests/submissions").glob("*.receipt.json"))
     assert len(receipts) == (0 if preview else 1)

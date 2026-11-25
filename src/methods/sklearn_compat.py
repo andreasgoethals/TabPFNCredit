@@ -1,41 +1,4 @@
-"""Restore ``BaseEstimator._validate_data`` for vendored estimators on sklearn >= 1.6.
-
-Why this exists
----------------
-scikit-learn 1.6 removed ``BaseEstimator._validate_data`` in favour of the
-module-level ``sklearn.utils.validation.validate_data(estimator, X, y, ...)``.
-TALENT vendors TabICL v1, whose ``fit``/``predict`` branch on the sklearn version
-but call the METHOD in both arms::
-
-    if OLD_SKLEARN:
-        X, y = self._validate_data(X, y, dtype=None, cast_to_ndarray=False)
-    else:
-        X, y = self._validate_data(X, y, dtype=None, skip_check_array=True)
-
-The ``else`` arm was clearly written for the new API -- ``skip_check_array`` is a
-parameter of the new *function*, not of the old method -- but kept ``self.``. So
-on sklearn >= 1.6 every TabICL v1 fit dies with::
-
-    AttributeError: 'TabICLClassifier' object has no attribute '_validate_data'
-
-which is what killed ``pd/0012.home_credit/tabicl``. Enabling TabFM is what
-forced sklearn >= 1.6 into the cluster environment, so the two requirements
-collided.
-
-Why here and not in the TALENT fork
------------------------------------
-A fix inside the fork needs a push AND a ``pip install --force-reinstall`` on the
-cluster; that second step was missed once before and cost two H100 jobs. Code in
-*this* repo deploys with a plain ``git pull``, so the fix travels with the run.
-The same reasoning put the TabFM chunked-inference fix in ``tabfm_chunked``.
-
-What it does
-------------
-Re-attaches ``_validate_data`` to ``BaseEstimator`` as a thin forwarder to the new
-free function. It restores documented pre-1.6 behaviour rather than inventing any,
-and it is a no-op on sklearn < 1.6 (where the real method still exists) and on any
-version that does not provide ``validate_data``.
-"""
+"""Compatibility with scikit-learn for historical TALENT estimators."""
 
 from __future__ import annotations
 

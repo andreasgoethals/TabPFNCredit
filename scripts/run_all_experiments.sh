@@ -4,7 +4,7 @@
 # ============================================================================
 #
 # Compatibility orchestrator for an already validated deployment. It submits
-# jobs immediately. Read docs/VSC.md before use; never run it alongside an
+# jobs immediately. Read VSC_RUN.md before use; never run it alongside an
 # existing campaign without checking pending/running work and result identity.
 #
 # Default behaviour (no arguments) -- run all four experiments in sequence,
@@ -73,9 +73,8 @@ if ! command -v tabpfncredit >/dev/null 2>&1; then
         # which is the norm on a login node). If it fails, the cluster module
         # was force-purged at some point -- restore the login cluster module
         # then retry.
-        if ! module load "${PYMOD}" 2>/dev/null; then
-            module load "${TABPFN_CLUSTER_MODULE:-cluster/genius/login}" 2>/dev/null || true
-            module load "${PYMOD}" 2>/dev/null || true
+        if ! module load "${PYMOD}" 2>/dev/null && [ -n "${TABPFN_CLUSTER_MODULE:-}" ]; then
+            module load "${TABPFN_CLUSTER_MODULE}" && module load "${PYMOD}"
         fi
     fi
     if [ -f "${REPO_ROOT}/tabpfncreditvenv/bin/activate" ]; then
@@ -88,7 +87,7 @@ if ! command -v tabpfncredit >/dev/null 2>&1; then
     echo "ERROR: 'tabpfncredit' is not on PATH and could not be auto-activated." >&2
     echo "Activate your environment first, e.g.:" >&2
     echo "    source ${REPO_ROOT}/tabpfncreditvenv/bin/activate" >&2
-    echo "For a new VSC deployment, prepare the PROJECT container described in docs/VSC.md." >&2
+    echo "For a new VSC deployment, prepare the PROJECT container described in VSC_RUN.md." >&2
     exit 1
 fi
 

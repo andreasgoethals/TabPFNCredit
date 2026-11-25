@@ -2,8 +2,8 @@
 
 ## Published research compatibility
 
-Read [docs/TEMPLATE.md](docs/TEMPLATE.md) and the project runbook
-[docs/VSC.md](docs/VSC.md). Keep changes to execution infrastructure separate
+Read the local `docs/TEMPLATE.md` when available ([template snapshot](https://github.com/andreasgoethals/0.-Template/blob/5bfd08215091b1e03f6c78a8ddfbbb1390afd9bd/docs/TEMPLATE.md)) and the project runbook
+[VSC_RUN.md](VSC_RUN.md). Keep changes to execution infrastructure separate
 from scientific changes. Preserve preprocessing (including private local
 modules), observations, splits/seeds, methods, hyperparameters, metrics,
 result schemas, filenames, aggregation and resume identities. Do not regenerate
@@ -35,7 +35,7 @@ Slurm validation or evidence of numerical reproduction.
   batch mode and strict host-key checks. Verify stdout, stderr and deliberate
   failure status; an empty exit-0 response does not prove execution.
   If the gateway drops raw stderr, use the independently verified remote
-  Python capture envelope described in docs/VSC.md and check its returned
+  Python capture envelope described in VSC_RUN.md and check its returned
   streams/status against the SSH exit status.
 - Directly inspect relevant remote files, logs, results, quotas and job state
   after verifying access. Keep reads scoped. Computational debugging belongs
@@ -52,7 +52,7 @@ Slurm validation or evidence of numerical reproduction.
 - Native scratch: isolated temporary work/caches only; Lustre for wICE, GPFS
   for Mindwell. Preserve failed/recoverable work and publish durable outputs
   periodically. Check both byte and file-count quotas and independent backups.
-- New VSC deployments use the explicit container profile in docs/VSC.md.
+- New VSC deployments use the explicit container profile in VSC_RUN.md.
   Use `bash scripts/vsc.sh` for image planning and host-side submission;
   preserve the runtime lock in `config/vsc/`. Successful workers clean only
   their owned scratch workspace after verifying durable publication; retain
@@ -70,6 +70,6 @@ Slurm validation or evidence of numerical reproduction.
 `vsc-library/` is a pinned, entirely read-only infrastructure submodule. Read its
 README, source snapshot, guides and Slurm examples; never edit, refresh, lint,
 format or test inside it. There is no PROJECT_SPECIFIC exception. Keep this
-project's VSC choices and operating instructions in `docs/VSC.md`, outside the
+project's VSC choices and operating instructions in `VSC_RUN.md`, outside the
 submodule. Shared corrections belong in the standalone VSC Library checkout.
 Record the library pin when operational evidence depends on it.

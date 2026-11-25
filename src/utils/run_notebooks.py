@@ -72,7 +72,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from src.utils.paths import figure_root, PROJECT_ROOT, results_root  # noqa: E402
+from src.utils.paths import analysis_results_root, experiment_results_dir, figure_root, PROJECT_ROOT, results_root  # noqa: E402
 
 # The per-method tool is never auto-run (it's parametric/interactive).
 RUN_SKIP = {"Individual_Method_Runner"}
@@ -342,8 +342,8 @@ def update_all_results_md(md_path: Path, fresh_blocks: Dict[str, str],
         "statistical batteries, depending on the notebook. Dataset names are the "
         "paper display names (proprietary datasets appear anonymised); method "
         "names are the standard figure labels.\n\n"
-        "The corresponding figures live under `figures/<experiment>/`, with "
-        "paper-ready captions in `figures/CAPTIONS.md`.\n\n"
+        "The corresponding figures live under `output/<experiment>/figures/`, with "
+        "paper-ready captions in `output/CAPTIONS.md`.\n\n"
         "Re-running one notebook rewrites only its own section.\n\n"
         "<!-- This file is generated; edit the notebooks, not this file. -->\n"
     )
@@ -464,14 +464,14 @@ def presummarize_experiments(py: Path, targets: Sequence[Path], *,
     pass ran (even if some experiment failed -- failures are reported loudly and
     the kernels' missing-CSV fallback still applies).
     """
-    root = results_root()
+    root = analysis_results_root()
     todo = [exp for exp in _experiments_of(targets)
-            if (root / exp).is_dir() and next((root / exp).rglob("*.json"), None) is not None]
+            if experiment_results_dir(root, exp).is_dir() and next(experiment_results_dir(root, exp).glob("*/*/*.json"), None) is not None]
     if not todo:
         return False
     code = ("import sys; from src.utils.result_summary import summarize_to_csv; "
-            "from src.utils.paths import results_root; base = results_root(); "
-            "summarize_to_csv(base=base, experiment=sys.argv[1], out_dir=base / 'summaries')")
+            "from src.utils.paths import analysis_results_root, summary_dir; base = analysis_results_root(); "
+            "summarize_to_csv(base=base, experiment=sys.argv[1], out_dir=summary_dir(sys.argv[1]))")
 
     def _one(exp: str) -> None:
         subprocess.run([str(py), "-c", code, exp], check=True, cwd=str(PROJECT_ROOT),
@@ -528,10 +528,12 @@ def _process_notebook(nb_path: Path, *, py: Optional[Path], do_clear: bool,
     # result is copied back below, so a pre-clear would be a second write for no
     # observable difference.
     destination = nb_path
-    result_dir = results_root()
-    if (result_dir / "revision_sources.json").is_file():
-        destination = result_dir / "notebooks" / nb_path.name
-        destination.parent.mkdir(exist_ok=True)
+    evidence = None
+    if nb_path.parent.resolve() == (PROJECT_ROOT / "notebooks").resolve():
+        experiment = nb_path.stem.split(".")[0].lower()
+        destination = figure_root(PROJECT_ROOT) / experiment / "notebooks" / nb_path.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        evidence = figure_root(PROJECT_ROOT) / experiment / "figures" / nb_path.stem
     if do_clear and not do_execute:
         if destination != nb_path and not destination.exists():
             shutil.copy2(nb_path, destination)
@@ -556,10 +558,26 @@ def _process_notebook(nb_path: Path, *, py: Optional[Path], do_clear: bool,
             steps.append(f"{len(body):,} chars")
         elif do_md:
             steps.append("not collected")
+        if do_execute and evidence is not None:
+            evidence.mkdir(parents=True, exist_ok=True)
+            executed = json.loads(read_notebook_text(source))
+            final = next((cell for cell in reversed(executed["cells"]) if cell.get("cell_type") == "code"
+                          and harvest_stdout({"cells": [cell]})), None)
+            (evidence / "_stdout.txt").write_text(harvest_stdout({"cells": [final]}) if final else "", encoding="utf8")
+            errors = [out for cell in executed["cells"] for out in cell.get("outputs", []) if out.get("output_type") == "error"]
+            if errors:
+                (evidence / "_failure.txt").write_text(str(errors[0].get("evalue")), encoding="utf8")
+            else:
+                (evidence / "_failure.txt").unlink(missing_ok=True)
         if do_execute:
             # The ONE write the sync client sees for this notebook, and it is an
             # atomic replace rather than a truncate-then-fill.
             write_notebook_text(destination, read_notebook_text(source))
+    except Exception as exc:
+        if do_execute and evidence is not None:
+            evidence.mkdir(parents=True, exist_ok=True)
+            (evidence / "_failure.txt").write_text(str(exc), encoding="utf8")
+        raise
     finally:
         if tmp_dir is not None:
             shutil.rmtree(tmp_dir.name, ignore_errors=True)
@@ -728,7 +746,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="stream raw nbconvert/kernel output live (default: quiet, shown only on failure; implies -j 1)")
     ap.add_argument("--no-captions", action="store_true",
-                    help="don't regenerate figures/CAPTIONS.md after running")
+                    help="don't regenerate output/CAPTIONS.md after running")
     ap.add_argument("--venv", type=Path, default=DEFAULT_VENV,
                     help=f"project venv whose kernel runs the notebooks (default: {DEFAULT_VENV})")
     ap.add_argument("--python", type=Path, default=None,
@@ -751,7 +769,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     do_clear = not (args.md_only or args.no_clear)
     do_execute = not (args.md_only or args.clear_only)
     do_md = not (args.no_md or args.clear_only)
-    md_path = args.results_md or (results_root() / RESULTS_MD_NAME)
+    md_path = args.results_md or (figure_root(PROJECT_ROOT) / RESULTS_MD_NAME)
 
     py: Optional[Path] = None
     if do_execute:

@@ -5,31 +5,12 @@
 #
 #   pip install -e ".[local]"   # CPU PyTorch + faiss-cpu + dev tools
 #   pip install -e ".[hpc]"     # PyTorch + annoy + dev tools inside a VSC image
-# VSC runtime preparation and legacy compatibility: docs/VSC.md.
+# VSC runtime preparation and legacy compatibility: VSC_RUN.md.
 # The historical paper environment is recorded in config/vsc/runtime.json.
 #
 # Python 3.10 - 3.12 supported, 3.12 recommended.
 #
-# TALENT is a normal dependency now
-# ---------------------------------
-# TALENT (our core framework) is pulled in directly from our fork below:
-#
-#     TALENT @ git+https://github.com/andreasgoethals/TALENT@9fe7d9c2007183d36cbf60388d52f509635d7346
-#
-# Historically TALENT pinned all its deps to EXACT versions (e.g.
-# requests==2.31.0) that clashed with the foundation models (tabpfn needs
-# requests>=2.32.5), so we had to install it with ``--no-deps`` in a second
-# step. The fork now uses LOWER BOUNDS (>=) instead, so those conflicts are
-# gone and pip can resolve everything in a single pass. No more two-step
-# install, no more install.{sh,ps1} helpers.
-#
-# Version pins
-# ------------
-# Existing LOWER BOUNDS (>=) are retained unchanged. Preserve an installed
-# paper runtime before any new resolution or image migration. ``requests`` is
-# floored at tabpfn's requirement (>=2.32.5), which now coexists happily with
-# TALENT's requests>=2.31.0. The one HARD cap kept is click<8.2 (see below).
-# ============================================================================
+# Use the pinned TALENT fork for revision runs. The paper runtime has its own lock.
 
 [build-system]
 requires = ["hatchling"]
@@ -228,6 +209,7 @@ tabfm = [
 [project.urls]
 Homepage = "https://github.com/andreasgoethals/TabPFNCredit"
 Issues = "https://github.com/andreasgoethals/TabPFNCredit/issues"
+Documentation = "https://github.com/andreasgoethals/TabPFNCredit/blob/main/README.md"
 
 [project.scripts]
 tabpfncredit = "src.utils.cli:app"
