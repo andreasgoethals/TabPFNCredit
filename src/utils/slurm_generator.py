@@ -783,7 +783,10 @@ def generate_scripts_for_experiment(
         for band, slots in sorted(batches.items()):
             batch_items = [item for slot in slots for item in slot]
             longest = max(sum(int(item.get("est_seconds", 0)) for item in slot) for slot in slots)
-            walltime = _format_walltime(min(max(longest, 600), hard_cap))
+            # The revision GPU pilot includes model startup and two tuning trials per fold.
+            gpu_preflight = revision and experiment.lower() == "experiment0" and partition_key != "cpu"
+            minimum_seconds = 2400 if gpu_preflight else 600
+            walltime = _format_walltime(min(max(longest, minimum_seconds), hard_cap))
             suffix = f"{filename_suffix}_{band}h" if len(batches) > 1 else filename_suffix
             # 4) Persist the per-slot point plan as a JSON sibling so slurm-task
             #    knows what to run.

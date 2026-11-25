@@ -96,6 +96,9 @@ The preflight uses both tasks, all their enabled Experiment 1 methods, two folds
 and up to 256 rows per dataset. Each dataset/method gets its own array slot when
 the slot budget allows. The HPO and untuned points stay together. Remove
 `--no-submit` to run the pilot and check publication receipts and missing points.
+The GPU preflight requests at least 40 minutes. The first H100 T2G-Former slot
+exhausted the original ten-minute request during the PD test. CPU preflight
+jobs retain the ten-minute minimum, and completed jobs release resources early.
 
 Set `TABPFN_WICE_GPU_POOL=1` for jobs that fit either a full A100 or H100.
 Slurm can schedule the same job on either partition. The common request uses
