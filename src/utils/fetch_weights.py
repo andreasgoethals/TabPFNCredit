@@ -229,7 +229,8 @@ def _hf_download(file: HFFile, *, dest: str, checkpoints: Path, token: Optional[
     if dest == "hub":
         # No local_dir -> lands in the HF hub cache (HF_HOME/hub). The models
         # read it back with local_files_only=True on the offline cluster.
-        path = hf_hub_download(repo_id=file.repo_id, filename=file.filename, token=token)
+        path = hf_hub_download(repo_id=file.repo_id, filename=file.filename, token=token,
+                               cache_dir=str(checkpoints / "huggingface" / "hub"))
     elif dest == "tabpfn":
         # TabPFN expects <TABPFN_MODEL_CACHE_DIR>/<filename> directly.
         path = hf_hub_download(repo_id=file.repo_id, filename=file.filename,
