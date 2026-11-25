@@ -334,9 +334,9 @@ def _build_talent_args(
     # A method uses one processor throughout the benchmark, including its HPO trials.
     gpu_method = get_profile(method).prefers_gpu
     cuda_available = _HAS_TORCH and torch.cuda.is_available()
-    overrides["gpu"] = "0" if gpu_method and cuda_available else "cpu"
-    if not gpu_method:
-        overrides["device"] = "cpu"
+    use_cuda = gpu_method and cuda_available
+    overrides["gpu"] = "0" if use_cuda else "cpu"
+    overrides["device"] = "cuda:0" if use_cuda else "cpu"
 
     if spec.architecture.value == "deep":
         overrides.setdefault("max_epoch", max_epoch)
@@ -396,7 +396,7 @@ def _build_talent_args(
     # It does NOT cap the test half, and that half is what decides whether a run
     # survives: at a 10k context, splits of 106k x 35, 61k x 120 and 32k x 500
     # features each ran 17-27 GiB short, while every split of <= 30k rows
-    # completed. It is handled by ``src.methods.tabfm_chunked``, which scores the
+    # completed. TALENT (or the paper runtime's compatibility wrapper) scores the
     # split in one pass by default and halves the chunk on CUDA OOM. Set
     # ``general.predict_chunk_size`` to force a chunk size up front and skip the
     # probe. Do NOT raise ``batch_size`` on the big datasets.

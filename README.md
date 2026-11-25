@@ -133,9 +133,7 @@ validated deployment; it is not a preview or a runtime installer.
 | `hpc` | Cluster runtime preparation | PyTorch + annoy + dev tools; resolve and record exact versions/CUDA compatibility when building the approved PROJECT image. |
 
 A single `pip install -e ".[local]"` (or `".[hpc]"`) installs the project,
-TALENT, and all dependencies. Method-specific optional extras (currently
-only `tabfm`; needs Python ≥ 3.11) are listed in `pyproject.toml` and
-install the same way, e.g. `pip install -e ".[local,tabfm]"`. The build
+TALENT, and all dependencies. For DNNR on a workstation, install `pip install -e ".[local,dnnr]"` to include its Annoy index. The HPC profile already includes Annoy. For TabFM, use `pip install -e ".[local,tabfm]"` with Python 3.11 or newer. The build
 backend is
 [hatchling](https://hatch.pypa.io/latest/), so no `*.egg-info/` is dropped
 into the source tree.

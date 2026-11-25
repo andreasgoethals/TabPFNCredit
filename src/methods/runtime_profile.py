@@ -2,7 +2,7 @@
 
 Why this exists
 ---------------
-The 55 TALENT methods span a huge runtime spectrum. A dummy classifier
+The TALENT methods span a huge runtime spectrum. A dummy classifier
 needs ~1 second per fold; an HPO sweep of GRANDE or TROMPT can need
 hours. Submitting one SLURM array task per (dataset, method) treats them
 all the same -- which wastes scheduler overhead for the cheap methods

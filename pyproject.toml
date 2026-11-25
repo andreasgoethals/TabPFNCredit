@@ -206,6 +206,9 @@ hpc = [
     "mypy>=1.10,<2",
 ]
 
+# DNNR uses Annoy for its default nearest-neighbour index.
+dnnr = ["annoy>=1.17,<2"]
+
 # TabFM profile add-on -- Google Research's TabFM foundation model (2026).
 # NOT part of the core dependencies on purpose:
 #   * `tabfm` requires Python >= 3.11 (the core project still supports 3.10);

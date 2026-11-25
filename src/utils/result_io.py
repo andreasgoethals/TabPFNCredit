@@ -21,10 +21,9 @@ Use :func:`build_method_name` to construct the right suffix.
 
 Rationale
 ---------
-Each SLURM array task writes ONE pair of files for its slot. No two
-array slots ever touch the same file, so file locks are not required
-for the result writes -- a major simplification over the old monolithic
-per-dataset pickle.
+Each method publishes a JSON record and, when available, a prediction archive.
+Concurrent writers serialize the final replacements for each result. The JSON
+record marks completion after predictions have been published.
 
 Public API
 ----------
@@ -179,7 +178,7 @@ def scan_results(base: Path) -> Iterator[Tuple[str, str, str, str, Dict[str, Any
     for json_path in base.rglob("*.json"):
         # Path: results/<experiment>/<task>/<dataset>/<method>.json
         parts = json_path.relative_to(base).parts
-        if len(parts) != 4:
+        if len(parts) != 4 or parts[0] == ".revision":
             continue  # not our layout (e.g. summaries/)
         experiment, task, dataset, method_file = parts
         method = method_file[:-5]  # strip .json
