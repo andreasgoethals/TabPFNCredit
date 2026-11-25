@@ -69,7 +69,7 @@ and the revision TALENT pin in `pyproject.toml` are not a paper lockfile.
 ## Revision runtime
 
 Use the leading `--revision` option for the TALENT fork pinned in the project.
-[revision-runtime.json](../config/vsc/revision-runtime.json) identifies the base image and fork wheel.
+[revision-runtime.json](../config/vsc/revision-runtime.json) records the SHA-256 hashes of the paper image, fork wheel and deployed revision image.
 The existing launcher without this option retains the historical image and
 result paths. The revision uses `runtimes/tabpfncredit-talent-9fe7d9c.sif`
 and writes to `revision-9fe7d9c/results` on PROJECT by default. Its planning
@@ -80,6 +80,15 @@ archived for this revision.
 bash scripts/vsc.sh --revision list --show-profile
 bash scripts/vsc.sh --revision experiment Experiment1 --task pd --dataset 0008.german --method LogReg --no-submit
 ```
+
+VSC build job `62886778` produced the revision image from the paper image.
+CPU job `62887627` exercised a two-trial logistic regression search, an untuned
+linear regression, mixed-result loading and the Experiment 1 planning command.
+GPU job `62887716` fitted FT-Transformer on an A100 MIG allocation and confirmed
+that the two linear models still used CPU there. Job `62888096` supplied
+conflicting device overrides and verified the resulting model states on the
+same type of node. MLP and the linear models used CPU, and FT-Transformer used
+CUDA. All three checks used synthetic data.
 
 ## Configuration and compatibility
 
