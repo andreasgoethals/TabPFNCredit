@@ -159,7 +159,10 @@ def _build_specs() -> List[ModelSpec]:
         # ---- TabPFN family (-> checkpoints/tabpfn, via TABPFN_MODEL_CACHE_DIR) ----
         ModelSpec("tabpfn_v2", ("tabpfn_v2", "tabpfn_real"), "tabpfn",
                   tuple(tabpfn_files["tabpfn_v2"]),
-                  note="TabPFN v2 (also serves tabpfn_real's finetuned clf ckpt)"),
+                  note="TabPFN v2 flat model cache"),
+        ModelSpec("tabpfn_real", ("tabpfn_real",), "hub",
+                  (HFFile("Prior-Labs/TabPFN-v2-clf", "tabpfn-v2-classifier-finetuned-zk73skhh.ckpt"),),
+                  note="Real-TabPFN resolves the finetuned classifier through the Hub cache"),
         ModelSpec("tabpfn_v2_5", ("tabpfn_v2_5",), "tabpfn",
                   tuple(tabpfn_files["tabpfn_v2_5"]), note="TabPFN v2.5"),
         ModelSpec("tabpfn_v3", ("tabpfn_v3",), "tabpfn",

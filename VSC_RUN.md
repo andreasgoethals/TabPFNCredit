@@ -99,6 +99,9 @@ the slot budget allows. The HPO and untuned points stay together. Remove
 The GPU preflight requests at least 40 minutes. The first H100 T2G-Former slot
 exhausted the original ten-minute request during the PD test. CPU preflight
 jobs retain the ten-minute minimum, and completed jobs release resources early.
+Real-TabPFN reads its finetuned classifier from the Hugging Face Hub cache.
+Stage it with `python -m src.utils.fetch_weights --only tabpfn_real` on a
+connected workstation before copying the checkpoint tree to PROJECT.
 
 Set `TABPFN_WICE_GPU_POOL=1` for jobs that fit either a full A100 or H100.
 Slurm can schedule the same job on either partition. The common request uses
