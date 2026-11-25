@@ -374,7 +374,7 @@ def _sbatch_header(
         mem_mb = int(spec.mem_per_gpu_mb * cpus / spec.cpus_per_gpu)
 
     lines = [
-        f"#SBATCH --job-name={job_name}",
+        f"#SBATCH --job-name=tabpfncredit_{job_name}",
         f"#SBATCH --clusters={spec.cluster}",
         # Slurm credit account: defaults to the project's account; override for
         # another project with TABPFN_SLURM_ACCOUNT.
