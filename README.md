@@ -255,27 +255,31 @@ so you can recompute either gap yourself.
 ### Dataset display names and paper ordering
 
 On disk a dataset is a slug like `0001.gmsc`; that slug is the join key
-for every result file, cached prediction and figure path, and it is **never
-renamed**. What a *reader* sees comes from
-`src/data/dataset_registry.py` (gitignored -- see below), the single
-source of truth for three things:
+for existing result files, cached predictions and figure paths. Plots and tables
+get their display metadata from `src/data/dataset_names.py`, backed by the
+gitignored registry for proprietary datasets.
 
-- **Display names** — proprietary datasets are anonymised (`PropPD1`, `PropPD2`,
-  `PropLGD1`…`PropLGD5`); public ones use their real names.
-- **Paper IDs** — `PD1..PD14` / `LGD1..LGD7`.
+- **Display names** — public datasets use their actual names. Proprietary LGD
+  datasets use `PropLGD1` through `PropLGD5`.
+- **Paper IDs** — `PD1..PD14` and `LGD1..LGD7` retain their original assignments.
 - **Ordering** — every dataset axis, legend, table and caption is sorted by
   `(is_proprietary, display_name)`, i.e. public datasets first in alphabetical
   order, then the proprietary ones. Sorting by slug (the old numbering) is a bug.
 
-No display name may be hard-coded anywhere else. Plotting code calls
-`display_name()` / `sort_key()`, and a proprietary dataset's per-dataset figures
-are named only by its display name (e.g. `pd_row_limit_proppd1_auc.pdf`), so the
-real slug never reaches a figure path, a caption `\label`, or the notebook
-output that records where a figure was written. Print the current
-old → new mapping with:
+The two former PD aliases refer to public Kaggle datasets:
+
+| Archived label | Paper ID | Public dataset | Source file | Rows |
+| --- | --- | --- | --- | ---: |
+| `PropPD1` | `PD13` | [Bank Loan Status Dataset](https://www.kaggle.com/datasets/zaurbegiev/my-dataset) | `credit_train.csv` | 100,000 |
+| `PropPD2` | `PD14` | [Loan Default Prediction - Imperial College London](https://www.kaggle.com/competitions/loan-default-prediction) | `train_v2.csv` | 105,471 |
+
+The archived aliases still resolve to the same dataset files. Plotting code
+calls `display_name()` and `sort_key()`. Figures for proprietary datasets use
+their anonymised labels in filenames and captions. Print the effective mapping
+with:
 
 ```bash
-python -m src.data.dataset_registry
+python -m src.data.dataset_names
 ```
 
 ### LGD targets are clipped to `[0, 1]`

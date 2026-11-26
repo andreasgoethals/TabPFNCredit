@@ -2,10 +2,10 @@
 
 These encode the renaming spec's verification section as fail-loud checks:
 
-1. 14 PD + 7 LGD entries; new IDs ``PD1..PD14`` / ``LGD1..LGD7``, no gaps/dupes.
+1. 14 PD + 7 LGD entries; IDs ``PD1..PD14`` / ``LGD1..LGD7``, no gaps/dupes.
 2. Every slug in the results/processed directory appears exactly once in the
    registry, and vice versa.
-3. Sorting by ``(is_proprietary, display_name)`` reproduces the new-ID order.
+3. Public datasets sort alphabetically and proprietary datasets follow them.
 4. No real proprietary dataset name survives in code that renders paper output.
 5. The mapping table is printable for eyeball verification.
 
@@ -40,6 +40,7 @@ from src.data.dataset_names import (  # public accessor
     format_mapping_table,
     is_proprietary,
     paper_id,
+    registry,
     sort_datasets,
     sort_key,
     validate_registry,
@@ -54,10 +55,7 @@ pytestmark = pytest.mark.skipif(
     reason="src/data/dataset_registry.py absent (private, gitignored)",
 )
 
-if REGISTRY_AVAILABLE:
-    from src.data.dataset_registry import REGISTRY
-else:  # pragma: no cover
-    REGISTRY = {}
+REGISTRY = registry()
 
 
 # ---------------------------------------------------------------------------
@@ -88,12 +86,13 @@ class TestRegistryInvariants:
         assert {e.new_id for e in entries_for_task("pd")} == {f"PD{i}" for i in range(1, 15)}
         assert {e.new_id for e in entries_for_task("lgd")} == {f"LGD{i}" for i in range(1, 8)}
 
-    def test_sort_reproduces_new_id_order(self):
-        for task, prefix in (("pd", "PD"), ("lgd", "LGD")):
-            entries = entries_for_task(task)      # already in sort_key order
-            assert [e.new_id for e in entries] == [
-                f"{prefix}{i}" for i in range(1, len(entries) + 1)
-            ]
+    def test_public_pd_names_preserve_the_archived_ids(self):
+        for former, identifier in (("PropPD1", "PD13"), ("PropPD2", "PD14")):
+            slug = canonical_slug(identifier)
+            assert canonical_slug(former) == slug
+            assert paper_id(former) == identifier
+            assert display_name(former) == display_name(slug)
+            assert not is_proprietary(slug)
 
     def test_public_before_proprietary(self):
         for task in ("pd", "lgd"):
@@ -262,11 +261,10 @@ class TestNoHardCodedNames:
         )
 
     def test_display_names_only_defined_in_registry(self):
-        """``PropPD*`` / ``PropLGD*`` literals must exist only in the registry
-        (and in this test's regex), never in plotting/table code."""
+        """Historical aliases belong in the dataset registry and its accessor."""
         offenders = []
         for path in (PROJECT_ROOT / "src").rglob("*.py"):
-            if path.name == "dataset_registry.py":
+            if path.name in {"dataset_registry.py", "dataset_names.py"}:
                 continue
             text = path.read_text(encoding="utf-8")
             if re.search(r"\bProp(PD|LGD)\d", text):
@@ -399,16 +397,10 @@ class TestNothingTrackedLeaksAProprietaryColumnName:
         return cols
 
     def _private_columns(self):
-        from src.data.dataset_registry import REGISTRY, is_proprietary
-
         private, public = set(), set()
-        for slug in REGISTRY:
-            if not isinstance(slug, str):
-                continue
-            task = ("lgd" if (PROJECT_ROOT / "data" / "processed" / "lgd" / slug).exists()
-                    else "pd")
-            cols = self._columns_of(task, slug)
-            (private if is_proprietary(slug) else public).update(cols)
+        for entry in REGISTRY.values():
+            cols = self._columns_of(entry.task, entry.slug)
+            (private if entry.proprietary else public).update(cols)
         public_lower = {c.lower() for c in public}
         return {c for c in private
                 if c.lower() not in public_lower
