@@ -615,7 +615,7 @@ def cmd_experiment(
             f"(task={task}, dataset={dataset}, method={method}).[/red]"
         )
         if name == "Experiment1":
-            console.print("Enable a method for the selected task in scripts/Experiment1/config/CONFIG_METHOD.yaml.")
+            console.print("Enable a method for the selected task in config/experiment1/methods.yaml.")
         raise typer.Exit(code=1)
 
     console.print(

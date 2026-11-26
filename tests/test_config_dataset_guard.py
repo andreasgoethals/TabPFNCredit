@@ -87,7 +87,7 @@ def test_headline_experiments_declare_their_dataset_count(experiment, task, coun
 
     root = Path(__file__).resolve().parents[1]
     cfg = yaml.safe_load(
-        (root / "scripts" / experiment / "config" / "CONFIG_DATA.yaml")
+        (root / "config" / experiment.lower() / "data.yaml")
         .read_text(encoding="utf-8"))
     block = cfg[f"dataset_{task}"]
     assert block.get("expect_datasets") == count, (

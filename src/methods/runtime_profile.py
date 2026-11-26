@@ -161,7 +161,7 @@ _PROFILES: Dict[str, Profile] = {
     # per fold. 6000 s keeps ~2x headroom on that -- a ~11 h request rather than
     # the 25 h the old 14000 asked for. The old number was calibrated against
     # runs that unknowingly refit 15x per fold (TALENT's packaged seed_num=15,
-    # now pinned to 1 in CONFIG_EXPERIMENT.yaml), so it over-requested by ~15x.
+    # now pinned to 1 in training.yaml), so it over-requested by ~15x.
     # Overestimating only costs queue priority: the job exits when done and
     # skip-if-done makes any overrun resumable.
     "tabfm":           Profile(Tier.FOUNDATION, 6000, prefers_gpu=True, needs_foundation_gpu=True),

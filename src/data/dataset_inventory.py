@@ -1,7 +1,7 @@
 """Row-count inventory for the on-disk datasets.
 
 Used by :func:`src.utils.config_reader.load_config` to resolve the
-``min_rows`` shorthand in ``CONFIG_DATA.yaml`` into a concrete list of
+``min_rows`` shorthand in ``data.yaml`` into a concrete list of
 dataset names. Used by the CLI to know which datasets need preprocessing
 before an experiment can run.
 

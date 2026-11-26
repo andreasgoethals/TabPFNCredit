@@ -216,20 +216,20 @@ HyperFast, TabPTM, SAINT, TROMPT, NODE, GrowNet, …) ship toggled off and
 can be enabled per experiment.
 
 Enabling a disabled method needs no special treatment: flip its toggle in
-the experiment's `CONFIG_METHOD.yaml` and re-send the experiment —
+the experiment's `methods.yaml` and re-send the experiment —
 completed (dataset, method) points already have their result file and are
 skipped, so `tabpfncredit resubmit <ExperimentName>` queues only the newly
 enabled method's missing points. Foundation models additionally need their
 weights staged once (`python -m src.utils.fetch_weights --only <method>`;
 see `VSC_RUN.md`); any extra install requirement is noted next to the
-method's toggle in `CONFIG_METHOD.yaml` and in `pyproject.toml`.
+method's toggle in `methods.yaml` and in `pyproject.toml`.
 
 Each method's behaviour (categorical policy, normalisation, GPU/CPU
 placement, in-context row limit, HPO support) comes from TALENT's
 `MethodSpec` registry. The runtime tier in
 `src/methods/runtime_profile.py` drives the partition, wall-time, and
 packing decisions for SLURM. Toggle methods on or off per experiment in
-`scripts/Experiment*/config/CONFIG_METHOD.yaml`.
+`config/experiment*/methods.yaml`.
 
 ### Adjusted Average Precision
 
@@ -291,25 +291,25 @@ records how many predictions were clipped via `n_clipped_below` /
 
 | # | Question it answers | Folds | HPO | Datasets | Methods |
 |---|---|---|---|---|---|
-| **0** | Pilot: does each method run end-to-end? Use the outcomes to curate Experiment 1. | 1 | NO_HPO | All 14 PD + 7 LGD. | All toggled in `CONFIG_METHOD.yaml`. |
-| **1** | Headline benchmark — drives the paper. | 5 | NO_HPO + HPO | All 14 PD + 7 LGD. | **Curated by hand** in `CONFIG_METHOD.yaml`. |
+| **0** | Pilot: does each method run end-to-end? Use the outcomes to curate Experiment 1. | 1 | NO_HPO | All 14 PD + 7 LGD. | All toggled in `methods.yaml`. |
+| **1** | Headline benchmark — drives the paper. | 5 | NO_HPO + HPO | All 14 PD + 7 LGD. | **Curated by hand** in `methods.yaml`. |
 | **2** | Learning-curve sweep: metric vs dataset size (`row_limit` caps the rows **before** the CV split, so train and test shrink together). | 5 | NO_HPO | Auto from `learning_curve.<task>.row_max`: PD ≥ 30 000, LGD ≥ 4 600. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `catboost`, `LogReg` / `LinearRegression`. |
 | **3** | Class-imbalance sweep: minority proportion **0.15 → 0.0025**, step **0.0005**. PD only. | 5 | NO_HPO | PD with ≥ 30 000 rows **and** natural minority rate > `minority_proportion_max`. | `tabpfn_v3`, `tabicl_v2`, `xgboost`, `catboost`, `LogReg`. |
 
 Each experiment is driven by three YAMLs under
-`scripts/Experiment<N>/config/`:
+`config/experiment<N>/`:
 
-- `CONFIG_DATA.yaml` — splits and dataset selection,
-- `CONFIG_METHOD.yaml` — per-task method toggles,
-- `CONFIG_EXPERIMENT.yaml` — training knobs and sweep parameters.
+- `data.yaml` — splits and dataset selection,
+- `methods.yaml` — per-task method toggles,
+- `training.yaml` — training knobs and sweep parameters.
 
-**One model fit per fold.** `seed_num` in `CONFIG_EXPERIMENT.yaml` is the
+**One model fit per fold.** `seed_num` in `training.yaml` is the
 number of model-seed repeats per fold, and it is pinned to `1`. Every metric,
 probability and prediction this repo records comes from a *single* fit
 (TALENT's `RunResult` carries the last repeat's predictions), so repeats above
 1 multiply the compute without changing anything that is reported.
 Comparability across methods rests on the fixed **split** seed in
-`CONFIG_DATA.yaml` — every method sees byte-identical folds — not on the model
+`data.yaml` — every method sees byte-identical folds — not on the model
 seed. This must be set explicitly: left unset, TALENT's own packaged defaults
 supply `seed_num: 15`.
 
@@ -334,20 +334,20 @@ predate a preprocessing change and are stale —
 **Experiment 1's method set is curated by hand.** After Experiment 0
 finishes, inspect
 `output/experiment0/results/summaries/experiment0_per_method.csv` and edit
-`scripts/Experiment1/config/CONFIG_METHOD.yaml` to enable only the methods
+`config/experiment1/methods.yaml` to enable only the methods
 that ran successfully.
 
 **Dataset selection for the sweep experiments is automatic:**
 
 - **Experiment 2** selects every dataset with **≥ `row_max`** rows
-  (`learning_curve.<task>.row_max` in `CONFIG_EXPERIMENT.yaml`). `row_max`
+  (`learning_curve.<task>.row_max` in `training.yaml`). `row_max`
   is also the top of the dataset-size sweep, so the ceiling and the
-  dataset set are a single knob (the `CONFIG_DATA.yaml` dataset blocks are
+  dataset set are a single knob (the `data.yaml` dataset blocks are
   intentionally empty).
 - **Experiment 3** keeps a PD dataset only if it passes **both** filters:
-  (1) `min_rows: N` in its `CONFIG_DATA.yaml` (≥ N rows), and (2) its
+  (1) `min_rows: N` in its `data.yaml` (≥ N rows), and (2) its
   natural minority rate **exceeds** `minority_proportion_max` (from
-  `CONFIG_EXPERIMENT.yaml`). The sweep subsamples the minority class
+  `training.yaml`). The sweep subsamples the minority class
   *down* from that ceiling, so a dataset already more imbalanced than the
   ceiling can't reach the top and is dropped (logged at INFO level).
 
@@ -578,7 +578,7 @@ what is stored on disk.
 
 ### Selective revision runs
 
-New installations use the TALENT fork at commit `eb3e67c`. For a selective refit,
+New installations use the TALENT fork at commit `e0cf84b`. For a selective refit,
 set `TABPFN_REVISION=1` and point `TABPFN_RESULTS_ROOT` and `TABPFN_CACHE_ROOT` to fresh directories, then
 run the existing experiment command with its dataset and method filters. The VSC
 `--revision` profile sets independent result and cache locations automatically.
@@ -603,20 +603,19 @@ choose an operating threshold before evaluating profit on the held-out rows.
 
 ### Run selected methods in Experiment 1
 
-[CONFIG_METHOD.yaml](scripts/Experiment1/config/CONFIG_METHOD.yaml) lists the
-pinned TALENT registry by supported task. Every entry starts disabled. Set
-`true` for the methods you want to run under PD, LGD, or both. Method filters
-restrict that selection further.
+[methods.yaml](config/experiment1/methods.yaml) selects the seven foundation
+models for the PD and LGD revision sweep. The archive already contains the
+complete TabFM comparison. Method filters can narrow the selected slate.
 
 ```bash
-bash scripts/vsc.sh --revision experiment Experiment1 --no-submit
+bash scripts/vsc.sh --tfm-revision experiment Experiment1 --no-submit
 ```
 
 For newer foundation models, use the wICE `--tfm-revision` profile with its
 separate runtime, cache and results directory. See the validated method list in
 [the wICE runbook](VSC_RUN.md#new-foundation-models-in-experiment-1).
 To expand the run later, enable more methods, using the original
-roster in [PAPER_METHODS.yaml](scripts/Experiment1/config/PAPER_METHODS.yaml)
+roster in [paper_methods.yaml](config/experiment1/paper_methods.yaml)
 as a reference for the full paper comparison. Keep the results directory,
 runtime and scientific settings fixed to reuse completed revision results.
 With a different runtime or protocol, start a separate results directory.

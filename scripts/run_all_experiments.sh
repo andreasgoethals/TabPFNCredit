@@ -34,7 +34,7 @@
 #      CSVs are generated manually after the arrays finish.
 #
 # Each experiment's methods come from its own
-# ``scripts/<Experiment>/config/CONFIG_METHOD.yaml`` -- they are NOT
+# ``config/<experiment>/methods.yaml`` -- they are NOT
 # auto-derived from Experiment 0's outcomes. After Experiment 0 finishes,
 # inspect ``<results>/summaries/experiment0_*.csv``. Scientific configuration
 # changes require a separate decision; do not rewrite the paper's method set.

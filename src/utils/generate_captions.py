@@ -27,6 +27,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.methods.method_names import display_name  # noqa: E402
+from src.utils.config_reader import get_config_file  # noqa: E402
 from src.utils.paths import figure_root, PROJECT_ROOT  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,7 @@ def _latex_label(stem: str) -> str:
 #
 # 1. FOLD WORDING. The matrix-view rules write "five-fold means" (the standard
 #    cv_splits: 5 setup). The real fold count is read from the experiment's
-#    CONFIG_DATA.yaml, so the captions can never drift from the configs: a
+#    data.yaml, so the captions can never drift from the configs: a
 #    single-split experiment (Experiment 0's pilot) gets single-split wording,
 #    and any other count replaces the "five".
 # 2. CHAPTER QUALIFIER. The *_stats and *_family chapters share identical
@@ -174,15 +175,14 @@ _SINGLE_SPLIT_REWRITES = {
 
 @lru_cache(maxsize=None)
 def _cv_splits(experiment_dir: str) -> Optional[int]:
-    """``cv_splits`` from ``scripts/<Experiment>/config/CONFIG_DATA.yaml``.
+    """``cv_splits`` from the experiment's data configuration.
 
     ``experiment_dir`` is the figure directory's first component (e.g.
     ``"experiment0"``). Returns ``None`` when no matching config exists
     (foreign figure dirs like ``data_exploration``) -- caption left as-is.
     """
-    path = (PROJECT_ROOT / "scripts" / experiment_dir.capitalize()
-            / "config" / "CONFIG_DATA.yaml")
     try:
+        path = get_config_file(experiment_dir, "data")
         with open(path, encoding="utf-8") as fh:
             return int((yaml.safe_load(fh) or {})["split"]["cv_splits"])
     except Exception:  # noqa: BLE001 -- missing/renamed config: don't touch the caption

@@ -784,6 +784,43 @@ class DataFeeder:
     # MAIN ENTRY POINT
     # =========================================================================
 
+    def _iter_fold_indices(self, y):
+        """Use TALENT's ordered splits, with support for frozen paper runtimes."""
+        labels = y if self.task == "pd" else None
+        try:
+            from TALENT.benchmark import iter_shuffled_fold_indices, shuffled_holdout_indices
+        except ImportError:
+            iter_shuffled_fold_indices = shuffled_holdout_indices = None
+
+        if self.cv_splits == 1 and shuffled_holdout_indices is not None:
+            yield shuffled_holdout_indices(
+                len(y), test_fraction=self.test_size, val_fraction=self.val_size,
+                seed=self.seed, validation_seed=self.seed + 1, stratify=labels,
+            )
+            return
+        if self.cv_splits > 1 and iter_shuffled_fold_indices is not None:
+            yield from iter_shuffled_fold_indices(
+                len(y), cv=self.cv_splits, val_fraction=self.val_size, seed=self.seed,
+                stratify=labels, vary_validation_seed=True,
+            )
+            return
+
+        rows = np.arange(len(y))
+        if self.cv_splits == 1:
+            partitions = [train_test_split(
+                rows, test_size=self.test_size, random_state=self.seed, stratify=labels,
+            )]
+        else:
+            splitter_type = StratifiedKFold if labels is not None else KFold
+            splitter = splitter_type(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
+            partitions = splitter.split(rows, labels)
+        for fold_id, (development, test) in enumerate(partitions, 1):
+            train, val = train_test_split(
+                development, test_size=self.val_size, random_state=self.seed + fold_id,
+                stratify=None if labels is None else labels[development],
+            )
+            yield train, val, test
+
     def prepare(self) -> Dict[int, Tuple[Tuple[dict, dict, dict], Dict]]:
         """
         Load/preprocess dataset, optionally sample, split, and apply post-split preprocessing.
@@ -832,107 +869,11 @@ class DataFeeder:
             )
 
 
-        stratify = self.task == "pd"
         folds: Dict[int, Tuple[Tuple[dict, dict, dict], Dict]] = {}
-
-        # 4️⃣ Decide split strategy
-        if self.cv_splits == 1:
-            # --- single train/val/test split ---
-            idx_all = np.arange(len(y))
-            idx_train_full, idx_test = train_test_split(
-                idx_all,
-                test_size=self.test_size,
-                random_state=self.seed,
-                stratify=y if stratify else None,
-            )
-
-            # Extract TEST data (never subsampled - full size for robust evaluation)
-            Xn_test = N[idx_test] if N is not None else None
-            Xc_test = C[idx_test] if C is not None else None
-            y_test = y[idx_test]
-
-            # Validation split from training data
-            # Use fold-specific seed (fold_id=1 for single split) for reproducibility
-            idx_train_local, idx_val_local = train_test_split(
-                np.arange(len(idx_train_full)),
-                test_size=self.val_size,
-                random_state=self.seed + 1,  # fold_id=1 for single split
-                stratify=y[idx_train_full] if stratify else None,
-            )
-
-            # Map local indices back to global indices
-            idx_train = idx_train_full[idx_train_local]
-            idx_val = idx_train_full[idx_val_local]
-
-            # Extract VALIDATION data (never subsampled - full size for threshold optimization)
-            Xn_val = N[idx_val] if N is not None else None
-            Xc_val = C[idx_val] if C is not None else None
-            y_val = y[idx_val]
-
-            # 5️⃣a Apply train_row_limit to TRAINING indices only (method constraints)
-            # This preserves full test/val sets while respecting method's max training rows
-            if self.train_row_limit is not None:
-                idx_train = self._subsample_training_indices(
-                    train_idx=idx_train,
-                    y_train=y[idx_train],
-                    fold_id=1
-                )
-
-            # Extract TRAINING data (potentially subsampled for method constraints)
-            Xn_train = N[idx_train] if N is not None else None
-            Xc_train = C[idx_train] if C is not None else None
-            y_train = y[idx_train]
-
-            # 5️⃣b Apply post-split preprocessing
-            Xn_train, Xn_val, Xn_test, Xc_train, Xc_val, Xc_test, y_train = \
-                self._apply_post_split_preprocessing(
-                    Xn_train, Xn_val, Xn_test,
-                    Xc_train, Xc_val, Xc_test,
-                    y_train, fold_id=1
-                )
-
-            # Build TALENT dicts
-            N_dict = {"train": Xn_train, "val": Xn_val, "test": Xn_test} if Xn_train is not None else None
-            C_dict = {"train": Xc_train, "val": Xc_val, "test": Xc_test} if Xc_train is not None else None
-            y_dict = {"train": y_train, "val": y_val, "test": y_test}
-
-            info_fold = {
-                "task_type": self.task_type,
-                "n_num_features": Xn_train.shape[1] if Xn_train is not None else 0,
-                "n_cat_features": Xc_train.shape[1] if Xc_train is not None else 0,
-            }
-
-            folds[1] = ((N_dict, C_dict, y_dict), info_fold)
-
-            logger.info(f"Data prepared: {self.dataset} (1 fold)")
-
-            return folds
-
-        # 6️⃣ Cross-validation (KFold/StratifiedKFold)
-        splitter = (
-            StratifiedKFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
-            if stratify
-            else KFold(n_splits=self.cv_splits, shuffle=True, random_state=self.seed)
-        )
-
-        for fold_id, (train_idx_full, test_idx) in enumerate(splitter.split(N if N is not None else C, y), 1):
-            # Extract TEST data (never subsampled - full size for robust evaluation)
+        for fold_id, (idx_train, idx_val, test_idx) in enumerate(self._iter_fold_indices(y), 1):
             Xn_test = N[test_idx] if N is not None else None
             Xc_test = C[test_idx] if C is not None else None
             y_test = y[test_idx]
-
-            # Validation split from training indices
-            # Use fold-specific seed to ensure different validation splits per fold
-            idx_train_local, idx_val_local = train_test_split(
-                np.arange(len(train_idx_full)),
-                test_size=self.val_size,
-                random_state=self.seed + fold_id,  # Fold-specific seed
-                stratify=y[train_idx_full] if stratify else None,
-            )
-
-            # Map local indices back to global indices
-            idx_train = train_idx_full[idx_train_local]
-            idx_val = train_idx_full[idx_val_local]
 
             # Extract VALIDATION data (never subsampled - full size for threshold optimization)
             Xn_val = N[idx_val] if N is not None else None

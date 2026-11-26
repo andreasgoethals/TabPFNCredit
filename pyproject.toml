@@ -53,7 +53,7 @@ classifiers = [
 dependencies = [
     # ---- TALENT framework (our fork; direct git reference) ----
     # Pulled in directly so `pip install -e ".[local|hpc]"` is a single step.
-    "TALENT @ git+https://github.com/andreasgoethals/TALENT@eb3e67c2c44549c761c6951e85106bd9b4f644a3",
+    "TALENT @ git+https://github.com/andreasgoethals/TALENT@e0cf84bc85fa3683eba62f1b6be0ced76dce8012",
 
     # ---- Core scientific stack (TALENT floors) ----
     "numpy>=1.26.4",

@@ -278,9 +278,13 @@ def has_complete_result(
         return False
     try:
         payload = json.loads(json_path.read_text())
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    if not isinstance(payload, dict):
         return False
     folds = payload.get("folds") or {}
+    if not isinstance(folds, dict) or any(not isinstance(fold, dict) for fold in folds.values()):
+        return False
     if not require_predictions:
         return len(folds) >= int(expected_folds)
     if not folds or len(folds) != expected_folds:

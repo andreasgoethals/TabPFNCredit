@@ -104,7 +104,7 @@ class ModelSpec(NamedTuple):
     url_filename: Optional[str] = None
     note: str = ""
     opt_in: bool = False       # fetched ONLY when named via --only (models that
-                               # are toggled off in every CONFIG_METHOD.yaml)
+                               # are toggled off in every methods.yaml)
 
 
 # --- TabPFN default checkpoints --------------------------------------------
@@ -370,7 +370,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             return False
         if args.skip and (names & set(args.skip)):
             return False
-        # Opt-in models (toggled off in every CONFIG_METHOD.yaml) are fetched
+        # Opt-in models (toggled off in every methods.yaml) are fetched
         # only when explicitly named via --only, so the default download set
         # -- and thus the staged checkpoints/ folder -- never silently grows.
         if honor_opt_in and spec.opt_in and not args.only:

@@ -1,4 +1,4 @@
-# Enable the methods to run by changing false to true.
+# Experiment 1 foundation-model revision. Archived TabFM results cover both tasks.
 # PD lists classifiers. LGD lists regressors. Set both entries to run both tasks.
 # PAPER_METHODS.yaml records the original benchmark roster.
 methods:
@@ -7,11 +7,11 @@ methods:
     autoint: false
     bishop: false
     catboost: false
-    causilo: false
+    causilo: true
     danets: false
     dcn2: false
     dummy: false
-    exaone_tabular: false
+    exaone_tabular: true
     excelformer: false
     ftt: false
     grande: false
@@ -19,14 +19,14 @@ methods:
     hyperfast: false
     inpriora: false
     knn: false
-    kumo_tabular: false
+    kumo_tabular: true
     lightgbm: false
     limix: false
     limix_v2: false
-    limix_v2_1016: false
+    limix_v2_1016: true
     LogReg: false
     mitra: false
-    mitra_v2: false
+    mitra_v2: true
     mlp: false
     mlp_plr: false
     modernNCA: false
@@ -53,7 +53,7 @@ methods:
     tabfm: false
     tabicl: false
     tabicl_v2: false
-    tabldm: false
+    tabldm: true
     tabm: false
     tabnet: false
     tabpfn: false
@@ -61,7 +61,7 @@ methods:
     tabpfn_v2: false
     tabpfn_v2_5: false
     tabpfn_v3: false
-    tabpfn_v3_5: false
+    tabpfn_v3_5: true
     tabptm: false
     tabr: false
     tabtransformer: false
@@ -76,26 +76,26 @@ methods:
     autoint: false
     bishop: false
     catboost: false
-    causilo: false
+    causilo: true
     danets: false
     dcn2: false
     dnnr: false
     dummy: false
-    exaone_tabular: false
+    exaone_tabular: true
     excelformer: false
     ftt: false
     grande: false
     grownet: false
     inpriora: false
     knn: false
-    kumo_tabular: false
+    kumo_tabular: true
     lightgbm: false
     limix: false
     limix_v2: false
-    limix_v2_1016: false
+    limix_v2_1016: true
     LinearRegression: false
     mitra: false
-    mitra_v2: false
+    mitra_v2: true
     mlp: false
     mlp_plr: false
     modernNCA: false
@@ -117,13 +117,13 @@ methods:
     tabdpt_v1_3: false
     tabfm: false
     tabicl_v2: false
-    tabldm: false
+    tabldm: true
     tabm: false
     tabnet: false
     tabpfn_v2: false
     tabpfn_v2_5: false
     tabpfn_v3: false
-    tabpfn_v3_5: false
+    tabpfn_v3_5: true
     tabptm: false
     tabr: false
     tabtransformer: false

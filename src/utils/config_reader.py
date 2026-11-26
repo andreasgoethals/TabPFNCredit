@@ -4,12 +4,12 @@ Unified YAML configuration loader for TabPFNCredit experiments.
 
 Each experiment under ``scripts/ExperimentN/config/`` ships three YAML files:
 
-* ``CONFIG_DATA.yaml``       -- split settings, dataset toggles, paths.
-* ``CONFIG_METHOD.yaml``     -- per-task method enable/disable.
-* ``CONFIG_EXPERIMENT.yaml`` -- training / HPO parameters.
+* ``data.yaml``       -- split settings, dataset toggles, paths.
+* ``methods.yaml``     -- per-task method enable/disable.
+* ``training.yaml`` -- training / HPO parameters.
 
 Experiment 2 (learning curve) and Experiment 3 (class imbalance) additionally
-define their own extra-section schema inside ``CONFIG_EXPERIMENT.yaml``. A
+define their own extra-section schema inside ``training.yaml``. A
 single factory driven by an ``ExperimentSpec`` dataclass loads all of them, so
 adding Experiment 4 is a two-line change.
 """
@@ -35,14 +35,14 @@ class ExperimentSpec:
         name: Experiment identifier (directory name, e.g. ``"Experiment2"``).
         extra_section: Optional key under which extra parameters are stored in
             the final config dict (``"learning_curve"``, ``"imbalance"``, ...).
-        extra_params: List of keys in ``CONFIG_EXPERIMENT.yaml`` that must
+        extra_params: List of keys in ``training.yaml`` that must
             exist under the extra section. All required; missing keys raise
             ``ValueError``.
         validator: Optional function called with the extra-section dict that
             raises ``ValueError`` on invalid parameter relationships.
         datasets_from_row_max: When True, the dataset selection is derived
             from ``<extra_section>.<task>.row_max`` (datasets with at least
-            that many rows) instead of from ``CONFIG_DATA``'s dataset blocks.
+            that many rows) instead of from ``data.yaml``'s dataset blocks.
             Used by Experiment 2 so the learning-curve ceiling (row_max) and
             the dataset inclusion threshold are a single knob that can't
             drift apart.
@@ -150,7 +150,7 @@ _EXPERIMENT_REGISTRY: Dict[str, ExperimentSpec] = {
         extra_params=[],
         validator=_validate_learning_curve,
         # Datasets are chosen by learning_curve.<task>.row_max (a dataset is
-        # included iff it has >= row_max rows). CONFIG_DATA's dataset blocks
+        # included iff it has >= row_max rows). data.yaml's dataset blocks
         # are intentionally empty for Experiment 2.
         datasets_from_row_max=True,
     ),
@@ -163,7 +163,7 @@ _EXPERIMENT_REGISTRY: Dict[str, ExperimentSpec] = {
             "minority_proportion_step",
         ],
         validator=_validate_imbalance,
-        # Beyond the min_rows filter in CONFIG_DATA, keep only PD datasets
+        # Beyond the min_rows filter in data.yaml, keep only PD datasets
         # whose natural minority proportion exceeds minority_proportion_max
         # (otherwise the sweep can't start at the top).
         filter_by_minority_max=True,
@@ -178,13 +178,32 @@ _EXPERIMENT_REGISTRY: Dict[str, ExperimentSpec] = {
 def get_config_dir(experiment_name: str) -> Path:
     """Return the config directory for an experiment, or raise FileNotFoundError."""
     project_root = Path(__file__).resolve().parent.parent.parent
-    config_dir = project_root / "scripts" / experiment_name / "config"
-    if not config_dir.exists():
-        raise FileNotFoundError(
-            f"Config directory not found for experiment '{experiment_name}'.\n"
-            f"Expected location: {config_dir}"
-        )
-    return config_dir
+    config_dir = project_root / "config" / experiment_name.lower()
+    if config_dir.is_dir():
+        return config_dir
+    legacy_dir = project_root / "scripts" / experiment_name.capitalize() / "config"
+    if legacy_dir.is_dir():
+        return legacy_dir
+    raise FileNotFoundError(f"Config directory not found for {experiment_name!r}: {config_dir}")
+
+
+_LEGACY_CONFIG_NAMES = {
+    "data": "CONFIG_DATA.yaml",
+    "methods": "CONFIG_METHOD.yaml",
+    "training": "CONFIG_EXPERIMENT.yaml",
+    "paper_methods": "PAPER_METHODS.yaml",
+}
+
+
+def _experiment_file(directory: Path, kind: str) -> Path:
+    path = directory / f"{kind}.yaml"
+    legacy = directory / _LEGACY_CONFIG_NAMES[kind]
+    return legacy if not path.is_file() and legacy.is_file() else path
+
+
+def get_config_file(experiment_name: str, kind: str) -> Path:
+    """Resolve the canonical YAML file, including historical checkout paths."""
+    return _experiment_file(get_config_dir(experiment_name), kind)
 
 
 # --------------------------------------------------------------------------- #
@@ -329,13 +348,13 @@ def load_config(experiment_name: str, *, paper_methods: bool = False) -> Dict[st
     config_dir = get_config_dir(experiment_name)
 
     try:
-        data_config = _read_yaml(config_dir / "CONFIG_DATA.yaml")
+        data_config = _read_yaml(_experiment_file(config_dir, "data"))
         if experiment_name == "Experiment1" and paper_methods:
-            roster = _read_yaml(config_dir / "PAPER_METHODS.yaml")
+            roster = _read_yaml(_experiment_file(config_dir, "paper_methods"))
             method_config = {"methods": {task: dict.fromkeys(names, True) for task, names in roster.items()}}
         else:
-            method_config = _read_yaml(config_dir / "CONFIG_METHOD.yaml")
-        experiment_config = _read_yaml(config_dir / "CONFIG_EXPERIMENT.yaml")
+            method_config = _read_yaml(_experiment_file(config_dir, "methods"))
+        experiment_config = _read_yaml(_experiment_file(config_dir, "training"))
     except FileNotFoundError as exc:
         raise FileNotFoundError(
             f"Missing required YAML config file in {config_dir}.\nError: {exc}"
@@ -363,7 +382,7 @@ def load_config(experiment_name: str, *, paper_methods: bool = False) -> Dict[st
             for param in spec.extra_params:
                 if param not in experiment_config:
                     raise ValueError(
-                        f"Missing required parameter '{param}' in CONFIG_EXPERIMENT.yaml "
+                        f"Missing required parameter '{param}' in training.yaml "
                         f"for {spec.name}"
                     )
             extras = {p: experiment_config[p] for p in spec.extra_params}
@@ -375,7 +394,7 @@ def load_config(experiment_name: str, *, paper_methods: bool = False) -> Dict[st
     # learning-curve ceiling (row_max). A dataset is included iff it has at
     # least row_max rows -- otherwise the curve could never reach the top of
     # the sweep for that dataset. This keeps the sweep ceiling and the
-    # dataset filter as ONE knob (CONFIG_DATA's dataset blocks are empty).
+    # dataset filter as ONE knob (data.yaml's dataset blocks are empty).
     if spec.datasets_from_row_max and spec.extra_section:
         from src.data.dataset_inventory import datasets_with_min_rows
         sweep = config.get(spec.extra_section, {})

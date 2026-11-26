@@ -77,15 +77,13 @@ archived for this revision.
 
 ```bash
 bash scripts/vsc.sh --revision list --show-profile
-# First enable the desired methods in scripts/Experiment1/config/CONFIG_METHOD.yaml.
+# First enable the desired methods in config/experiment1/methods.yaml.
 bash scripts/vsc.sh --revision experiment Experiment1 --no-submit
 ```
 
-Experiment 1 starts with every method disabled. Check the selected adapters'
-runtime versions and offline weights before submitting. Expand the same
-revision run later by enabling additional methods with the same runtime and
-scientific settings. The original method roster is in
-[PAPER_METHODS.yaml](scripts/Experiment1/config/PAPER_METHODS.yaml).
+The selected Experiment 1 foundation models use the newer
+`--tfm-revision` profile below. The original method roster is in
+[paper_methods.yaml](config/experiment1/paper_methods.yaml).
 
 VSC build job `62886778` produced the revision image from the paper image.
 CPU job `62887627` exercised a two-trial logistic regression search, an untuned
@@ -98,10 +96,9 @@ CUDA. All three checks used synthetic data.
 
 ## New foundation models in Experiment 1
 
-Use `--tfm-revision` for the models validated in
-[tfm-runtime.json](config/vsc/tfm-runtime.json). Enable the selected methods
-for PD and LGD in `scripts/Experiment1/config/CONFIG_METHOD.yaml`, then preview
-their plans.
+Use `--tfm-revision` for the models in
+[tfm-runtime.json](config/vsc/tfm-runtime.json). The selection for both tasks
+lives in `config/experiment1/methods.yaml`. Preview the plans before submitting.
 
 ```bash
 bash scripts/vsc.sh --tfm-revision experiment Experiment1 --no-submit
