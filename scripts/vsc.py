@@ -13,9 +13,14 @@ import uuid
 
 def main(arguments=None):
     arguments = list(sys.argv[1:] if arguments is None else arguments) or ["--help"]
-    revision = arguments[0] == "--revision"
+    tfm_revision = arguments[0] == "--tfm-revision"
+    revision = arguments[0] == "--revision" or tfm_revision
     if revision:
         arguments = arguments[1:] or ["--help"]
+        if tfm_revision and arguments[0] in ("experiment", "resubmit", "slurm-task") and any(
+            arg.lower().split("=")[-1] == "experiment0" for arg in arguments
+        ):
+            raise SystemExit("Use the original revision profile for Experiment 0")
         if arguments[0] == "resubmit" and "--all" in arguments:
             raise SystemExit("Select Experiment0 or Experiment1 explicitly for revision resubmission")
         if arguments[0] in ("experiment", "resubmit", "slurm-task") and any(
@@ -41,12 +46,14 @@ def main(arguments=None):
     image_name = "tabpfncredit-runtime-20261029-cli-fixed.sif"
     default_results = project / "results"
     if revision:
-        lock = json.loads((repo / "config/vsc/revision-runtime.json").read_text())
+        lock_name = "tfm-runtime.json" if tfm_revision else "revision-runtime.json"
+        lock = json.loads((repo / "config/vsc" / lock_name).read_text())
         image_name = lock["image"]
-        default_results = project / "output"
+        default_results = project / lock.get("results_dir", "output")
     image = Path(os.environ.get("TABPFN_CONTAINER_IMAGE", project / "runtimes" / image_name)).resolve(strict=True)
     result_dir = Path(os.environ.get("TABPFN_RESULTS_ROOT", default_results)).resolve()
-    if revision and (result_dir == project / "results" or (project / "results").is_relative_to(result_dir)
+    if revision and (result_dir.is_relative_to(project / "archive")
+                     or (project / "results").is_relative_to(result_dir)
                      or result_dir.is_relative_to(project / "results")):
         raise SystemExit("Choose a revision results directory outside archived results")
     if revision and image.name != image_name:
@@ -97,6 +104,17 @@ def main(arguments=None):
     })
     if revision:
         settings["TABPFN_REVISION"] = "1"
+    if tfm_revision:
+        hf_home = (project / lock["hf_home"]).resolve(strict=True)
+        if not hf_home.is_relative_to(project / "checkpoints") or not (hf_home / "hub").is_dir():
+            raise SystemExit("The TFM checkpoint cache must reside on PROJECT")
+        settings.update({
+            "TABPFN_HF_HOME": str(hf_home),
+            "HF_HOME": str(hf_home),
+            "HF_HUB_CACHE": str(hf_home / "hub"),
+            "HUGGINGFACE_HUB_CACHE": str(hf_home / "hub"),
+            "TABPFN_TFM_METHODS": ",".join(lock["validated_methods"]),
+        })
     for name, value in settings.items():
         env[name] = value
         env["APPTAINERENV_" + name] = value

@@ -470,7 +470,7 @@ def _container_settings() -> Optional[dict[str, str]]:
         raise ValueError("TABPFN_CONTAINER_IMAGE must name a versioned immutable .sif image")
     if not settings["TABPFN_CONTAINER_PYTHON"]:
         raise ValueError("TABPFN_CONTAINER_PYTHON cannot be empty")
-    for key in ("VSC_SCRATCH_LUSTRE1", "VSC_PROJECT_LUSTRE1"):
+    for key in ("VSC_SCRATCH_LUSTRE1", "VSC_PROJECT_LUSTRE1", "TABPFN_HF_HOME"):
         if os.environ.get(key):
             settings[key] = os.environ[key].strip()
     return settings
@@ -546,6 +546,11 @@ def _container_prologue(settings: dict[str, str], cluster: str, n_gpus: int) -> 
         CKPT_ROOT="$(readlink -m "$CKPT_ROOT")"
         within "$CKPT_ROOT" "$TABPFN_STAGING_ROOT" || fail "Selected checkpoints must reside on PROJECT; do not change lookup priority"
         export HF_HOME="$CKPT_ROOT/huggingface"
+        if [[ -n "${{TABPFN_HF_HOME:-}}" ]]; then
+            HF_HOME="$(readlink -e "$TABPFN_HF_HOME")"
+            within "$HF_HOME" "$CKPT_ROOT" && [[ -d "$HF_HOME/hub" ]] || fail "TFM cache is outside PROJECT checkpoints or missing its hub"
+        fi
+        export HF_HUB_CACHE="$HF_HOME/hub"
         export HUGGINGFACE_HUB_CACHE="$HF_HOME/hub"
         export TORCH_HOME="$CKPT_ROOT/torch"
         export XDG_CACHE_HOME="$WORKSPACE/xdg"
@@ -572,7 +577,7 @@ def _container_prologue(settings: dict[str, str], cluster: str, n_gpus: int) -> 
             done
             export APPTAINERENV_OMP_MAX_ACTIVE_LEVELS=1
         fi
-        for key in TABPFN_REVISION TABPFN_VSC_PROFILE TABPFN_STAGING_ROOT TABPFN_RESULTS_ROOT TABPFN_CACHE_ROOT TABPFN_CONTAINER_IMAGE VSC_DATA VSC_SCRATCH TMPDIR HF_HOME HUGGINGFACE_HUB_CACHE TORCH_HOME XDG_CACHE_HOME TRITON_CACHE_DIR TORCHINDUCTOR_CACHE_DIR TORCH_EXTENSIONS_DIR PYTHONDONTWRITEBYTECODE TABPFN_MODEL_CACHE_DIR HF_HUB_OFFLINE TRANSFORMERS_OFFLINE PYTHONUNBUFFERED TQDM_DISABLE PYTORCH_CUDA_ALLOC_CONF ${{!SLURM_@}} CUDA_VISIBLE_DEVICES; do
+        for key in TABPFN_REVISION TABPFN_VSC_PROFILE TABPFN_STAGING_ROOT TABPFN_RESULTS_ROOT TABPFN_CACHE_ROOT TABPFN_CONTAINER_IMAGE VSC_DATA VSC_SCRATCH TMPDIR HF_HOME HF_HUB_CACHE HUGGINGFACE_HUB_CACHE TORCH_HOME XDG_CACHE_HOME TRITON_CACHE_DIR TORCHINDUCTOR_CACHE_DIR TORCH_EXTENSIONS_DIR PYTHONDONTWRITEBYTECODE TABPFN_MODEL_CACHE_DIR HF_HUB_OFFLINE TRANSFORMERS_OFFLINE PYTHONUNBUFFERED TQDM_DISABLE PYTORCH_CUDA_ALLOC_CONF ${{!SLURM_@}} CUDA_VISIBLE_DEVICES; do
             if [[ -n "${{!key+x}}" ]]; then export "APPTAINERENV_$key=${{!key}}"; fi
         done
         """)

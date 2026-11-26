@@ -578,7 +578,7 @@ what is stored on disk.
 
 ### Selective revision runs
 
-New installations use the TALENT fork at commit `9fe7d9c`. For a selective refit,
+New installations use the TALENT fork at commit `eb3e67c`. For a selective refit,
 set `TABPFN_REVISION=1` and point `TABPFN_RESULTS_ROOT` and `TABPFN_CACHE_ROOT` to fresh directories, then
 run the existing experiment command with its dataset and method filters. The VSC
 `--revision` profile sets independent result and cache locations automatically.
@@ -612,9 +612,10 @@ restrict that selection further.
 bash scripts/vsc.sh --revision experiment Experiment1 --no-submit
 ```
 
-Check each selected foundation model's backend version and offline checkpoint
-before submitting. Optional adapters may need a newer revision image or extra
-weights. To expand the run later, enable more methods, using the original
+For newer foundation models, use the wICE `--tfm-revision` profile with its
+separate runtime, cache and results directory. See the validated method list in
+[the wICE runbook](VSC_RUN.md#new-foundation-models-in-experiment-1).
+To expand the run later, enable more methods, using the original
 roster in [PAPER_METHODS.yaml](scripts/Experiment1/config/PAPER_METHODS.yaml)
 as a reference for the full paper comparison. Keep the results directory,
 runtime and scientific settings fixed to reuse completed revision results.
@@ -647,6 +648,8 @@ $env:TABPFN_ANALYSIS_ROOT = (Resolve-Path analysis/review-1).Path
 ```
 
 On Linux use `export TABPFN_ANALYSIS_ROOT="$PWD/analysis/review-1"`.
+For runs from `--tfm-revision`, use the results directory from
+[its runtime lock](config/vsc/tfm-runtime.json) as the second argument.
 The snapshot records the chosen source of every result in `revision_sources.json`.
 It keeps JSON and prediction arrays together. For Experiment 1, assembly checks
 fold coverage, ordered held-out targets and prediction lengths. Matching labels alone

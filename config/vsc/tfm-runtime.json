@@ -1,0 +1,12 @@
+{
+  "image": "tabpfncredit-talent-eb3e67c-tfm-compiler.sif",
+  "sha256": "bdd0f26be11afb1e339fdf40ce7b6a9a1b5cb1cf02a7e6d1028f9e40c444260f",
+  "talent_repository": "https://github.com/andreasgoethals/TALENT",
+  "talent_commit": "eb3e67c2c44549c761c6951e85106bd9b4f644a3",
+  "requirements": "tfm-requirements.txt",
+  "requirements_sha256": "fad43bbeaffcde9914990f4c39aec3425d2a9ac8f4269042a956935dd5633a35",
+  "results_dir": "revisions/eb3e67c/output",
+  "hf_home": "checkpoints/huggingface-tfm-eb3e67c",
+  "validation_job": 62907334,
+  "validated_methods": []
+}

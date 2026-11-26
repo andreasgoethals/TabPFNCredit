@@ -166,6 +166,15 @@ def _build_task_list(
     return cells
 
 
+def _check_tfm_runtime_methods(cells: Sequence[dict]) -> None:
+    allowed = os.environ.get("TABPFN_TFM_METHODS")
+    if allowed is None:
+        return
+    unavailable = sorted({cell["method"] for cell in cells} - set(allowed.split(",")))
+    if unavailable:
+        raise typer.BadParameter(f"Methods outside the validated TFM runtime: {', '.join(unavailable)}")
+
+
 # ============================================================================
 #  Preprocessing (auto-trigger if data/processed is missing)
 # ============================================================================
@@ -599,6 +608,7 @@ def cmd_experiment(
     cells = _build_task_list(
         config, task_filter=task, dataset_filter=dataset, method_filter=method,
     )
+    _check_tfm_runtime_methods(cells)
     if not cells:
         console.print(
             f"[red]No cells to run for {name} "
@@ -729,6 +739,7 @@ def cmd_resubmit(
         except Exception as exc:
             console.print(f"[red]scan failed for {exp}: {exc}[/red]")
             raise typer.Exit(code=1) from exc
+        _check_tfm_runtime_methods(items)
         console.print(
             f"expected {summary['expected']}  done {summary['done']}  "
             f"[bold]missing {summary['missing']}[/bold]  "

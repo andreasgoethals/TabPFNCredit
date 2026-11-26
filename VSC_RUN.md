@@ -67,7 +67,7 @@ and the revision TALENT pin in `pyproject.toml` are not a paper lockfile.
 
 ## Revision runtime
 
-Use the leading `--revision` option for the TALENT fork pinned in the project.
+Use the leading `--revision` option for the earlier TALENT revision.
 [revision-runtime.json](config/vsc/revision-runtime.json) records the SHA-256 hashes of the paper image, fork wheel and deployed revision image.
 The existing launcher without this option retains the historical image and
 result paths. The revision uses `runtimes/tabpfncredit-talent-9fe7d9c.sif`
@@ -95,6 +95,24 @@ that the two linear models still used CPU there. Job `62888096` supplied
 conflicting device overrides and verified the resulting model states on the
 same type of node. MLP and the linear models used CPU, and FT-Transformer used
 CUDA. All three checks used synthetic data.
+
+## New foundation models in Experiment 1
+
+Use `--tfm-revision` for the models validated in
+[tfm-runtime.json](config/vsc/tfm-runtime.json). Enable the selected methods
+for PD and LGD in `scripts/Experiment1/config/CONFIG_METHOD.yaml`, then preview
+their plans.
+
+```bash
+bash scripts/vsc.sh --tfm-revision experiment Experiment1 --no-submit
+```
+
+The runtime lock records the image, [installed packages](config/vsc/tfm-requirements.txt),
+and PROJECT results and checkpoint directories. Use that results directory as
+the revision input to the notebook assembly
+command. Keep the same profile and scientific settings when extending the run.
+Use the earlier `--revision` profile for the TabDPT 1.1 backend (`tabdpt`).
+Use `tabdpt_v1_3` with the new profile.
 
 ## Revision preflight on wICE
 
