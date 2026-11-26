@@ -1,12 +1,33 @@
 {
-  "image": "tabpfncredit-talent-eb3e67c-tfm-compiler.sif",
-  "sha256": "bdd0f26be11afb1e339fdf40ce7b6a9a1b5cb1cf02a7e6d1028f9e40c444260f",
+  "image": "tabpfncredit-talent-eb3e67c-tfm-cli.sif",
+  "sha256": "f1c1ca7e245f2a4bd3c712f20d7871b552f1a8a69fcc9396018d48ac149cfb59",
   "talent_repository": "https://github.com/andreasgoethals/TALENT",
   "talent_commit": "eb3e67c2c44549c761c6951e85106bd9b4f644a3",
   "requirements": "tfm-requirements.txt",
-  "requirements_sha256": "fad43bbeaffcde9914990f4c39aec3425d2a9ac8f4269042a956935dd5633a35",
+  "requirements_sha256": "88f9b1114fe13a85b9a686a2ddacaca3f0b38cad7d177cbcbdf237d7c346850f",
   "results_dir": "revisions/eb3e67c/output",
   "hf_home": "checkpoints/huggingface-tfm-eb3e67c",
+  "image_build_job": 62908449,
   "validation_job": 62907334,
-  "validated_methods": []
+  "validation_image_sha256": "bdd0f26be11afb1e339fdf40ce7b6a9a1b5cb1cf02a7e6d1028f9e40c444260f",
+  "validated_methods": [
+    "LinearRegression",
+    "LogReg",
+    "catboost",
+    "causilo",
+    "exaone_tabular",
+    "inpriora",
+    "kumo_tabular",
+    "limix_v2",
+    "limix_v2_1016",
+    "mitra",
+    "mitra_v2",
+    "tabdpt_v1_3",
+    "tabfm",
+    "tabicl_v2",
+    "tabldm",
+    "tabpfn_v3",
+    "tabpfn_v3_5",
+    "xgboost"
+  ]
 }

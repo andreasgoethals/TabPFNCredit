@@ -1,3 +1,4 @@
 # Cluster shell scripts must remain executable after a Windows checkout.
 *.sh text eol=lf
 *.slurm text eol=lf
+config/vsc/tfm-requirements.txt text eol=lf

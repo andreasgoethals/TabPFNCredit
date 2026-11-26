@@ -109,10 +109,16 @@ bash scripts/vsc.sh --tfm-revision experiment Experiment1 --no-submit
 
 The runtime lock records the image, [installed packages](config/vsc/tfm-requirements.txt),
 and PROJECT results and checkpoint directories. Use that results directory as
-the revision input to the notebook assembly
-command. Keep the same profile and scientific settings when extending the run.
+the revision input to the notebook assembly command. Keep the same profile and
+scientific settings when extending the run.
 Use the earlier `--revision` profile for the TabDPT 1.1 backend (`tabdpt`).
 Use `tabdpt_v1_3` with the new profile.
+
+The wICE A100 smoke test uses small synthetic classification and regression
+inputs. It verifies offline checkpoint loading and finite predictions.
+Seldon and Seldon Mini need approval for their Hugging Face checkpoints.
+[Seldon](https://huggingface.co/Neuralk-AI/seldon)
+[Seldon Mini](https://huggingface.co/Neuralk-AI/seldon-mini)
 
 ## Revision preflight on wICE
 

@@ -4,6 +4,7 @@ aiohappyeyeballs==2.6.2
 aiohttp==3.14.0
 aiosignal==1.4.0
 alembic==1.18.4
+annotated-doc==0.0.7
 annotated-types==0.7.0
 annoy==1.17.3
 antlr4-python3-runtime==4.9.3
@@ -265,7 +266,7 @@ traitlets==5.15.1
 transformers==5.17.0
 triton==3.7.1
 typeguard==2.13.3
-typer==0.12.5
+typer==0.26.8
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.2
