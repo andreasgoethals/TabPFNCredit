@@ -51,7 +51,7 @@ _CONSTANT_BASELINES = {"dummy"}
 #  Expected combinations (the source of truth: the experiment's YAML config)
 # ============================================================================
 
-def expected_points(experiment: str) -> Tuple[set, int]:
+def expected_points(experiment: str, *, paper_methods: bool = False) -> Tuple[set, int]:
     """Return ``(expected_combos, cv_splits)`` from the experiment's config.
 
     ``expected_combos`` is a set of ``(task, dataset, name)`` where ``name`` is
@@ -64,7 +64,7 @@ def expected_points(experiment: str) -> Tuple[set, int]:
     from src.utils.cli import _build_task_list, _sweep_points
     from src.utils.config_reader import load_config
 
-    config = load_config(experiment)
+    config = load_config(experiment, paper_methods=paper_methods)
     cv = int((config.get("split") or {}).get("cv_splits", 5))
     exp = experiment.lower()
     expected: set = set()
@@ -243,7 +243,7 @@ def audit_experiment(experiment: str, results_root: Optional[Path | str] = None)
     exp = experiment.lower()
 
     try:
-        expected, cv = expected_points(experiment)
+        expected, cv = expected_points(experiment, paper_methods=base.parent.name == "archive")
     except Exception as exc:  # config missing or datasets not visible
         print(f"[warn] could not compute expected combos for {experiment}: {exc}")
         expected, cv = set(), 5

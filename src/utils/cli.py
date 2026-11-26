@@ -604,6 +604,8 @@ def cmd_experiment(
             f"[red]No cells to run for {name} "
             f"(task={task}, dataset={dataset}, method={method}).[/red]"
         )
+        if name == "Experiment1":
+            console.print("Enable a method for the selected task in scripts/Experiment1/config/CONFIG_METHOD.yaml.")
         raise typer.Exit(code=1)
 
     console.print(
@@ -644,7 +646,7 @@ def cmd_experiment(
         failures = _run_cells_locally(name, cells, config)
         # Local: summarize right away (results are on disk).
         _summarize_now(name)
-        if config.get("preflight") and failures:
+        if failures and os.environ.get("TABPFN_REVISION") == "1":
             raise typer.Exit(code=1)
 
 

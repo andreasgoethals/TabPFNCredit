@@ -210,8 +210,10 @@ def assemble_selected(baseline: Path, revision: Path, output: Path, policy: Path
                     continue
                 folder = experiment_results_dir(staging, exp) / task / dataset
                 folder.mkdir(parents=True, exist_ok=True)
-                if label == "new" and exp == "experiment1" and not {p.name for p in old} <= {p.name for p in files}:
-                    raise ValueError(f"Missing result variants for {exp}/{task}/{dataset}/{method}")
+                if label == "new" and exp == "experiment1":
+                    variants = {f"{method}.json", f"{method}__HPO.json"}
+                    if not variants.union(p.name for p in old) <= {p.name for p in files}:
+                        raise ValueError(f"Missing result variants for {exp}/{task}/{dataset}/{method}")
                 if label == "new" and exp in ("experiment2", "experiment3"):
                     def point_folds(paths):
                         merged = {}

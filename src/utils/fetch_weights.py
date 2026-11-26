@@ -185,9 +185,8 @@ def _build_specs() -> List[ModelSpec]:
                   note="TabDPT (Layer6)"),
 
         # ---- TabFM (-> HF hub cache, via HF_HOME) ----
-        # OPT-IN: toggled off in every CONFIG_METHOD.yaml, so the default fetch
-        # skips it and the staged checkpoints/ stays unchanged. Before flipping
-        # `tabfm: true`, run `python -m src.utils.fetch_weights --only tabfm`
+        # Before enabling TabFM, stage its weights with
+        # `python -m src.utils.fetch_weights --only tabfm`
         # and install the optional package (`pip install -e ".[local,tabfm]"`).
         # The weights carry Google's non-commercial license.
         # NB: tabfm 1.0.0's loader reads ONLY `<model_type>/pytorch_model.bin`

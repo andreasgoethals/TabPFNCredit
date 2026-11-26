@@ -1,147 +1,134 @@
-# ============================================================
-# CONFIG_METHOD.yaml
-# ============================================================
-# This configuration file controls which models are included in the experiments for both PD (classification) and LGD (regression) tasks.
-# - Set each method to true to include it in the benchmark.
-# - Set to false to exclude it.
-# This configuration file uses TALENT's canonical model names.
-# ============================================================
-
+# Enable the methods to run by changing false to true.
+# PD lists classifiers. LGD lists regressors. Set both entries to run both tasks.
+# PAPER_METHODS.yaml records the original benchmark roster.
 methods:
-
-  # ----------------------------------------------------------
-  # Probability of Default (PD) – Classification Methods
-  # ----------------------------------------------------------
   pd:
-    # -----------------------------
-    # Classical Machine Learning
-    # -----------------------------
-    catboost: true        # CatBoost
-    knn: true             # K-Nearest Neighbors
-    lightgbm: true        # LightGBM
-    LogReg: true          # Logistic Regression
-    NaiveBayes: true      # Naive Bayes
-    RandomForest: true    # Random Forest
-    svm: true             # Support Vector Machine
-    xgboost: true         # Extreme Gradient Boosting
-    NCM: true             # Nearest Class Mean
-    dummy: false          # disabled: constant baseline, not part of the benchmark
+    amformer: false
+    autoint: false
+    bishop: false
+    catboost: false
+    causilo: false
+    danets: false
+    dcn2: false
+    dummy: false
+    exaone_tabular: false
+    excelformer: false
+    ftt: false
+    grande: false
+    grownet: false
+    hyperfast: false
+    inpriora: false
+    knn: false
+    kumo_tabular: false
+    lightgbm: false
+    limix: false
+    limix_v2: false
+    limix_v2_1016: false
+    LogReg: false
+    mitra: false
+    mitra_v2: false
+    mlp: false
+    mlp_plr: false
+    modernNCA: false
+    NaiveBayes: false
+    NCM: false
+    node: false
+    protogate: false
+    ptarl: false
+    RandomForest: false
+    realmlp: false
+    resnet: false
+    rfm: false
+    saint: false
+    seldon: false
+    seldon_mini: false
+    snn: false
+    svm: false
+    switchtab: false
+    t2gformer: false
+    tabautopnpnet: false
+    tabcaps: false
+    tabdpt: false
+    tabdpt_v1_3: false
+    tabfm: false
+    tabicl: false
+    tabicl_v2: false
+    tabldm: false
+    tabm: false
+    tabnet: false
+    tabpfn: false
+    tabpfn_real: false
+    tabpfn_v2: false
+    tabpfn_v2_5: false
+    tabpfn_v3: false
+    tabpfn_v3_5: false
+    tabptm: false
+    tabr: false
+    tabtransformer: false
+    tangos: false
+    trc: false
+    trompt: false
+    xgboost: false
+    xrfm: false
 
-    # -----------------------------
-    # Deep / Neural / Transformer-based Methods
-    # -----------------------------
-
-    # 1. Foundation Models & Prior-Data Fitted Networks (PFNs)
-    tabpfn: true          # TabPFN v1 (classification)
-    tabpfn_v2: true       # TabPFN v2 (classification)
-    tabpfn_v2_5: true     # TabPFN v2.5 (PriorLabs Nov 2025; requires `tabpfn>=8.0.0`)
-    tabpfn_v3: true       # TabPFN v3 (PriorLabs 2026; ~1M-row context)
-    tabpfn_real: true     # Real-TabPFN
-    tabicl: true          # TabICL v1
-    tabicl_v2: true       # TabICL v2 (ICML 2026; supports classification + regression)
-    tabdpt: true          # TabDPT (Layer 6 AI; ICL + retrieval)
-    tabfm: true           # TabFM (Google 2026; zero-shot ICL; clf <= 10 classes; needs the `tabfm` pip extra + staged weights)
-    tabptm: false         # TabPTM
-    mitra: true           # MITRA
-    hyperfast: false      # HyperFast
-
-    # 2. Transformer-based Architectures
-    ftt: true             # Feature Tokenizer Transformer
-    saint: false          # SAINT (Self-Attention and Intersample Attention Transformer)
-    tabtransformer: false # TabTransformer
-    autoint: true         # AutoInt
-    excelformer: true     # ExcelFormer
-    amformer: true        # AMFormer
-    trompt: false         # TROMPT
-    t2gformer: true       # T2G-Former
-    ptarl: false          # PTARL
-
-    # 3. MLP-based & ResNet Variants
-    mlp: true             # Multilayer Perceptron
-    resnet: false         # ResNet
-    snn: true             # Self-Normalizing Neural Networks
-    realmlp: true         # RealMLP
-    mlp_plr: true         # MLP-PLR
-    danets: true          # DANets
-    switchtab: true       # SwitchTab
-
-    # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
-    tabnet: true          # TabNet
-    node: false           # Neural Oblivious Decision Ensembles
-    grownet: false        # GrowNet
-    dcn2: true            # Deep & Cross Network v2
-    tabm: true            # TabM
-
-    # 5. Specialized & Advanced Architectures
-    tabcaps: false        # TabCaps
-    tangos: true          # TANGOS
-    modernNCA: false      # ModernNCA
-    bishop: false         # BISHOP
-    protogate: false      # ProtoGate
-    tabautopnpnet: false  # TabAuto-PNPNet
-    tabr: false           # TabR
-    limix: false          # LiMiX
-
-  # ----------------------------------------------------------
-  # Loss Given Default (LGD) – Regression Methods
-  # ----------------------------------------------------------
   lgd:
-    # -----------------------------
-    # Classical Machine Learning
-    # -----------------------------
-    catboost: true         # CatBoost
-    knn: true              # K-Nearest Neighbors
-    lightgbm: true         # LightGBM
-    LinearRegression: true # Linear Regression
-    RandomForest: true     # Random Forest
-    xgboost: true          # Extreme Gradient Boosting
-    svm: true              # Support Vector Machine
-
-    # -----------------------------
-    # Deep / Neural / Transformer-based Methods
-    # -----------------------------
-
-    # 1. Foundation Models & PFNs
-    tabpfn_v2: true        # TabPFN v2 (supports regression)
-    tabpfn_v2_5: true      # TabPFN v2.5 (supports regression)
-    tabpfn_v3: true        # TabPFN v3 (supports regression)
-    tabicl_v2: true        # TabICL v2 (regression support added in ICML 2026)
-    tabdpt: true           # TabDPT (supports regression)
-    tabfm: true            # TabFM (Google 2026; zero-shot ICL; supports regression; needs the `tabfm` pip extra + staged weights)
-    tabptm: false          # TabPTM
-    mitra: true           # MITRA
-
-    # 2. Transformer-based Architectures
-    ftt: true             # Feature Tokenizer Transformer
-    saint: false          # SAINT
-    tabtransformer: false # TabTransformer
-    autoint: true         # AutoInt
-    excelformer: true     # ExcelFormer
-    amformer: false       # AMFormer
-    trompt: false         # TROMPT
-    t2gformer: true       # T2G-Former
-    ptarl: true           # PTARL
-
-    # 3. MLP-based & ResNet Variants
-    mlp: true             # Multilayer Perceptron
-    resnet: true          # ResNet
-    snn: false            # Self-Normalizing Neural Networks
-    realmlp: true         # RealMLP
-    mlp_plr: true         # MLP-PLR
-    danets: false         # DANets
-    switchtab: false      # SwitchTab
-
-    # 4. Hybrid / Tree-Inspired / Ensemble Neural Networks
-    tabnet: true          # TabNet
-    node: false           # Neural Oblivious Decision Ensembles
-    grownet: false        # GrowNet
-    dcn2: true            # Deep & Cross Network v2
-    tabm: true            # TabM
-
-    # 5. Specialized & Advanced Architectures
-    tangos: true          # TANGOS
-    modernNCA: true       # ModernNCA
-    bishop: false         # BISHOP
-    tabautopnpnet: false  # TabAuto-PNPNet
-    dnnr: false           # DNNR
-    limix: false          # LiMiX
+    amformer: false
+    autoint: false
+    bishop: false
+    catboost: false
+    causilo: false
+    danets: false
+    dcn2: false
+    dnnr: false
+    dummy: false
+    exaone_tabular: false
+    excelformer: false
+    ftt: false
+    grande: false
+    grownet: false
+    inpriora: false
+    knn: false
+    kumo_tabular: false
+    lightgbm: false
+    limix: false
+    limix_v2: false
+    limix_v2_1016: false
+    LinearRegression: false
+    mitra: false
+    mitra_v2: false
+    mlp: false
+    mlp_plr: false
+    modernNCA: false
+    node: false
+    ptarl: false
+    RandomForest: false
+    realmlp: false
+    resnet: false
+    rfm: false
+    saint: false
+    seldon: false
+    seldon_mini: false
+    snn: false
+    svm: false
+    switchtab: false
+    t2gformer: false
+    tabautopnpnet: false
+    tabdpt: false
+    tabdpt_v1_3: false
+    tabfm: false
+    tabicl_v2: false
+    tabldm: false
+    tabm: false
+    tabnet: false
+    tabpfn_v2: false
+    tabpfn_v2_5: false
+    tabpfn_v3: false
+    tabpfn_v3_5: false
+    tabptm: false
+    tabr: false
+    tabtransformer: false
+    tangos: false
+    trc: false
+    trompt: false
+    xgboost: false
+    xrfm: false

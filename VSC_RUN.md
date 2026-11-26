@@ -77,8 +77,15 @@ archived for this revision.
 
 ```bash
 bash scripts/vsc.sh --revision list --show-profile
-bash scripts/vsc.sh --revision experiment Experiment1 --task pd --dataset 0008.german --method LogReg --no-submit
+# First enable the desired methods in scripts/Experiment1/config/CONFIG_METHOD.yaml.
+bash scripts/vsc.sh --revision experiment Experiment1 --no-submit
 ```
+
+Experiment 1 starts with every method disabled. Check the selected adapters'
+runtime versions and offline weights before submitting. Expand the same
+revision run later by enabling additional methods with the same runtime and
+scientific settings. The original method roster is in
+[PAPER_METHODS.yaml](scripts/Experiment1/config/PAPER_METHODS.yaml).
 
 VSC build job `62886778` produced the revision image from the paper image.
 CPU job `62887627` exercised a two-trial logistic regression search, an untuned
@@ -92,7 +99,7 @@ CUDA. All three checks used synthetic data.
 ## Revision preflight on wICE
 
 Preview `bash scripts/vsc.sh --revision experiment Experiment0 --no-submit`.
-The preflight uses both tasks, all their enabled Experiment 1 methods, two folds
+The preflight uses both tasks, the archived Experiment 1 roster, two folds
 and up to 256 rows per dataset. Each dataset/method gets its own array slot when
 the slot budget allows. The HPO and untuned points stay together. Remove
 `--no-submit` to run the pilot and check publication receipts and missing points.

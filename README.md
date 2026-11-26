@@ -601,6 +601,25 @@ choose an operating threshold before evaluating profit on the held-out rows.
 | NPZ | Held-out labels, predictions and probabilities when available. | Same arrays plus validation labels and probabilities for supported classification runs. |
 | Experiments 2 and 3 | Packed JSON with sweep points and fold metrics. | The analysis uses the archived files byte for byte. |
 
+### Run selected methods in Experiment 1
+
+[CONFIG_METHOD.yaml](scripts/Experiment1/config/CONFIG_METHOD.yaml) lists the
+pinned TALENT registry by supported task. Every entry starts disabled. Set
+`true` for the methods you want to run under PD, LGD, or both. Method filters
+restrict that selection further.
+
+```bash
+bash scripts/vsc.sh --revision experiment Experiment1 --no-submit
+```
+
+Check each selected foundation model's backend version and offline checkpoint
+before submitting. Optional adapters may need a newer revision image or extra
+weights. To expand the run later, enable more methods, using the original
+roster in [PAPER_METHODS.yaml](scripts/Experiment1/config/PAPER_METHODS.yaml)
+as a reference for the full paper comparison. Keep the results directory,
+runtime and scientific settings fixed to reuse completed revision results.
+With a different runtime or protocol, start a separate results directory.
+
 ### Choosing results for notebooks
 
 The default analysis reads `archive/results`. The original tables, figures and
@@ -609,7 +628,9 @@ New tables and figures are generated under `output/`. Historical zero times may
 indicate missing instrumentation. A missing HPO duration stays unknown.
 
 [config/result_sources.yaml](config/result_sources.yaml) selects `archive` or `new`
-for each experiment. To analyze a full Experiment 1 rerun, change its source to
+for each experiment. To add a new model to the historical comparison, use
+`experiment1: {source: archive, methods: {tabpfn_v3_5: new}}` after its results
+are available. To analyze a full Experiment 1 rerun, change its source to
 `new`. To retain the submitted XGBoost results for every dataset and both HPO
 modes, use the following entry and keep the other experiments as configured.
 
@@ -637,7 +658,7 @@ the submitted pilot and is selected as a whole.
 ### Revision preflight
 
 On wICE, `bash scripts/vsc.sh --revision experiment Experiment0 --no-submit` previews
-one enabled PD and one LGD dataset with all enabled Experiment 1 methods for
+one enabled PD and one LGD dataset with the archived Experiment 1 roster for
 each task. It uses the first enabled dataset in sorted order, a 256-row cap,
 two folds, two tuning trials and up to two training epochs for methods honoring
 that setting. The preflight exercises the production fold runner, tuning,

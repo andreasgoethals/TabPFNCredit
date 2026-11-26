@@ -293,13 +293,14 @@ def _base_config(
     }
 
 
-def load_config(experiment_name: str) -> Dict[str, Any]:
+def load_config(experiment_name: str, *, paper_methods: bool = False) -> Dict[str, Any]:
     """
     Load and validate the config for a given experiment.
 
     Dispatches to a single generic implementation driven by
     :data:`_EXPERIMENT_REGISTRY`. Each experiment can declare additional
-    required parameters via an :class:`ExperimentSpec`.
+    required parameters via an :class:`ExperimentSpec`. ``paper_methods``
+    selects the original Experiment 1 roster for archive audits and preflight.
     """
     if not experiment_name:
         raise ValueError(
@@ -313,7 +314,7 @@ def load_config(experiment_name: str) -> Dict[str, Any]:
 
     import os
     if experiment_name == "Experiment0" and os.environ.get("TABPFN_REVISION") == "1":
-        config = load_config("Experiment1")
+        config = load_config("Experiment1", paper_methods=True)
         config["preflight"] = True
         for task, datasets in config["datasets"].items():
             if not datasets:
@@ -329,7 +330,11 @@ def load_config(experiment_name: str) -> Dict[str, Any]:
 
     try:
         data_config = _read_yaml(config_dir / "CONFIG_DATA.yaml")
-        method_config = _read_yaml(config_dir / "CONFIG_METHOD.yaml")
+        if experiment_name == "Experiment1" and paper_methods:
+            roster = _read_yaml(config_dir / "PAPER_METHODS.yaml")
+            method_config = {"methods": {task: dict.fromkeys(names, True) for task, names in roster.items()}}
+        else:
+            method_config = _read_yaml(config_dir / "CONFIG_METHOD.yaml")
         experiment_config = _read_yaml(config_dir / "CONFIG_EXPERIMENT.yaml")
     except FileNotFoundError as exc:
         raise FileNotFoundError(
