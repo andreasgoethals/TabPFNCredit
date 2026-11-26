@@ -179,7 +179,7 @@ class DataFeeder:
         Subsample training indices to respect train_row_limit.
 
         This method is called AFTER splitting to apply method-intrinsic limits
-        (e.g., TabPFN's 10k row limit) without affecting test/validation sets.
+        (e.g., TabPFN v2's 10,000-row cap) without affecting test/validation sets.
 
         For classification tasks (PD), uses stratified sampling to preserve
         class distribution in the subsampled training set.
@@ -195,13 +195,33 @@ class DataFeeder:
         if self.train_row_limit is None or len(train_idx) <= self.train_row_limit:
             return train_idx
 
-        # Use fold-specific seed for reproducibility across runs
-        rng = np.random.default_rng(self.seed + fold_id)
+        seed = self.seed + fold_id
+        labels = y_train if self.task == "pd" else None
+        try:
+            from TALENT.benchmark import subsample_fold_training_indices
+        except ImportError:
+            # Frozen paper and revision images predate this export.
+            subsample_fold_training_indices = None
 
-        original_size = len(train_idx)
+        if subsample_fold_training_indices is not None:
+            selected = subsample_fold_training_indices(
+                train_idx, limit=self.train_row_limit, seed=seed, labels=labels,
+            )
+        else:
+            selected = self._subsample_training_indices_legacy(train_idx, labels, seed)
+
+        logger.info(
+            f"  Fold {fold_id}: Subsampled training set from {len(train_idx):,} "
+            f"to {len(selected):,} rows (train_row_limit={self.train_row_limit:,})"
+        )
+        return selected
+
+    def _subsample_training_indices_legacy(self, train_idx, y_train, seed):
+        """Reproduce the paper's training-only sampling on older TALENT releases."""
+        rng = np.random.default_rng(seed)
         target_size = self.train_row_limit
 
-        if self.task == "pd":
+        if y_train is not None:
             # Stratified subsampling for classification
             # Preserve class distribution in the subsampled training set
             unique_classes, class_counts = np.unique(y_train, return_counts=True)
@@ -237,11 +257,6 @@ class DataFeeder:
             # Simple random subsampling for regression
             local_idx = rng.choice(len(train_idx), size=target_size, replace=False)
             subsampled_train_idx = train_idx[local_idx]
-
-        logger.info(
-            f"  Fold {fold_id}: Subsampled training set from {original_size:,} "
-            f"to {len(subsampled_train_idx):,} rows (train_row_limit={self.train_row_limit:,})"
-        )
 
         return subsampled_train_idx
 

@@ -316,11 +316,13 @@ supply `seed_num: 15`.
 **Every method is scored on the identical observations.**
 `METHOD_TEST_VAL_LIMITS` in `src/methods/method_config.py` is deliberately
 empty, so no method's validation or test fold is ever subsampled: a per-method
-cap would mean comparing methods on different rows. Only the *training* side may
-be capped (`METHOD_ROW_LIMITS`, from TALENT's registry, plus TabFM's
-`max_num_rows` context cap), which changes what a model learns from, not what it
-is measured on. One cap is ours rather than TALENT's: **TANGOS trains on at most
-50,000 rows** (`_CAPACITY_ROW_CAPS` in `src/methods/method_config.py`). At 20 HPO
+cap would mean comparing methods on different rows. TabPFNCredit uses TALENT's
+ordered single-split and cross-validation helpers to choose fold membership,
+then calls TALENT's training-index sampler before fitting the project's
+fold-specific preprocessing. The training ceilings come from TALENT's registry
+(`METHOD_ROW_LIMITS`), with a separate `max_num_rows` context setting for TabFM.
+**TANGOS trains on at most 50,000 rows**, a project-specific setting
+(`_CAPACITY_ROW_CAPS` in `src/methods/method_config.py`). At 20 HPO
 trials it is 21 fits per fold, and on the largest PD dataset a single fold did not
 finish in 37 h, so a tuned run is out of reach of any wall time. The cap binds on
 the 8 PD datasets whose training split exceeds it and on no LGD dataset, applies
@@ -578,10 +580,10 @@ what is stored on disk.
 
 ### Selective revision runs
 
-New installations use the TALENT fork at commit `e0cf84b`. For a selective refit,
+New installations use the TALENT fork at commit `4475b16`. For a selective refit,
 set `TABPFN_REVISION=1` and point `TABPFN_RESULTS_ROOT` and `TABPFN_CACHE_ROOT` to fresh directories, then
-run the existing experiment command with its dataset and method filters. The VSC
-`--revision` profile sets independent result and cache locations automatically.
+run the existing experiment command with its dataset and method filters. On VSC,
+`--tfm-revision` selects this TALENT revision and its separate result and cache locations.
 Revision workers check processed input and preprocessing fingerprints, split and tuning settings,
 and the TALENT source before reusing a dataset’s completed work. The CLI's `list --show-profile` reports the processor assignment for every method.
 A method keeps its CPU or GPU assignment at all dataset sizes.
@@ -668,11 +670,10 @@ prediction, storage and publication checks. Drop `--no-submit` to submit it.
 Use the resulting job receipts and coverage before launching Experiment 1.
 The paper profile still reads its original Experiment 0 configuration.
 
-TALENT runs each model and provides its tuning and measured fit, prediction
-and HPO times. The credit benchmark still constructs the folds. Its per-fold
-validation seed, training caps and preprocessing are part of the submitted
-protocol. Switching to TALENT's native cross-validation would require comparing
-row indices and fold-level outputs before reusing the submitted results.
+TALENT computes the fold indices, samples capped training sets, runs each
+model, and measures fit, prediction and HPO times. TabPFNCredit coordinates
+the fits so its dataset-specific preprocessing runs inside each fold and its
+credit metrics and result files follow the submitted protocol.
 
 ## 8. Tests
 

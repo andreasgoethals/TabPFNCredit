@@ -108,6 +108,10 @@ The runtime lock records the image, [installed packages](config/vsc/tfm-requirem
 and PROJECT results and checkpoint directories. Use that results directory as
 the revision input to the notebook assembly command. Keep the same profile and
 scientific settings when extending the run.
+The `4475b16` runtime uses TALENT's training-fold sampler. The runtime lock
+records the wICE jobs that checked the installed package and the image label.
+The previous GPU preflight applies to the `e0cf84b` image. Its model weights
+and other package versions are shared by the updated runtime.
 Use the earlier `--revision` profile for the TabDPT 1.1 backend (`tabdpt`).
 Use `tabdpt_v1_3` with the new profile.
 

@@ -250,7 +250,7 @@ tabfm==1.0.0
 tabicl==2.1.1
 tabpfn==9.1.0
 tabpfn-common-utils==0.2.21
-TALENT @ https://codeload.github.com/andreasgoethals/TALENT/tar.gz/e0cf84bc85fa3683eba62f1b6be0ced76dce8012#sha256=f64a6a4bc41fa128f45c80dbf379bc5f3d4a264aa36b9f847dd4940485996330
+TALENT @ https://codeload.github.com/andreasgoethals/TALENT/tar.gz/4475b161d01a7ee72da2b0b380384d7d6f41358c#sha256=c7748d26ff42345755a84b5fa5090b126b96b4ea13eb5e99720df6cb2b9786ad
 tenacity==9.1.4
 terminado==0.18.1
 threadpoolctl==3.6.0
